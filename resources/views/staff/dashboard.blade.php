@@ -9,7 +9,13 @@
 		{{-- SAMBUTAN --}}
 		<div class="rounded-2xl bg-gradient-to-r from-blue-500 to-indigo-600 p-3 text-white shadow-sm">
 			<h5 class="text-md font-bold">Selamat Datang, {{ Auth::user()->name }}! 👋</h5>
-			<p class="mt-1 text-xs text-blue-100">{{ now()->isoFormat('dddd, D MMMM YYYY') }}</p>
+			@php
+				$hari = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'][now()->dayOfWeek];
+				$bulan = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'][now()->month - 1];
+				$tanggal = now()->day;
+				$tahun = now()->year;
+			@endphp
+			<p class="mt-1 text-xs text-blue-100">{{ $hari }}, {{ $tanggal }} {{ $bulan }} {{ $tahun }}</p>
 		</div>
 
 		{{-- QUICK ACTION MENU --}}
@@ -84,7 +90,7 @@
 								<i class="fas fa-calendar-day"></i>
 							</div>
 
-							<div class="text-muted small">Sisa Saldo Cuti</div>
+							<div class="text-muted small">Sisa Saldo PH</div>
 							<div class="font-weight-bold text-primary" style="font-size:18px;">
 								{{ $publicHolidayBalance }} Hari
 							</div>
@@ -141,7 +147,7 @@
 				</div>
 				{{-- SELF ASSESSMENT --}}
 				<div class="col-4 col-md-3 mt-md-0 mt-3">
-					<a href="{{ route('staff.self-assessment.index') }}"
+					<a href="#" onclick="showMaintenanceToast('Self Assessment'); return false;"
 						class="group flex flex-col items-center gap-1 rounded-2xl border border-gray-100 bg-white px-2 py-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:scale-95">
 						<span
 							class="flex h-11 w-11 items-center justify-center rounded-2xl bg-yellow-100 text-xl text-yellow-600 transition-transform duration-200 group-hover:scale-110">
@@ -154,7 +160,7 @@
 
 				{{-- 360 ASSESSMENT --}}
 				<div class="col-4 col-md-3 mt-md-0 mt-3">
-					<a href="{{ route('staff.performance.index') }}"
+					<a href="#" onclick="showMaintenanceToast('360 Assessment'); return false;"
 						class="group flex flex-col items-center gap-1 rounded-2xl border border-gray-100 bg-white px-2 py-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:scale-95">
 						<span
 							class="flex h-11 w-11 items-center justify-center rounded-2xl bg-pink-100 text-xl text-pink-600 transition-transform duration-200 group-hover:scale-110">
@@ -185,5 +191,18 @@
 
 		</div>
 	</div>
+
+	<script>
+		function showMaintenanceToast(feature) {
+			Swal.fire({
+				toast: true,
+				position: 'top-end',
+				icon: 'info',
+				title: `Fitur ${feature} sedang dalam maintenance. Silakan coba lagi nanti.`,
+				showConfirmButton: false,
+				timer: 5000
+			});
+		}
+	</script>
 
 @endsection

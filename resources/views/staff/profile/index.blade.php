@@ -125,8 +125,8 @@
 							</div>
 
 							<div class="col-6 mb-3">
-								<div class="text-muted">Divisi</div>
-								<div class="font-weight-semibold">{{ $user->karyawan->divisi }}</div>
+								<div class="text-muted">Departemen</div>
+								<div class="font-weight-semibold">{{ $user->karyawan->departement }}</div>
 							</div>
 
 							<div class="col-6 mb-3">
@@ -138,6 +138,16 @@
 								<div class="text-muted">Unit</div>
 								<div class="font-weight-semibold">{{ $user->karyawan->unit }}</div>
 							</div>
+
+							{{-- <div class="col-6 mb-3">
+								<div class="text-muted">No. HP</div>
+								<div class="font-weight-semibold">{{ $user->karyawan->no_hp }}</div>
+							</div>
+
+							<div class="col-6 mb-3">
+								<div class="text-muted">Email</div>
+								<div class="font-weight-semibold">{{ $user->karyawan->email }}</div>
+							</div> --}}
 
 						</div>
 

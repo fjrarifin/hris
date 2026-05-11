@@ -18,7 +18,8 @@ class ApprovalController extends Controller
 
         $requests = $model::with('user')
             ->whereNotNull('manager_approved_at')
-            ->where('status', 'approved')
+            ->whereNotNull('second_manager_approved_at')
+            ->where('status', 'pending')
             ->latest()
             ->get();
 

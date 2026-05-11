@@ -9,6 +9,7 @@ use Illuminate\Notifications\Notifiable;
 use App\Models\Role;
 use App\Models\LeaveAccrual;
 use App\Models\Karyawan;
+use App\Models\RfidTag;
 
 
 class User extends Authenticatable
@@ -76,5 +77,13 @@ class User extends Authenticatable
     public function accruals()
     {
         return $this->hasMany(LeaveAccrual::class);
+    }
+
+    /**
+     * RFID tags that have been assigned to this user (nullable, a tag may be scanned before assignment).
+     */
+    public function rfidTags()
+    {
+        return $this->hasMany(RfidTag::class);
     }
 }

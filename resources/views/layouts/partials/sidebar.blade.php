@@ -77,16 +77,7 @@
 						</a>
 					</li>
 				@endif
-
-
-			</ul>
-
-		</nav>
-
-		<!-- Logo di bagian bawah -->
-		<div class="p-3 text-center" style="position: absolute; bottom: 0; left: 0; right: 0; z-index: 999;">
-			<img src="{{ asset('hompimplay_icon.png') }}" alt="HRGA Logo" style="width: 150px; display: block; margin: 0 auto;">
-		</div>
+	</div>
 
 	</div>
 

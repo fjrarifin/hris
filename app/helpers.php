@@ -117,6 +117,7 @@ if (!function_exists('punyaBawahan')) {
         }
 
         return Karyawan::where('nama_atasan_langsung', $karyawan->nama_karyawan)
+            ->orWhere('atasan_tidak_langsung', $karyawan->nama_karyawan)
             ->exists();
     }
 }

@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Models\LeaveRequest;
 use App\Models\PublicHolidayRequest;
 use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
 
 class ApprovalNotificationService
 {
@@ -52,7 +53,6 @@ class ApprovalNotificationService
                     $message
                 );
             }
-
         } catch (\Throwable $e) {
             Log::error('Approval notification failed', [
                 'error' => $e->getMessage()
@@ -66,12 +66,17 @@ class ApprovalNotificationService
 
         if ($request instanceof LeaveRequest) {
 
+            $start = Carbon::parse($request->start_date)->format('d M Y');
+            $end   = Carbon::parse($request->end_date)->format('d M Y');
+
             return
-            "📢 PENGAJUAN CUTI BARU 
-            
-            Karyawan : {$karyawan->nama_karyawan}
-            Periode:
-            {$request->start_date} - {$request->end_date}
+                "📢 PENGAJUAN CUTI BARU
+
+            👤 Karyawan
+            {$karyawan->nama_karyawan}
+
+            📅 Periode
+            {$start} - {$end}
 
             Klik untuk approve / reject:
             {$link}";
@@ -79,21 +84,59 @@ class ApprovalNotificationService
 
         if ($request instanceof PublicHolidayRequest) {
 
-            return
-            "📢 PENGAJUAN PH BARU  
-            
-            {$karyawan->nama_karyawan}
-            Tanggal PH:
-            {$request->holiday->holiday_date}
+            $holiday = Carbon::parse($request->holiday->holiday_date)->format('d M Y');
+            $claim   = Carbon::parse($request->claim_date)->format('d M Y');
 
-            Tanggal Ambil PH:
-            {$request->claim_date}
+            return
+                "📢 PENGAJUAN PH BARU
+
+            👤 Karyawan
+            {$karyawan->nama_karyawan}
+
+            📅 Tanggal PH
+            {$holiday}
+
+            📅 Tanggal Ambil
+            {$claim}
 
             Klik untuk approve / reject:
             {$link}";
         }
 
         return "Pengajuan baru menunggu persetujuan Anda.";
+    }
+
+    public function notifySecondManager($request)
+    {
+        $user = $request->user;
+
+        $karyawan = Karyawan::where('nik', $user->username)->first();
+
+        if (!$karyawan || !$karyawan->atasan_tidak_langsung) {
+            return;
+        }
+
+        $atasan = Karyawan::where('nama_karyawan', $karyawan->atasan_tidak_langsung)->first();
+
+        if (!$atasan) {
+            return;
+        }
+
+        if ($atasan->no_hp) {
+
+            $message = "📢 APPROVAL LEVEL 2
+
+            Pengajuan {$karyawan->nama_karyawan} sudah disetujui atasan langsung.
+
+            Silakan lakukan approval tahap kedua.
+
+            🔗 " . route('approval.show', $request->approval_token);
+
+            $this->whatsAppService->sendMessage(
+                $atasan->no_hp,
+                $message
+            );
+        }
     }
 
     private function normalizePhone(string $phone): string

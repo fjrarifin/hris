@@ -17,7 +17,7 @@
 
 				{{-- Header Text --}}
 				<div class="mb-6 text-center">
-					<h1 class="text-2xl font-bold text-gray-900">Selamat Datang</h1>
+					<h1 class="text-2xl font-bold text-gray-900">Halo Selamat Datang Kembali</h1>
 					<p class="mt-2 text-sm text-gray-600">Masuk menggunakan NIK karyawan Anda</p>
 				</div>
 
@@ -140,7 +140,7 @@
 			{{-- Copyright --}}
 			<div class="mt-6 text-center">
 				<p class="text-xs text-gray-500">
-					© {{ date('Y') }} HRGA Information System. All rights reserved.
+					© {{ date('Y') }} HR Information System. All rights reserved.
 				</p>
 			</div>
 

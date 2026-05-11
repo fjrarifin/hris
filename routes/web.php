@@ -26,9 +26,11 @@ use App\Http\Controllers\HR\RelasiMasterController;
 use App\Http\Controllers\HR\KaryawanController;
 use App\Http\Controllers\HR\LeaveController;
 use App\Http\Controllers\HR\ApprovalController;
+use App\Http\Controllers\MGR\LeaveRequestController as MGRLeaveRequestController;
 use App\Http\Controllers\WhatsAppController;
 use App\Http\Controllers\PasswordController;
 use Mockery\Generator\StringManipulation\Pass\Pass;
+use App\Http\Controllers\PayrollController;
 
 /*
 |--------------------------------------------------------------------------
@@ -247,6 +249,19 @@ Route::middleware(['auth', 'level:2'])
             Route::post('{type}/{id}/approve', [ApprovalController::class, 'approve'])->name('approval.approve');
             Route::post('{type}/{id}/reject', [ApprovalController::class, 'reject'])->name('approval.reject');
         });
+
+        Route::get('/payroll', [PayrollController::class, 'index'])->name('payroll.index');
+        Route::get('/payroll/debug/{id}', [PayrollController::class, 'debug'])->name('payroll.debug');
+        Route::get('/payroll/template', [PayrollController::class, 'downloadTemplate'])->name('payroll.template');
+        Route::get('/payroll/upload', [PayrollController::class, 'form'])->name('payroll.upload.form');
+        Route::post('/payroll/upload', [PayrollController::class, 'upload'])->name('payroll.upload');
+        Route::post('/payroll/blast-email', [PayrollController::class, 'blastEmail'])->name('payroll.blast-email');
+        Route::post('/payroll/sync', [PayrollController::class, 'syncKaryawanFromGsheet'])->name('payroll.sync');
+        Route::post('/payroll/sync-raw', [PayrollController::class, 'syncRawPayroll'])->name('payroll.sync-raw');
+        Route::post('/payroll/convert', [PayrollController::class, 'convertPayroll'])->name('payroll.convert');
+        Route::get('/payroll/{id}', [PayrollController::class, 'show'])->name('payroll.show');
+        Route::get('/payroll/{id}/download', [PayrollController::class, 'download'])->name('payroll.download');
+        Route::post('/payroll/{id}/send-email', [PayrollController::class, 'sendEmail'])->name('payroll.send-email');
     });
 
 Route::prefix('hr/monitoring/360')->middleware('auth')->group(function () {
@@ -318,6 +333,32 @@ Route::middleware(['auth', 'level:3'])
             Route::post('/', [PublicHolidayController::class, 'store'])->name('store');
             Route::delete('/{id}', [PublicHolidayController::class, 'destroy'])->name('destroy');
         });
+    });
+
+
+/*
+|--------------------------------------------------------------------------
+| MGR (LEVEL 3 - Second Level Approval)
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth', 'level:3'])
+    ->prefix('mgr')
+    ->name('mgr.')
+    ->group(function () {
+
+        Route::prefix('approval')
+            ->name('approval.')
+            ->middleware(['auth'])
+            ->group(function () {
+                Route::get('/leave', [MGRLeaveRequestController::class, 'index'])
+                    ->name('leave.index');
+
+                Route::post('/leave/{id}/approve', [MGRLeaveRequestController::class, 'approve'])
+                    ->name('leave.approve');
+
+                Route::post('/leave/{id}/reject', [MGRLeaveRequestController::class, 'reject'])
+                    ->name('leave.reject');
+            });
     });
 
 

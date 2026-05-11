@@ -5,9 +5,12 @@
 	<meta charset="UTF-8">
 	<title>@yield('title', 'HRGA')</title>
 	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="csrf-token" content="{{ csrf_token() }}">
 
 	<!-- Font Awesome -->
 	<link rel="stylesheet" href="{{ asset('adminlte/plugins/fontawesome-free/css/all.min.css') }}">
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+	
 	<!-- AdminLTE CSS -->
 	<link rel="stylesheet" href="{{ asset('adminlte/dist/css/adminlte.min.css') }}">
 	<link rel="icon" href="{{ asset('hompimplay_icon.png') }}">
@@ -22,6 +25,9 @@
 
 	<!-- SweetAlert2 JS (WAJIB DI SINI) -->
 	<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+	<!-- XLSX Library untuk Excel parsing -->
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.min.js"></script>
 
 	<!-- AlpineJS -->
 	<script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>

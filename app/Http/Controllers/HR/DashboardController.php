@@ -13,8 +13,9 @@ class DashboardController extends Controller
         // 🔴 Pending HR (sudah disetujui manager, belum HR)
         $pendingLeave = LeaveRequest::with('user')
             ->whereNotNull('manager_approved_at')
+            ->whereNotNull('second_manager_approved_at')
             ->whereNull('hr_approved_at')
-            ->where('status', 'approved')
+            ->where('status', 'pending')
             ->latest()
             ->take(5)
             ->get();
@@ -29,6 +30,7 @@ class DashboardController extends Controller
 
         // 🔴 Pending Count
         $leavePendingCount = LeaveRequest::whereNotNull('manager_approved_at')
+            ->whereNotNull('second_manager_approved_at')
             ->whereNull('hr_approved_at')
             ->where('status', 'approved')
             ->count();

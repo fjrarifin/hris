@@ -25,6 +25,8 @@ class LeaveRequest extends Model
         'hr_approved_at',
         'manager_approved_by',
         'hr_approved_by',
+        'second_manager_approved_at',
+        'second_manager_approved_by',
         'approval_token',
         'approval_token_expires_at',
     ];

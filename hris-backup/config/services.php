@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    'whatsapp' => [
+        'url' => env('WHATSAPP_API_URL'),
+        'device_id' => env('WHATSAPP_DEVICE_ID'),
+    ],
+
 ];

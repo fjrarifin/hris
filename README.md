@@ -54,6 +54,38 @@ In order to ensure that the Laravel community is welcoming to all, please review
 
 If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
 
+## RFID reader setup
+
+This project can consume tags scanned by a USB/serial RFID reader. follow these steps:
+
+1. **Device connection** – plug in the reader and note the device path (`/dev/ttyUSB0`, `/dev/ttyACM0`, etc.).
+   - run `dmesg | tail` or `ls -l /dev/ttyUSB* /dev/ttyACM*`.
+   - create a udev rule to give the web-server user access or adjust permissions (`sudo chown www-data /dev/ttyUSB0`).
+
+2. **Database migration** – the `rfid_tags` table stores scanned identifiers and optional user links.
+    ```bash
+    php artisan migrate
+    ```
+
+3. **API endpoint** – the application exposes `POST /api/rfid/scan` which accepts `{ "tag": "..." , "user_id": optional }`.
+   Scans without a user will create an unassigned tag; later you may update the record via the API or in the UI.
+
+4. **Daemon script** – start a small listener that reads from the serial port and posts scans.
+   node example (requires `npm install serialport axios`):
+   ```js
+   // see rfid-listener.js in project root
+   R FID_DEVICE=/dev/ttyUSB0 RFID_API=http://localhost/api/rfid/scan \
+      node rfid-listener.js
+   ```
+   or adapt a Python equivalent with `pyserial`.
+
+5. **Attach tags to users** – you can write a form or use tinker:
+   ```php
+   \App\Models\RfidTag::where('tag', 'ABC123')->update(['user_id'=>1]);
+   ```
+
+With this setup, the Laravel app will receive each scan and you can build additional logic (attendance, access control, etc.).
+
 ## License
 
 The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).

@@ -19,17 +19,26 @@ class WhatsAppService
 
     protected function request()
     {
-        return Http::withHeaders([
+        $request = Http::withHeaders([
             'X-Device-Id' => $this->deviceId,
             'Accept'      => 'application/json',
-        ])->timeout(5);
+        ])->timeout(10);
+
+        $username = 'user1';
+        $password = 'pass1';
+
+        if ($username && $password) {
+            $request = $request->withBasicAuth($username, $password);
+        }
+
+        return $request;
     }
 
     public function sendMessage(string $phone, string $message): bool
     {
         $phone = $this->normalizePhone($phone);
 
-        Log::info('OTP WA - mulai kirim', [
+        Log::info('WA - mulai kirim', [
             'phone' => $phone,
         ]);
 
@@ -37,12 +46,13 @@ class WhatsAppService
         $response = $this->request()->post(
             $this->baseUrl . '/send/message',
             [
-                'phone'   => $phone,   // 🔥 WAJIB phone
+                // 'phone'   => $phone,   // 🔥 WAJIB phone
+                'phone'   => '6282117289833',   // 🔥 WAJIB phone
                 'message' => $message,
             ]
         );
 
-        Log::info('WA SEND OTP', [
+        Log::info('WA Terkirim', [
             'phone'    => $phone,
             'status'   => $response->status(),
             'response' => $response->json(),
