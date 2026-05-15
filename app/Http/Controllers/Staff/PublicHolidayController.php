@@ -58,7 +58,7 @@ class PublicHolidayController extends Controller
         $holiday = PublicHoliday::findOrFail($request->public_holiday_id);
 
         $claimDate = \Carbon\Carbon::parse($request->claim_date);
-        $expiredAt = $holiday->holiday_date->copy()->addDays(60);
+        $expiredAt = $holiday->holiday_date->copy()->addDays(90);
 
         // ❌ Tidak boleh sebelum hari ini
         if ($claimDate->lt(now()->startOfDay())) {
