@@ -180,9 +180,43 @@
 							</div>
 
 							<div class="form-group">
-								<label class="text-muted small">Foto Profil</label>
-								<input type="file" name="photo" class="form-control-file">
-							</div>
+	<label class="text-muted small">Foto Profil</label>
+
+	<div id="photoDropzone"
+		class="border rounded-xl p-4 text-center bg-light"
+		style="cursor:pointer; border-style:dashed !important;">
+
+		<i class="fas fa-cloud-upload-alt fa-2x text-primary mb-2"></i>
+		<div class="font-weight-bold">Drag & drop foto di sini</div>
+		<div class="text-muted small">atau klik untuk pilih file</div>
+
+		<div id="photoFileName" class="small text-muted mt-2"></div>
+
+		<input type="file"
+			id="photoInput"
+			name="photo"
+			class="d-none"
+			accept="image/*">
+	</div>
+
+	<button type="button" id="previewPhotoBtn" class="btn btn-outline-primary btn-sm rounded-pill mt-3 d-none">
+		<i class="fas fa-eye mr-1"></i>
+		Preview Foto
+	</button>
+
+	<div id="photoPreviewWrapper" class="mt-3 d-none text-center">
+		<img id="photoPreview"
+			src=""
+			class="rounded-circle shadow"
+			width="120"
+			height="120"
+			style="object-fit:cover;">
+
+		<div class="small text-muted mt-2">
+			Preview foto baru sebelum disimpan
+		</div>
+	</div>
+</div>
 
 							<button class="btn btn-primary rounded-pill px-4">
 								<i class="fas fa-save mr-1"></i>
@@ -198,5 +232,80 @@
 		</div>
 
 	</div>
+
+@push('scripts')
+<script>
+	document.addEventListener('DOMContentLoaded', function () {
+		const dropzone = document.getElementById('photoDropzone');
+		const input = document.getElementById('photoInput');
+		const fileName = document.getElementById('photoFileName');
+		const previewBtn = document.getElementById('previewPhotoBtn');
+		const previewWrapper = document.getElementById('photoPreviewWrapper');
+		const preview = document.getElementById('photoPreview');
+
+		let selectedFile = null;
+
+		dropzone.addEventListener('click', function () {
+			input.click();
+		});
+
+		dropzone.addEventListener('dragover', function (e) {
+			e.preventDefault();
+			dropzone.classList.add('border-primary');
+		});
+
+		dropzone.addEventListener('dragleave', function () {
+			dropzone.classList.remove('border-primary');
+		});
+
+		dropzone.addEventListener('drop', function (e) {
+			e.preventDefault();
+			dropzone.classList.remove('border-primary');
+
+			if (e.dataTransfer.files.length > 0) {
+				input.files = e.dataTransfer.files;
+				handleSelectedFile(e.dataTransfer.files[0]);
+			}
+		});
+
+		input.addEventListener('change', function () {
+			if (input.files.length > 0) {
+				handleSelectedFile(input.files[0]);
+			}
+		});
+
+		previewBtn.addEventListener('click', function () {
+			if (!selectedFile) return;
+
+			const reader = new FileReader();
+
+			reader.onload = function (e) {
+				preview.src = e.target.result;
+				previewWrapper.classList.remove('d-none');
+			};
+
+			reader.readAsDataURL(selectedFile);
+		});
+
+		function handleSelectedFile(file) {
+			if (!file.type.startsWith('image/')) {
+				alert('File harus berupa gambar.');
+				input.value = '';
+				selectedFile = null;
+				fileName.textContent = '';
+				previewBtn.classList.add('d-none');
+				previewWrapper.classList.add('d-none');
+				return;
+			}
+
+			selectedFile = file;
+			fileName.textContent = 'File dipilih: ' + file.name;
+			previewBtn.classList.remove('d-none');
+			previewWrapper.classList.add('d-none');
+			preview.src = '';
+		}
+	});
+</script>
+@endpush
 
 @endsection
