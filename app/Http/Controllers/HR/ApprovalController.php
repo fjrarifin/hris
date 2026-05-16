@@ -16,9 +16,13 @@ class ApprovalController extends Controller
     {
         $model = $this->resolveModel($type);
 
-        $requests = $model::with('user')
+        $relations = $type === 'ph' ? ['user', 'holiday'] : ['user'];
+
+        $requests = $model::with($relations)
             ->whereNotNull('manager_approved_at')
-            ->whereNotNull('second_manager_approved_at')
+            ->when($type === 'leave', function ($query) {
+                $query->whereNotNull('second_manager_approved_at');
+            })
             ->where('status', 'pending')
             ->latest()
             ->get();
