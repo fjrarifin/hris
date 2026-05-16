@@ -3,12 +3,14 @@
 namespace App\Http\Controllers\HR;
 
 use App\Http\Controllers\Controller;
+use App\Exports\HRApprovalExport;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use App\Models\LeaveRequest;
 use App\Models\PublicHolidayRequest;
 use App\Notifications\LeaveStatusNotification;
 use App\Notifications\PublicHolidayStatusNotification;
+use Maatwebsite\Excel\Facades\Excel;
 
 class ApprovalController extends Controller
 {
@@ -23,11 +25,20 @@ class ApprovalController extends Controller
             ->when($type === 'leave', function ($query) {
                 $query->whereNotNull('second_manager_approved_at');
             })
-            ->where('status', 'pending')
             ->latest()
             ->get();
 
         return view('hr.approval.index', compact('requests', 'type'));
+    }
+
+    public function export($type)
+    {
+        $this->resolveModel($type);
+
+        return Excel::download(
+            new HRApprovalExport($type),
+            'HR_Approval_' . strtoupper($type) . '_' . now()->format('Ymd_His') . '.xlsx'
+        );
     }
 
 

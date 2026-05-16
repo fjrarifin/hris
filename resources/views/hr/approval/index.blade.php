@@ -25,10 +25,15 @@
 
 	<div class="card card-primary card-outline rounded-xl shadow-sm">
 
-		<div class="card-header">
+		<div class="card-header d-flex justify-content-between align-items-center">
 			<h3 class="card-title mb-0">
 				Daftar Pengajuan {{ strtoupper($type) }}
 			</h3>
+
+			<a href="{{ route('hr.approval.export', $type) }}" class="btn btn-sm btn-success ml-auto">
+				<i class="fas fa-file-excel mr-1"></i>
+				Export Excel
+			</a>
 		</div>
 
 		<div class="card-body">
@@ -65,8 +70,11 @@
 								    $label = 'Rejected';
 								    $class = 'danger';
 								} elseif ($r->hr_approved_at) {
-								    $label = 'Approved';
+								    $label = 'Approved HR';
 								    $class = 'success';
+								} elseif ($type === 'leave' && $r->second_manager_approved_at) {
+								    $label = 'Menunggu HR';
+								    $class = 'warning';
 								} elseif ($r->manager_approved_at) {
 								    $label = 'Approved Atasan';
 								    $class = 'info';
@@ -115,7 +123,7 @@
 								<td class="text-center">
 
 									{{-- APPROVE --}}
-									@if (!$r->hr_approved_at && $r->manager_approved_at)
+									@if (!$r->hr_approved_at && ($type !== 'leave' || $r->second_manager_approved_at) && $r->manager_approved_at && !in_array($r->status, ['rejected', 'cancelled']))
 										<form method="POST" action="{{ route('hr.approval.approve', [$type, $r->id]) }}" class="d-inline">
 											@csrf
 											<button class="btn btn-success btn-xs" title="Approve">
@@ -125,7 +133,7 @@
 									@endif
 
 									{{-- REJECT --}}
-									@if (!$r->hr_approved_at && !in_array($r->status, ['rejected', 'cancelled']))
+									@if (!$r->hr_approved_at && ($type !== 'leave' || $r->second_manager_approved_at) && !in_array($r->status, ['rejected', 'cancelled']))
 										<button class="btn btn-danger btn-xs btn-reject" data-id="{{ $r->id }}"
 											data-type="{{ $type }}" data-name="{{ $r->user->name }}" title="Reject">
 											<i class="fas fa-times"></i>
@@ -163,6 +171,9 @@
 						} elseif ($r->hr_approved_at) {
 						    $label = 'Approved HR';
 						    $class = 'success';
+						} elseif ($isLeave && $r->second_manager_approved_at) {
+						    $label = 'Menunggu HR';
+						    $class = 'warning';
 						} elseif ($r->manager_approved_at) {
 						    $label = 'Approved Atasan';
 						    $class = 'info';
@@ -231,7 +242,7 @@
 							</div>
 
 							{{-- ACTION --}}
-							@if (!$r->hr_approved_at && $r->manager_approved_at)
+							@if (!$r->hr_approved_at && (!$isLeave || $r->second_manager_approved_at) && $r->manager_approved_at && !in_array($r->status, ['rejected', 'cancelled']))
 								<div class="d-flex mt-2 gap-2">
 									<form method="POST" action="{{ route('hr.approval.approve', [$type, $r->id]) }}" class="mr-2">
 										@csrf

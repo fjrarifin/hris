@@ -246,6 +246,7 @@ Route::middleware(['auth', 'level:2'])
 
         Route::prefix('approval')->group(function () {
             Route::get('{type}', [ApprovalController::class, 'index'])->name('approval.index');
+            Route::get('{type}/export', [ApprovalController::class, 'export'])->name('approval.export');
             Route::post('{type}/{id}/approve', [ApprovalController::class, 'approve'])->name('approval.approve');
             Route::post('{type}/{id}/reject', [ApprovalController::class, 'reject'])->name('approval.reject');
         });

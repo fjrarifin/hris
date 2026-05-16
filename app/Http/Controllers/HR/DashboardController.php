@@ -15,7 +15,7 @@ class DashboardController extends Controller
             ->whereNotNull('manager_approved_at')
             ->whereNotNull('second_manager_approved_at')
             ->whereNull('hr_approved_at')
-            ->where('status', 'pending')
+            ->where('status', 'approved')
             ->latest()
             ->take(5)
             ->get();
