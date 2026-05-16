@@ -61,50 +61,68 @@ class ApprovalNotificationService
         }
     }
 
-    private function buildMessage($request, $karyawan)
+    private function buildMessage($request, $karyawan): string
     {
-        $link = route('approval.show', $request->approval_token);
+        $link   = route('approval.show', $request->approval_token);
+        $header = "━━━━━━━━━━━━━━━━━━━━━━━\n🏢 *HomPim Play*\n━━━━━━━━━━━━━━━━━━━━━━━";
+        $footer = "_Pesan ini dikirim otomatis oleh sistem HomPim Play._\n_Harap tidak membalas pesan ini._\n━━━━━━━━━━━━━━━━━━━━━━━";
 
         if ($request instanceof LeaveRequest) {
+            $start    = Carbon::parse($request->start_date);
+            $end      = Carbon::parse($request->end_date);
+            $duration = $start->diffInDays($end) + 1;
 
-            $start = Carbon::parse($request->start_date)->format('d M Y');
-            $end   = Carbon::parse($request->end_date)->format('d M Y');
+            return <<<MSG
+            {$header}
 
-            return
-                "📢 PENGAJUAN CUTI BARU
+            Yth. Bapak/Ibu,
 
-            👤 Karyawan
+            Terdapat *pengajuan cuti* baru yang memerlukan persetujuan Anda.
+
+            👤 *Karyawan*
             {$karyawan->nama_karyawan}
 
-            📅 Periode
-            {$start} - {$end}
+            📅 *Periode Cuti*
+            {$start->format('d M Y')} → {$end->format('d M Y')}
+            ⏳ Durasi: {$duration} hari kerja
 
-            Klik untuk approve / reject:
-            {$link}";
+            Mohon segera ditindaklanjuti melalui tautan berikut:
+            👇
+            {$link}
+
+            {$footer}
+            MSG;
         }
 
         if ($request instanceof PublicHolidayRequest) {
-
             $holiday = Carbon::parse($request->holiday->holiday_date)->format('d M Y');
             $claim   = Carbon::parse($request->claim_date)->format('d M Y');
 
-            return
-                "📢 PENGAJUAN PH BARU
+            return <<<MSG
+            {$header}
 
-            👤 Karyawan
+            Yth. Bapak/Ibu,
+
+            Terdapat *pengajuan Public Holiday* baru yang memerlukan persetujuan Anda.
+
+            👤 *Karyawan*
             {$karyawan->nama_karyawan}
 
-            📅 Tanggal PH
+            🗓️ *Tanggal Hari Libur*
             {$holiday}
 
-            📅 Tanggal Ambil
+            📅 *Tanggal Pengganti*
             {$claim}
 
-            Klik untuk approve / reject:
-            {$link}";
+            Mohon segera ditindaklanjuti melalui tautan berikut:
+            👇
+            {$link}
+
+            {$footer}
+            MSG;
         }
 
-        return "Pengajuan baru menunggu persetujuan Anda.";
+        return "━━━━━━━━━━━━━━━━━━━━━━━\n🏢 *HomPim Play*\n━━━━━━━━━━━━━━━━━━━━━━━\n\nYth. Bapak/Ibu,\n\nTerdapat pengajuan baru yang memerlukan persetujuan Anda.\n\n👇\n{$link}\n\n{$footer}";
     }
 
     public function notifySecondManager($request)
