@@ -1,6 +1,6 @@
 @extends('layouts.auth')
 
-@section('title', 'Reset Password')
+@section('title', 'Atur Ulang Password')
 
 @section('content')
 	<div class="flex min-h-screen items-center justify-center px-4">
@@ -12,7 +12,7 @@
 				</div>
 			</div>
 
-			<h2 class="text-center text-lg font-extrabold">Reset Password</h2>
+			<h2 class="text-center text-lg font-extrabold">Atur Ulang Password</h2>
 			<p class="mt-2 text-center text-sm text-gray-500">
 				Masukkan password baru Anda.
 			</p>
@@ -38,7 +38,7 @@
 				</div>
 
 				<button class="w-full rounded-xl bg-indigo-600 py-2.5 font-semibold text-white hover:bg-indigo-700">
-					Reset Password
+					Atur Ulang Password
 				</button>
 			</form>
 

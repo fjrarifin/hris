@@ -55,7 +55,7 @@
 
 			<div class="mt-4 text-center">
 				<a href="{{ route('login') }}" class="text-xs text-gray-500 hover:text-indigo-600">
-					Kembali ke Login
+					Kembali ke Masuk
 				</a>
 			</div>
 

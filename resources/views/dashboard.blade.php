@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
-@section('title', 'Dashboard')
-@section('page-title', 'Dashboard')
+@section('title', 'Dasbor')
+@section('page-title', 'Dasbor')
 
 @section('content')
 
@@ -42,7 +42,7 @@
 			<div class="card-outline card-yellow rounded-2xl bg-white p-4 shadow-sm">
 				<p class="text-xs text-gray-500">Pengajuan</p>
 				<p class="mt-1 text-lg font-extrabold text-yellow-600">
-					1 Pending
+					1 Menunggu
 				</p>
 				<p class="mt-1 text-xs text-gray-400">
 					Menunggu approval
@@ -169,10 +169,10 @@
 						<input type="checkbox" class="mt-1 h-4 w-4 rounded">
 						<div class="flex-1">
 							<p class="text-sm font-semibold text-gray-800">
-								Approve Pengajuan Cuti Anda
+								Setujui Pengajuan Cuti Anda
 							</p>
 							<p class="text-xs text-yellow-700">
-								⏰ Status: Menunggu Approval Manager
+								⏰ Status: Menunggu Persetujuan Manajer
 							</p>
 						</div>
 					</li>
@@ -181,7 +181,7 @@
 						<input type="checkbox" class="mt-1 h-4 w-4 rounded">
 						<div class="flex-1">
 							<p class="text-sm font-semibold text-gray-800">
-								Update Data Kontak Darurat
+								Perbarui Data Kontak Darurat
 							</p>
 							<p class="text-xs text-blue-600">
 								📋 Pastikan data Anda terbaru
@@ -236,7 +236,7 @@
 					<li class="flex items-center gap-3 rounded-lg bg-gray-50 p-2 text-sm">
 						<span class="rounded-full bg-yellow-100 p-2 text-yellow-600">👤</span>
 						<div class="flex-1">
-							<p class="font-medium text-gray-800">Update Profil</p>
+							<p class="font-medium text-gray-800">Perbarui Profil</p>
 							<p class="text-xs text-gray-500">28 Januari 2026</p>
 						</div>
 					</li>

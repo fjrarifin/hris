@@ -1,14 +1,14 @@
 @extends('layouts.app')
 
-@section('title', 'Upload Payroll')
-@section('page-title', 'Upload Payroll')
+@section('title', 'Unggah Payroll')
+@section('page-title', 'Unggah Payroll')
 
 @section('content')
 	<!-- Modal Preview -->
 	<div id="previewModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
 		<div class="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-96 flex flex-col">
 			<div class="p-6 border-b flex justify-between items-center">
-				<h2 class="text-lg font-bold text-gray-900">👁️ Preview File Excel</h2>
+				<h2 class="text-lg font-bold text-gray-900">👁️ Pratinjau File Excel</h2>
 				<button onclick="closePreview()" class="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
 			</div>
 
@@ -29,7 +29,7 @@
 					❌ Batal
 				</button>
 				<button onclick="confirmUpload()" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
-					✅ Lanjutkan Upload
+					✅ Lanjutkan Unggah
 				</button>
 			</div>
 		</div>
@@ -113,7 +113,7 @@
 	<div class="space-y-4">
 		<div class="card card-primary card-outline rounded-2xl shadow-sm">
 			<div class="card-header">
-				<h3 class="card-title mb-0">📤 Upload Payroll</h3>
+				<h3 class="card-title mb-0">📤 Unggah Payroll</h3>
 			</div>
 
 			<div class="card-body">
@@ -158,7 +158,7 @@
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
 							</svg>
-							Preview & Upload
+							Pratinjau & Unggah
 						</button>
 
 						<button 
@@ -379,7 +379,7 @@
 					}
 				})
 				.catch(err => {
-					messageEl.innerHTML = "❌ Upload gagal. Silakan coba lagi.";
+					messageEl.innerHTML = "❌ Unggah gagal. Silakan coba lagi.";
 					messageEl.className = "show error";
 				})
 				.finally(() => {

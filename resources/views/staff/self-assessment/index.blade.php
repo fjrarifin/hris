@@ -51,7 +51,7 @@
 					<ul>
 						<li>- Situation: konteks kejadian</li>
 						<li>- Task: peran/tanggung jawab individu</li>
-						<li>- Action: tindakan nyata yang dilakukan</li>
+						<li>- Aksi: tindakan nyata yang dilakukan</li>
 						<li>- Result: dampak/hasil (ke tim, customer, target)</li>
 					</ul>
 					</p>

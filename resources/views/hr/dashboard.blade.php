@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
-@section('title', 'Dashboard')
-@section('page-title', 'Dashboard HR')
+@section('title', 'Dasbor')
+@section('page-title', 'Dasbor HR')
 
 @section('content')
 
@@ -23,7 +23,7 @@
 			<div class="card-header d-flex justify-content-between align-items-center">
 
 				<h3 class="card-title mb-0">
-					🔴 Pending Approval (Quick Action)
+					🔴 Menunggu Persetujuan (Aksi Cepat)
 				</h3>
 
 				<div class="d-flex ml-auto gap-2">
@@ -58,7 +58,7 @@
 							<tr>
 								<td>
 									<span class="badge badge-primary">
-										📅 Leave
+										📅 Cuti
 									</span>
 								</td>
 
@@ -74,7 +74,7 @@
 
 									<form method="POST" action="{{ route('hr.approval.approve', ['leave', $r->id]) }}" class="d-inline">
 										@csrf
-										<button class="btn btn-xs btn-success px-2 py-1" title="Approve">
+										<button class="btn btn-xs btn-success px-2 py-1" title="Setujui">
 											<i class="fas fa-check"></i>
 										</button>
 									</form>
@@ -82,7 +82,7 @@
 									<form method="POST" action="{{ route('hr.approval.reject', ['leave', $r->id]) }}" class="d-inline">
 										@csrf
 										<input type="hidden" name="reason" value="Ditolak HR">
-										<button class="btn btn-xs btn-danger px-2 py-1" title="Reject">
+										<button class="btn btn-xs btn-danger px-2 py-1" title="Tolak">
 											<i class="fas fa-times"></i>
 										</button>
 									</form>
@@ -98,7 +98,7 @@
 							<tr>
 								<td>
 									<span class="badge badge-info">
-										🎉 Public Holiday
+										🎉 Hari Libur
 									</span>
 								</td>
 
@@ -112,7 +112,7 @@
 
 									<form method="POST" action="{{ route('hr.approval.approve', ['ph', $r->id]) }}" class="d-inline">
 										@csrf
-										<button class="btn btn-xs btn-success px-2 py-1" title="Approve">
+										<button class="btn btn-xs btn-success px-2 py-1" title="Setujui">
 											<i class="fas fa-check"></i>
 										</button>
 									</form>
@@ -120,7 +120,7 @@
 									<form method="POST" action="{{ route('hr.approval.reject', ['ph', $r->id]) }}" class="d-inline">
 										@csrf
 										<input type="hidden" name="reason" value="Ditolak HR">
-										<button class="btn btn-xs btn-danger px-2 py-1" title="Reject">
+										<button class="btn btn-xs btn-danger px-2 py-1" title="Tolak">
 											<i class="fas fa-times"></i>
 										</button>
 									</form>

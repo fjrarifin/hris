@@ -677,7 +677,7 @@
 				<td class="br" style="padding: 8pt 10pt; vertical-align: middle;">
 					<table class="tbl-bank">
 						<tr>
-							<td class="bank-label">Account Name</td>
+							<td class="bank-label">Nama Rekening</td>
 							<td class="bank-sep">:</td>
 							<td class="bank-val">{{ $payroll->karyawan->nama_karyawan ?? '-' }}</td>
 						</tr>

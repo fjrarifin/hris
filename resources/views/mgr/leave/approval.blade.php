@@ -50,16 +50,16 @@
 						@forelse($leaveRequests as $r)
 							@php
 								if ($r->status === 'rejected') {
-								    $label = 'Rejected';
+								    $label = 'Ditolak';
 								    $class = 'danger';
 								} elseif ($r->second_manager_approved_at) {
-								    $label = 'Approved Atasan TL';
+								    $label = 'Disetujui Atasan Tidak Langsung';
 								    $class = 'info';
 								} elseif ($r->manager_approved_at) {
-								    $label = 'Approved Atasan L';
+								    $label = 'Disetujui Atasan Langsung';
 								    $class = 'warning';
 								} else {
-								    $label = 'Pending';
+								    $label = 'Menunggu';
 								    $class = 'secondary';
 								}
 							@endphp
@@ -87,14 +87,14 @@
 									@if ($r->status === 'pending' && $r->manager_approved_at && !$r->second_manager_approved_at)
 										<form method="POST" action="{{ route('mgr.approval.leave.approve', $r->id) }}" class="d-inline">
 											@csrf
-											<button class="btn btn-success btn-xs" title="Approve">
+											<button class="btn btn-success btn-xs" title="Setujui">
 												<i class="fas fa-check"></i>
 											</button>
 										</form>
 
 										<form method="POST" action="{{ route('mgr.approval.leave.reject', $r->id) }}" class="d-inline">
 											@csrf
-											<button class="btn btn-danger btn-xs" title="Reject">
+											<button class="btn btn-danger btn-xs" title="Tolak">
 												<i class="fas fa-times"></i>
 											</button>
 										</form>
@@ -119,16 +119,16 @@
 				@forelse($leaveRequests as $r)
 					@php
 						if ($r->status === 'rejected') {
-						    $label = 'Rejected';
+						    $label = 'Ditolak';
 						    $class = 'danger';
 						} elseif ($r->second_manager_approved_at) {
-						    $label = 'Approved Atasan TL';
+						    $label = 'Disetujui Atasan Tidak Langsung';
 						    $class = 'info';
 						} elseif ($r->manager_approved_at) {
-						    $label = 'Approved Atasan L';
+						    $label = 'Disetujui Atasan Langsung';
 						    $class = 'warning';
 						} else {
-						    $label = 'Pending';
+						    $label = 'Menunggu';
 						    $class = 'secondary';
 						}
 					@endphp
@@ -174,15 +174,15 @@
 									<div class="col-12">
 										<form method="POST" action="{{ route('mgr.approval.leave.approve', $r->id) }}" class="d-inline">
 											@csrf
-											<button class="btn btn-success btn-sm" title="Approve">
-												<i class="fas fa-check"></i> Approve
+											<button class="btn btn-success btn-sm" title="Setujui">
+												<i class="fas fa-check"></i> Setujui
 											</button>
 										</form>
 
 										<form method="POST" action="{{ route('mgr.approval.leave.reject', $r->id) }}" class="d-inline ml-2">
 											@csrf
-											<button class="btn btn-danger btn-sm" title="Reject">
-												<i class="fas fa-times"></i> Reject
+											<button class="btn btn-danger btn-sm" title="Tolak">
+												<i class="fas fa-times"></i> Tolak
 											</button>
 										</form>
 									</div>

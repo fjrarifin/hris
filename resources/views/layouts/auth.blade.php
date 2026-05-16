@@ -3,7 +3,7 @@
 
 <head>
 	<meta charset="UTF-8">
-	<title>@yield('title', 'Login')</title>
+	<title>@yield('title', 'Masuk')</title>
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 
 	<!-- AdminLTE -->

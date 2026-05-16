@@ -99,19 +99,19 @@
 								@forelse($requests as $r)
 									@php
 										if ($r->status === 'rejected') {
-										    $label = 'Rejected';
+										    $label = 'Ditolak';
 										    $class = 'danger';
 										} elseif ($r->status === 'cancelled') {
-										    $label = 'Cancelled';
+										    $label = 'Dibatalkan';
 										    $class = 'secondary';
 										} elseif ($r->hr_approved_at) {
-										    $label = 'Approved HR';
+										    $label = 'Disetujui HR';
 										    $class = 'success';
 										} elseif ($r->manager_approved_at) {
-										    $label = 'Approved Atasan';
+										    $label = 'Disetujui Atasan';
 										    $class = 'info';
 										} else {
-										    $label = 'Pending';
+										    $label = 'Menunggu';
 										    $class = 'warning';
 										}
 									@endphp
@@ -183,19 +183,19 @@
 						@forelse($requests as $r)
 							@php
 								if ($r->status === 'rejected') {
-								    $label = 'Rejected';
+								    $label = 'Ditolak';
 								    $class = 'danger';
 								} elseif ($r->status === 'cancelled') {
-								    $label = 'Cancelled';
+								    $label = 'Dibatalkan';
 								    $class = 'secondary';
 								} elseif ($r->hr_approved_at) {
-								    $label = 'Approved HR';
+								    $label = 'Disetujui HR';
 								    $class = 'success';
 								} elseif ($r->manager_approved_at) {
-								    $label = 'Approved Atasan';
+								    $label = 'Disetujui Atasan';
 								    $class = 'info';
 								} else {
-								    $label = 'Pending';
+								    $label = 'Menunggu';
 								    $class = 'warning';
 								}
 							@endphp

@@ -13,9 +13,8 @@ class DashboardController extends Controller
         // 🔴 Pending HR (sudah disetujui manager, belum HR)
         $pendingLeave = LeaveRequest::with('user')
             ->whereNotNull('manager_approved_at')
-            ->whereNotNull('second_manager_approved_at')
             ->whereNull('hr_approved_at')
-            ->where('status', 'approved')
+            ->whereNotIn('status', ['rejected', 'cancelled'])
             ->latest()
             ->take(5)
             ->get();
@@ -23,21 +22,20 @@ class DashboardController extends Controller
         $pendingPH = PublicHolidayRequest::with('user', 'holiday')
             ->whereNotNull('manager_approved_at')
             ->whereNull('hr_approved_at')
-            ->where('status', 'approved')
+            ->whereNotIn('status', ['rejected', 'cancelled'])
             ->latest()
             ->take(5)
             ->get();
 
         // 🔴 Pending Count
         $leavePendingCount = LeaveRequest::whereNotNull('manager_approved_at')
-            ->whereNotNull('second_manager_approved_at')
             ->whereNull('hr_approved_at')
-            ->where('status', 'approved')
+            ->whereNotIn('status', ['rejected', 'cancelled'])
             ->count();
 
         $phPendingCount = PublicHolidayRequest::whereNotNull('manager_approved_at')
             ->whereNull('hr_approved_at')
-            ->where('status', 'approved')
+            ->whereNotIn('status', ['rejected', 'cancelled'])
             ->count();
 
         // 🟢 Approved Final (sudah HR approve)

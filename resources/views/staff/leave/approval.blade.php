@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
 @section('title', 'Approval Cuti & PH')
-@section('page-title', 'Approval Pengajuan Cuti & Public Holiday')
+@section('page-title', 'Persetujuan Pengajuan Cuti & Hari Libur')
 
 @section('content')
 
@@ -26,7 +26,7 @@
 	<div class="card card-primary card-outline rounded-xl shadow-sm">
 		<div class="card-header">
 			<h3 class="card-title mb-0">
-				Daftar Pengajuan Cuti & Public Holiday Tim
+				Daftar Pengajuan Cuti & Hari Libur Tim
 			</h3>
 		</div>
 
@@ -56,19 +56,19 @@
 								$isPH = get_class($r) === 'App\Models\PublicHolidayRequest';
 
 								if ($r->status === 'rejected') {
-								    $label = 'Rejected';
+								    $label = 'Ditolak';
 								    $class = 'danger';
 								} elseif ($r->status === 'cancelled') {
-								    $label = 'Cancelled';
+								    $label = 'Dibatalkan';
 								    $class = 'secondary';
 								} elseif ($r->hr_approved_at) {
-								    $label = 'Approved HR';
+								    $label = 'Disetujui HR';
 								    $class = 'success';
 								} elseif ($r->manager_approved_at) {
-								    $label = 'Approved Atasan';
+								    $label = 'Disetujui Atasan';
 								    $class = 'info';
 								} else {
-								    $label = 'Pending';
+								    $label = 'Menunggu';
 								    $class = 'warning';
 								}
 							@endphp
@@ -77,7 +77,7 @@
 								<td>{{ $r->user->karyawan->nama_karyawan ?? '-' }}</td>
 								<td>
 									@if ($isLeave)
-										<span class="badge badge-primary">Leave</span>
+										<span class="badge badge-primary">Cuti</span>
 									@elseif($isPH)
 										<span class="badge badge-secondary">PH</span>
 									@endif
@@ -86,7 +86,7 @@
 									@if ($isLeave)
 										{{ \App\Models\LeaveRequest::LEAVE_TYPES[$r->leave_type] ?? $r->leave_type }}
 									@elseif($isPH)
-										{{ $r->holiday->nama_hari ?? 'Public Holiday' }}
+										{{ $r->holiday->nama_hari ?? 'Hari Libur' }}
 									@endif
 								</td>
 								<td>
@@ -117,28 +117,28 @@
 										@if ($isLeave)
 											<form method="POST" action="{{ route('staff.approval.leave.approve', $r->id) }}" class="d-inline">
 												@csrf
-												<button class="btn btn-success btn-xs" title="Approve">
+												<button class="btn btn-success btn-xs" title="Setujui">
 													<i class="fas fa-check"></i>
 												</button>
 											</form>
 
 											<form method="POST" action="{{ route('staff.approval.leave.reject', $r->id) }}" class="d-inline">
 												@csrf
-												<button class="btn btn-danger btn-xs" title="Reject">
+												<button class="btn btn-danger btn-xs" title="Tolak">
 													<i class="fas fa-times"></i>
 												</button>
 											</form>
 										@elseif($isPH)
 											<form method="POST" action="{{ route('staff.approval.ph.approve', $r->id) }}" class="d-inline">
 												@csrf
-												<button class="btn btn-success btn-xs" title="Approve">
+												<button class="btn btn-success btn-xs" title="Setujui">
 													<i class="fas fa-check"></i>
 												</button>
 											</form>
 
 											<form method="POST" action="{{ route('staff.approval.ph.reject', $r->id) }}" class="d-inline">
 												@csrf
-												<button class="btn btn-danger btn-xs" title="Reject">
+												<button class="btn btn-danger btn-xs" title="Tolak">
 													<i class="fas fa-times"></i>
 												</button>
 											</form>
@@ -182,7 +182,7 @@
 							<p class="mb-1 text-sm">
 								<strong>Tipe:</strong>
 								@if ($isLeave)
-									📅 Leave
+									📅 Cuti
 								@else
 									🎉 PH
 								@endif
@@ -210,7 +210,7 @@
 										action="{{ $isLeave ? route('staff.approval.leave.approve', $r->id) : route('staff.approval.ph.approve', $r->id) }}">
 										@csrf
 										<button class="btn btn-success btn-block btn-sm">
-											✔ Approve
+											✔ Setujui
 										</button>
 									</form>
 
@@ -219,7 +219,7 @@
 										class="mt-2">
 										@csrf
 										<button class="btn btn-danger btn-block btn-sm">
-											✖ Reject
+											✖ Tolak
 										</button>
 									</form>
 								@else

@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
-@section('title', 'HR Approval')
-@section('page-title', 'HR Approval - ' . strtoupper($type))
+@section('title', 'Persetujuan HR')
+@section('page-title', 'Persetujuan HR - ' . strtoupper($type))
 
 @section('content')
 
@@ -32,7 +32,7 @@
 
 			<a href="{{ route('hr.approval.export', $type) }}" class="btn btn-sm btn-success ml-auto">
 				<i class="fas fa-file-excel mr-1"></i>
-				Export Excel
+				Ekspor Excel
 			</a>
 		</div>
 
@@ -64,22 +64,19 @@
 						@forelse($requests as $r)
 							@php
 								if ($r->status === 'cancelled') {
-								    $label = 'Cancelled';
+								    $label = 'Dibatalkan';
 								    $class = 'secondary';
 								} elseif ($r->status === 'rejected') {
-								    $label = 'Rejected';
+								    $label = 'Ditolak';
 								    $class = 'danger';
 								} elseif ($r->hr_approved_at) {
-								    $label = 'Approved HR';
+								    $label = 'Disetujui HR';
 								    $class = 'success';
-								} elseif ($type === 'leave' && $r->second_manager_approved_at) {
-								    $label = 'Menunggu HR';
-								    $class = 'warning';
 								} elseif ($r->manager_approved_at) {
-								    $label = 'Approved Atasan';
-								    $class = 'info';
+								    $label = $r->hr_approved_at ? 'Disetujui HR' : 'Menunggu HR';
+								    $class = $r->hr_approved_at ? 'success' : 'warning';
 								} else {
-								    $label = 'Pending';
+								    $label = 'Menunggu';
 								    $class = 'warning';
 								}
 							@endphp
@@ -123,19 +120,19 @@
 								<td class="text-center">
 
 									{{-- APPROVE --}}
-									@if (!$r->hr_approved_at && ($type !== 'leave' || $r->second_manager_approved_at) && $r->manager_approved_at && !in_array($r->status, ['rejected', 'cancelled']))
+									@if (!$r->hr_approved_at && $r->manager_approved_at && !in_array($r->status, ['rejected', 'cancelled']))
 										<form method="POST" action="{{ route('hr.approval.approve', [$type, $r->id]) }}" class="d-inline">
 											@csrf
-											<button class="btn btn-success btn-xs" title="Approve">
+											<button class="btn btn-success btn-xs" title="Setujui">
 												<i class="fas fa-check"></i>
 											</button>
 										</form>
 									@endif
 
 									{{-- REJECT --}}
-									@if (!$r->hr_approved_at && ($type !== 'leave' || $r->second_manager_approved_at) && !in_array($r->status, ['rejected', 'cancelled']))
+									@if (!$r->hr_approved_at && $r->manager_approved_at && !in_array($r->status, ['rejected', 'cancelled']))
 										<button class="btn btn-danger btn-xs btn-reject" data-id="{{ $r->id }}"
-											data-type="{{ $type }}" data-name="{{ $r->user->name }}" title="Reject">
+											data-type="{{ $type }}" data-name="{{ $r->user->name }}" title="Tolak">
 											<i class="fas fa-times"></i>
 										</button>
 									@endif
@@ -163,22 +160,19 @@
 						$isPH = $type === 'ph';
 
 						if ($r->status === 'rejected') {
-						    $label = 'Rejected';
+						    $label = 'Ditolak';
 						    $class = 'danger';
 						} elseif ($r->status === 'cancelled') {
-						    $label = 'Cancelled';
+						    $label = 'Dibatalkan';
 						    $class = 'secondary';
 						} elseif ($r->hr_approved_at) {
-						    $label = 'Approved HR';
+						    $label = 'Disetujui HR';
 						    $class = 'success';
-						} elseif ($isLeave && $r->second_manager_approved_at) {
+						} elseif ($r->manager_approved_at) {
 						    $label = 'Menunggu HR';
 						    $class = 'warning';
-						} elseif ($r->manager_approved_at) {
-						    $label = 'Approved Atasan';
-						    $class = 'info';
 						} else {
-						    $label = 'Pending';
+						    $label = 'Menunggu';
 						    $class = 'warning';
 						}
 					@endphp
@@ -242,7 +236,7 @@
 							</div>
 
 							{{-- ACTION --}}
-							@if (!$r->hr_approved_at && (!$isLeave || $r->second_manager_approved_at) && $r->manager_approved_at && !in_array($r->status, ['rejected', 'cancelled']))
+							@if (!$r->hr_approved_at && $r->manager_approved_at && !in_array($r->status, ['rejected', 'cancelled']))
 								<div class="d-flex mt-2 gap-2">
 									<form method="POST" action="{{ route('hr.approval.approve', [$type, $r->id]) }}" class="mr-2">
 										@csrf

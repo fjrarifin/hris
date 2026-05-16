@@ -6,6 +6,7 @@ use App\Models\Karyawan;
 use App\Models\User;
 use App\Models\LeaveRequest;
 use App\Models\PublicHolidayRequest;
+use App\Notifications\DirectManagerDecisionNotification;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 
@@ -137,6 +138,73 @@ class ApprovalNotificationService
                 $message
             );
         }
+    }
+
+    public function notifyIndirectManagerOfDirectManagerDecision($request, string $type, string $status): void
+    {
+        try {
+            $user = $request->user;
+            $karyawan = Karyawan::where('nik', $user->username)->first();
+
+            if (!$karyawan || !$karyawan->atasan_tidak_langsung) {
+                return;
+            }
+
+            $atasan = Karyawan::where('nama_karyawan', $karyawan->atasan_tidak_langsung)->first();
+
+            if (!$atasan) {
+                return;
+            }
+
+            $atasanUser = User::where('username', $atasan->nik)->first();
+
+            if ($atasanUser) {
+                $atasanUser->notify(
+                    new DirectManagerDecisionNotification($request, $type, $status)
+                );
+            }
+
+            if ($atasan->no_hp) {
+                $message = $this->buildDirectManagerDecisionMessage($request, $karyawan, $type, $status);
+
+                $this->whatsAppService->sendMessage(
+                    $this->normalizePhone($atasan->no_hp),
+                    $message
+                );
+            }
+        } catch (\Throwable $e) {
+            Log::error('Indirect manager decision notification failed', [
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function buildDirectManagerDecisionMessage($request, Karyawan $karyawan, string $type, string $status): string
+    {
+        $statusLabel = $status === 'approved' ? 'disetujui' : 'ditolak';
+
+        if ($request instanceof LeaveRequest) {
+            $start = Carbon::parse($request->start_date)->format('d M Y');
+            $end = Carbon::parse($request->end_date)->format('d M Y');
+
+            return "📌 *Keputusan Cuti dari Atasan Langsung*\n\n"
+                . "Nama: {$karyawan->nama_karyawan}\n"
+                . "Periode: {$start} - {$end}\n\n"
+                . "Status: *{$statusLabel}* oleh atasan langsung.";
+        }
+
+        if ($request instanceof PublicHolidayRequest) {
+            $holiday = optional($request->holiday)->name ?: 'Hari Libur';
+            $claim = Carbon::parse($request->claim_date)->format('d M Y');
+
+            return "📌 *Keputusan PH dari Atasan Langsung*\n\n"
+                . "Nama: {$karyawan->nama_karyawan}\n"
+                . "PH: {$holiday}\n"
+                . "Tanggal Pengambilan: {$claim}\n\n"
+                . "Status: *{$statusLabel}* oleh atasan langsung.";
+        }
+
+        return "Pengajuan {$type} {$karyawan->nama_karyawan} telah {$statusLabel} oleh atasan langsung.";
     }
 
     private function normalizePhone(string $phone): string

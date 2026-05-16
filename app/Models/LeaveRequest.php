@@ -59,7 +59,7 @@ class LeaveRequest extends Model
                 "Tanggal: {$leave->start_date}",
 
             'public_holiday' => fn($leave, $karyawan) =>
-            "📅 *Pengajuan Public Holiday*\n\n" .
+            "📅 *Pengajuan Hari Libur*\n\n" .
                 "Nama: {$karyawan->nama_karyawan}\n" .
                 "Tanggal: {$leave->start_date}",
 

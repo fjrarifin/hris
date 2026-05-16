@@ -115,7 +115,7 @@ class LeaveRequestController extends Controller
         if ($phBentrok) {
             return back()
                 ->withErrors([
-                    'start_date' => 'Tanggal cuti bentrok dengan Public Holiday yang sudah diajukan.'
+                    'start_date' => 'Tanggal cuti bentrok dengan Hari Libur yang sudah diajukan.'
                 ])
                 ->withInput();
         }

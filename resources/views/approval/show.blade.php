@@ -91,7 +91,7 @@
                 <div class="flex items-start gap-2 text-sm">
                     <i class="fas fa-calendar text-green-600 mt-0.5 text-xs"></i>
                     <div class="flex-1">
-                        <p class="text-xs text-gray-500">Public Holiday</p>
+                        <p class="text-xs text-gray-500">Hari Libur</p>
                         <p class="font-semibold text-gray-800">
                             {{ $request->holiday->name }}
                         </p>

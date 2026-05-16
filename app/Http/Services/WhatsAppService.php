@@ -46,8 +46,7 @@ class WhatsAppService
         $response = $this->request()->post(
             $this->baseUrl . '/send/message',
             [
-                // 'phone'   => $phone,   // 🔥 WAJIB phone
-                'phone'   => '6282117289833',   // 🔥 WAJIB phone
+                'phone'   => $phone,
                 'message' => $message,
             ]
         );

@@ -22,9 +22,6 @@ class ApprovalController extends Controller
 
         $requests = $model::with($relations)
             ->whereNotNull('manager_approved_at')
-            ->when($type === 'leave', function ($query) {
-                $query->whereNotNull('second_manager_approved_at');
-            })
             ->latest()
             ->get();
 

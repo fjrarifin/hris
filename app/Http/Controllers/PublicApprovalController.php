@@ -4,12 +4,17 @@ namespace App\Http\Controllers;
 
 use App\Models\LeaveRequest;
 use App\Models\PublicHolidayRequest;
+use App\Http\Services\ApprovalNotificationService;
 use App\Notifications\LeaveStatusNotification;
 use App\Notifications\PublicHolidayStatusNotification;
 use Illuminate\Http\Request;
 
 class PublicApprovalController extends Controller
 {
+    public function __construct(private ApprovalNotificationService $approvalNotificationService)
+    {
+    }
+
     /*
     |--------------------------------------------------------------------------
     | SHOW APPROVAL PAGE
@@ -73,6 +78,12 @@ class PublicApprovalController extends Controller
         ]);
 
         // 🔔 Notify Staff
+        $this->approvalNotificationService->notifyIndirectManagerOfDirectManagerDecision(
+            $request,
+            $request instanceof LeaveRequest ? 'CUTI' : 'PH',
+            'approved'
+        );
+
         $this->notifyUser($request, 'approved');
 
         return view('approval.approved-success');
@@ -111,6 +122,12 @@ class PublicApprovalController extends Controller
         ]);
 
         // 🔔 Notify Staff
+        $this->approvalNotificationService->notifyIndirectManagerOfDirectManagerDecision(
+            $request,
+            $request instanceof LeaveRequest ? 'CUTI' : 'PH',
+            'rejected'
+        );
+
         $this->notifyUser($request, 'rejected');
 
         return view('approval.rejected-success');

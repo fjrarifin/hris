@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
-@section('title', 'Dashboard')
-@section('page-title', 'Dashboard')
+@section('title', 'Dasbor')
+@section('page-title', 'Dasbor')
 
 @section('content')
 
@@ -276,7 +276,7 @@
 		$('.export-area').html(`
 			<a href="{{ route('hr.sa.export', ['periode' => $periode]) }}"
 				class="rounded-xl bg-green-600 px-4 py-2 text-xs font-bold text-white hover:bg-green-700">
-				<i class="fas fa-file-excel mr-1"></i> Export Excel
+				<i class="fas fa-file-excel mr-1"></i> Ekspor Excel
 			</a>
 		`);
 	</script>

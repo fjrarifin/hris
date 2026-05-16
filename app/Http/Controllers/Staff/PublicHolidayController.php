@@ -175,7 +175,7 @@ class PublicHolidayController extends Controller
     private function buildPublicHolidayMessage($namaStaff, $namaAtasan, $holidayName, $claimDate)
     {
         return
-            "📅 *Pengajuan Public Holiday*\n\n" .
+            "📅 *Pengajuan Hari Libur*\n\n" .
             "Nama: {$namaStaff}\n" .
             "PH: {$holidayName}\n" .
             "Tanggal Claim: {$claimDate->format('d-m-Y')}\n\n" .

@@ -157,7 +157,7 @@
 				{{-- MENU --}}
 				<a href="{{ route('staff.profile.index') }}" class="dropdown-item rounded-lg">
 					<i class="fas fa-user mr-2"></i>
-					Profile
+					Profil
 				</a>
 
 				<div class="dropdown-divider"></div>
@@ -166,7 +166,7 @@
 					@csrf
 					<button type="submit" class="dropdown-item text-danger rounded-lg">
 						<i class="fas fa-sign-out-alt mr-2"></i>
-						Logout
+						Keluar
 					</button>
 				</form>
 			</div>

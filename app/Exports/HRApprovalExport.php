@@ -37,23 +37,22 @@ class HRApprovalExport implements FromCollection, ShouldAutoSize, WithHeadings
                 'Tanggal Selesai',
                 'Keterangan',
                 'Status',
-                'Approved Atasan Langsung',
-                'Approved Atasan Tidak Langsung',
-                'Approved HR',
-                'Alasan Reject',
+                'Disetujui Atasan Langsung',
+                'Disetujui HR',
+                'Alasan Penolakan',
                 'Tanggal Pengajuan',
             ],
             'ph' => [
                 'ID',
                 'NIK',
                 'Nama',
-                'Public Holiday',
+                'Hari Libur',
                 'Tanggal PH',
-                'Tanggal Claim',
+                'Tanggal Pengambilan',
                 'Status',
-                'Approved Atasan',
-                'Approved HR',
-                'Alasan Reject',
+                'Disetujui Atasan',
+                'Disetujui HR',
+                'Alasan Penolakan',
                 'Tanggal Pengajuan',
             ],
             default => [],
@@ -64,7 +63,6 @@ class HRApprovalExport implements FromCollection, ShouldAutoSize, WithHeadings
     {
         return LeaveRequest::with('user')
             ->whereNotNull('manager_approved_at')
-            ->whereNotNull('second_manager_approved_at')
             ->latest()
             ->get()
             ->map(fn($request) => [
@@ -77,7 +75,6 @@ class HRApprovalExport implements FromCollection, ShouldAutoSize, WithHeadings
                 $request->reason,
                 $this->statusLabel($request),
                 $this->formatDateTime($request->manager_approved_at),
-                $this->formatDateTime($request->second_manager_approved_at),
                 $this->formatDateTime($request->hr_approved_at),
                 $request->reject_reason,
                 $this->formatDateTime($request->created_at),
@@ -108,15 +105,15 @@ class HRApprovalExport implements FromCollection, ShouldAutoSize, WithHeadings
     private function statusLabel($request): string
     {
         if ($request->status === 'rejected') {
-            return 'Rejected';
+            return 'Ditolak';
         }
 
         if ($request->status === 'cancelled') {
-            return 'Cancelled';
+            return 'Dibatalkan';
         }
 
         if ($request->hr_approved_at) {
-            return 'Approved HR';
+            return 'Disetujui HR';
         }
 
         return 'Menunggu HR';

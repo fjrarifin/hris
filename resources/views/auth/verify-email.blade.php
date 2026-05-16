@@ -15,7 +15,7 @@
 
             <div>
                 <x-primary-button>
-                    {{ __('Resend Verification Email') }}
+                    {{ __('Kirim Ulang Email Verifikasi') }}
                 </x-primary-button>
             </div>
         </form>

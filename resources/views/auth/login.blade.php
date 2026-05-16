@@ -1,6 +1,6 @@
 @extends('layouts.auth')
 
-@section('title', 'Login')
+@section('title', 'Masuk')
 
 @section('content')
 	<div class="flex min-h-screen items-center justify-center px-4 py-8">

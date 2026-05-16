@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Dashboard')
+@section('title', 'Dasbor')
 
 @section('content')
 
@@ -114,7 +114,7 @@
 								</div>
 
 								<div>
-									<div class="text-muted small">Sisa Saldo Public Holiday</div>
+									<div class="text-muted small">Sisa Saldo Hari Libur</div>
 									<div class="font-weight-bold text-primary" style="font-size:18px;">
 										{{ $publicHolidayBalance }} Hari
 									</div>

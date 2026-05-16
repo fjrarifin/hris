@@ -73,21 +73,21 @@
 					{{-- <a href="{{ route('hr.payroll.template') }}"
 						class="btn-action inline-flex items-center gap-1.5 rounded-xl bg-gray-500 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-gray-600">
 						<i class="fa-solid fa-file-arrow-down"></i>
-						Download Template
+						Unduh Template
 					</a> --}}
 
 					{{-- Upload --}}
 					{{-- <a href="{{ route('hr.payroll.upload.form') }}"
 						class="btn-action inline-flex items-center gap-1.5 rounded-xl bg-indigo-500 px-4 py-2 text-xs font-bold text-black shadow-sm hover:bg-indigo-600">
 						{{-- <i class="fa-solid fa-upload"></i>
-						Upload Payroll
+						Unggah Payroll
 					</a> --}}
 
 					{{-- 🔥 Blast Email --}}
 					<button onclick="blastEmail()"
 						class="btn-action inline-flex items-center gap-1.5 rounded-xl bg-red-500 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-red-600">
 						<i class="fa-solid fa-paper-plane"></i>
-						Blast Email
+						Kirim Email Massal
 					</button>
 				</div>
 			</div>
@@ -150,14 +150,14 @@
 								{{-- Preview --}}
 								<a href="{{ route('hr.payroll.show', $r->id) }}"
 									class="btn-action inline-block rounded-xl bg-blue-500 px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-blue-600"
-									title="Preview Slip Gaji">
+									title="Pratinjau Slip Gaji">
 									<i class="fas fa-eye"></i>
 								</a>
 
 								{{-- Download --}}
 								<a href="{{ route('hr.payroll.download', $r->id) }}"
 									class="btn-action ml-1 inline-block rounded-xl bg-green-500 px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-green-600"
-									title="Download Slip Gaji">
+									title="Unduh Slip Gaji">
 									<i class="fas fa-download"></i>
 								</a>
 
@@ -173,7 +173,7 @@
 						<tr>
 							<td colspan="7" class="px-5 py-10 text-center text-sm text-gray-500">
 								Data payroll belum tersedia. <a href="{{ route('hr.payroll.upload.form') }}"
-									class="text-blue-500 underline hover:text-blue-700">Upload Payroll Baru</a>
+									class="text-blue-500 underline hover:text-blue-700">Unggah Payroll Baru</a>
 							</td>
 						</tr>
 					@endforelse
@@ -388,7 +388,7 @@
 
 		function blastEmail() {
 			Swal.fire({
-				title: 'Blast Email Slip Gaji?',
+				title: 'Kirim Email Massal Slip Gaji?',
 				html: 'Semua karyawan akan dikirim slip gaji <b>periode terakhir</b>.',
 				icon: 'warning',
 				showCancelButton: true,

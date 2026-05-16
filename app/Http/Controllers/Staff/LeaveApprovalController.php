@@ -32,29 +32,14 @@ class LeaveApprovalController extends Controller
         $directSubordinates = Karyawan::where('nama_atasan_langsung', $me->nama_karyawan)
             ->pluck('nik');
 
-        // bawahan tidak langsung
-        $indirectSubordinates = Karyawan::where('atasan_tidak_langsung', $me->nama_karyawan)
-            ->pluck('nik');
-
-        $leaveRequests = LeaveRequest::where(function ($q) use ($directSubordinates, $indirectSubordinates) {
-
-            // Level 1 approval
+        $leaveRequests = LeaveRequest::where(function ($q) use ($directSubordinates) {
             $q->whereIn('user_id', function ($q2) use ($directSubordinates) {
                 $q2->select('id')
                     ->from('users')
                     ->whereIn('username', $directSubordinates);
             })
-                ->whereNull('manager_approved_at');
-        })->orWhere(function ($q) use ($indirectSubordinates) {
-
-            // Level 2 approval
-            $q->whereIn('user_id', function ($q2) use ($indirectSubordinates) {
-                $q2->select('id')
-                    ->from('users')
-                    ->whereIn('username', $indirectSubordinates);
-            })
-                ->whereNotNull('manager_approved_at')
-                ->whereNull('second_manager_approved_at');
+                ->whereNull('manager_approved_at')
+                ->where('status', 'pending');
         })
             ->latest()
             ->get();
@@ -71,7 +56,6 @@ class LeaveApprovalController extends Controller
         $me = Karyawan::where('nik', $nikLogin)->first();
 
         $bawahan = Karyawan::where('nama_atasan_langsung', $me->nama_karyawan)
-            ->orWhere('atasan_tidak_langsung', $me->nama_karyawan) // Cek juga atasan tidak langsung
             ->pluck('nik')
             ->toArray();
 
@@ -91,31 +75,23 @@ class LeaveApprovalController extends Controller
 
         $staff = Karyawan::where('nik', $leave->user->username)->first();
 
-        // LEVEL 1 APPROVAL
         if ($staff->nama_atasan_langsung == $me->nama_karyawan && !$leave->manager_approved_at) {
 
             $leave->update([
                 'manager_approved_at' => now(),
                 'manager_approved_by' => Auth::id(),
+                'status' => 'approved',
             ]);
 
-            $this->approvalNotification->notifySecondManager($leave);
+            $this->approvalNotification->notifyIndirectManagerOfDirectManagerDecision($leave, 'CUTI', 'approved');
+            $leave->user->notify(
+                new LeaveStatusNotification($leave, 'approved')
+            );
 
             return back()->with('success', 'Cuti disetujui atasan langsung');
         }
 
-        // LEVEL 2 APPROVAL
-        if ($staff->atasan_tidak_langsung == $me->nama_karyawan && $leave->manager_approved_at && !$leave->second_manager_approved_at) {
-
-            $leave->update([
-                'second_manager_approved_at' => now(),
-                'second_manager_approved_by' => Auth::id(),
-            ]);
-
-            return back()->with('success', 'Cuti disetujui atasan tidak langsung');
-        }
-
-        abort(403, 'Anda tidak berhak approve ini.');
+        abort(403, 'Anda tidak berhak menyetujui ini.');
     }
 
     public function reject($id)
@@ -135,6 +111,8 @@ class LeaveApprovalController extends Controller
         ]);
 
         // 🔔 Kirim notifikasi ke staff
+        $this->approvalNotification->notifyIndirectManagerOfDirectManagerDecision($leave, 'CUTI', 'rejected');
+
         $leave->user->notify(
             new LeaveStatusNotification($leave, 'rejected')
         );
@@ -176,6 +154,8 @@ class LeaveApprovalController extends Controller
             'manager_approved_by' => Auth::id(),
         ]);
 
+        $this->approvalNotification->notifyIndirectManagerOfDirectManagerDecision($phRequest, 'PH', 'approved');
+
         // 🔔 Kirim notifikasi ke staff
         $phRequest->user->notify(
             new PublicHolidayStatusNotification($phRequest, 'approved')
@@ -201,6 +181,8 @@ class LeaveApprovalController extends Controller
         ]);
 
         // 🔔 Kirim notifikasi ke staff
+        $this->approvalNotification->notifyIndirectManagerOfDirectManagerDecision($phRequest, 'PH', 'rejected');
+
         $phRequest->user->notify(
             new PublicHolidayStatusNotification($phRequest, 'rejected')
         );

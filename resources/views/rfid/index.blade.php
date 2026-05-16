@@ -15,7 +15,7 @@
 						<th>Tag</th>
 						<th>User</th>
 						<th>Scanned At</th>
-						<th>Action</th>
+						<th>Aksi</th>
 					</tr>
 				</thead>
 				<tbody>

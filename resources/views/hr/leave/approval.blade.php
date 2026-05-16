@@ -30,16 +30,16 @@
 					@foreach ($requests as $r)
 						@php
 							if ($r->status === 'cancelled') {
-							    $label = 'Cancelled';
+							    $label = 'Dibatalkan';
 							    $class = 'secondary';
 							} elseif ($r->status === 'rejected') {
-							    $label = 'Rejected';
+							    $label = 'Ditolak';
 							    $class = 'danger';
 							} elseif ($r->hr_approved_at) {
-							    $label = 'Approved';
+							    $label = 'Disetujui';
 							    $class = 'success';
 							} else {
-							    $label = 'Pending';
+							    $label = 'Menunggu';
 							    $class = 'warning';
 							}
 						@endphp

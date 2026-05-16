@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Staff;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
 use App\Notifications\IncompleteProfileNotification;
 
 class ProfileController extends Controller
@@ -14,6 +15,11 @@ class ProfileController extends Controller
         $user = Auth::user()->load('karyawan');
 
         return view('staff.profile.index', compact('user'));
+    }
+
+    public function password()
+    {
+        return view('staff.profile.password');
     }
 
     public function update(Request $request)
@@ -47,5 +53,25 @@ class ProfileController extends Controller
         }
 
         return back()->with('success', 'Data berhasil diperbarui');
+    }
+
+    public function updatePassword(Request $request)
+    {
+        $request->validate([
+            'current_password' => ['required', 'current_password'],
+            'password' => ['required', 'string', 'min:8', 'confirmed'],
+        ], [
+            'current_password.current_password' => 'Password saat ini tidak sesuai.',
+            'password.confirmed' => 'Konfirmasi password baru tidak cocok.',
+        ]);
+
+        $request->user()->update([
+            'password' => Hash::make($request->password),
+            'must_change_password' => false,
+        ]);
+
+        return redirect()
+            ->route('staff.profile.index')
+            ->with('success', 'Password berhasil diperbarui');
     }
 }

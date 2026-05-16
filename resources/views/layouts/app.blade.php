@@ -261,7 +261,7 @@
 		<div class="content-wrapper">
 			<section class="content">
 
-				{{-- BACK BUTTON --}}
+				{{-- BACK BUTTON
 				@if (!request()->routeIs('*.dashboard'))
 					<div class="px-2 pt-3">
 						<button onclick="goBack()" class="btn btn-outline-secondary rounded-pill px-2 shadow-sm">
@@ -269,7 +269,7 @@
 							<span>Kembali</span>
 						</button>
 					</div>
-				@endif
+				@endif --}}
 
 				<div class="container-fluid py-3">
 					@yield('content')

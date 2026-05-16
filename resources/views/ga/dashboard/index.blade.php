@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
-@section('title', 'GA Dashboard')
-@section('page-title', 'GA Dashboard')
+@section('title', 'Dasbor GA')
+@section('page-title', 'Dasbor GA')
 
 @section('content')
 	<div class="row">

@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
-@section('title', 'Pengajuan Public Holiday')
-@section('page-title', 'Pengajuan Public Holiday')
+@section('title', 'Pengajuan Hari Libur')
+@section('page-title', 'Pengajuan Hari Libur')
 
 @section('content')
 	<style>
@@ -64,19 +64,19 @@
 								@forelse($requests as $r)
 									@php
 										if ($r->status === 'rejected') {
-										    $label = 'Rejected';
+										    $label = 'Ditolak';
 										    $class = 'danger';
 										} elseif ($r->status === 'cancelled') {
-										    $label = 'Cancelled';
+										    $label = 'Dibatalkan';
 										    $class = 'secondary';
 										} elseif ($r->hr_approved_at) {
-										    $label = 'Approved HR';
+										    $label = 'Disetujui HR';
 										    $class = 'success';
 										} elseif ($r->manager_approved_at) {
-										    $label = 'Approved Atasan';
+										    $label = 'Disetujui Atasan';
 										    $class = 'info';
 										} else {
-										    $label = 'Pending';
+										    $label = 'Menunggu';
 										    $class = 'warning';
 										}
 									@endphp
@@ -132,19 +132,19 @@
 						@forelse($requests as $r)
 							@php
 								if ($r->status === 'rejected') {
-								    $label = 'Rejected';
+								    $label = 'Ditolak';
 								    $class = 'danger';
 								} elseif ($r->status === 'cancelled') {
-								    $label = 'Cancelled';
+								    $label = 'Dibatalkan';
 								    $class = 'secondary';
 								} elseif ($r->hr_approved_at) {
-								    $label = 'Approved HR';
+								    $label = 'Disetujui HR';
 								    $class = 'success';
 								} elseif ($r->manager_approved_at) {
-								    $label = 'Approved Atasan';
+								    $label = 'Disetujui Atasan';
 								    $class = 'info';
 								} else {
-								    $label = 'Pending';
+								    $label = 'Menunggu';
 								    $class = 'warning';
 								}
 							@endphp
@@ -229,7 +229,7 @@
 					<div class="modal-header border-0 pb-0">
 						<h5 class="modal-title font-weight-bold">
 							<i class="fas fa-calendar-plus text-primary mr-2"></i>
-							Pengajuan Public Holiday
+							Pengajuan Hari Libur
 						</h5>
 						<button type="button" class="close" data-dismiss="modal">
 							<span>&times;</span>
