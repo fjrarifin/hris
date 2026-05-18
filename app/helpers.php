@@ -4,6 +4,7 @@ use App\Models\Menu;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Auth;
 use App\Models\Karyawan;
+use App\Support\PayrollAccess;
 
 function sidebarMenus()
 {
@@ -22,6 +23,30 @@ function sidebarMenus()
         }])
         ->orderBy('order')
         ->get();
+
+    if (!PayrollAccess::can(Auth::user())) {
+        $parents->each(function ($menu) {
+            $menu->setRelation(
+                'children',
+                $menu->children->reject(fn ($child) => str_starts_with((string) $child->route, 'hr.payroll'))->values()
+            );
+        });
+    }
+
+    if (Auth::user()?->username === 'hrd0002') {
+        $parents->each(function ($menu) {
+            $menu->setRelation(
+                'children',
+                $menu->children
+                    ->filter(fn ($child) => $child->route === 'hr.karyawan.index')
+                    ->values()
+            );
+        });
+
+        return $parents->filter(function ($menu) {
+            return $menu->route === 'dashboard' || $menu->children->count() > 0;
+        })->values();
+    }
 
     // filter parent:
     // - punya child yg lolos

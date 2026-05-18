@@ -87,6 +87,10 @@ Route::get('/', function () {
 Route::middleware(['auth', 'force.password'])->group(function () {
 
     Route::get('/dashboard', function () {
+        if (Auth::user()?->username === 'hrd0002') {
+            return redirect()->route('hr.karyawan.index');
+        }
+
         return match ((int) Auth::user()->level) {
             0 => redirect()->route('it.dashboard'),
             1 => redirect()->route('admin.dashboard'),
@@ -138,6 +142,10 @@ Route::middleware('auth')->group(function () {
 Route::middleware(['auth', 'force.password'])->group(function () {
 
     Route::get('/dashboard', function () {
+        if (Auth::user()?->username === 'hrd0002') {
+            return redirect()->route('hr.karyawan.index');
+        }
+
         return match ((int) Auth::user()->level) {
             0 => redirect()->route('it.dashboard'),
             1 => redirect()->route('admin.dashboard'),
@@ -203,27 +211,34 @@ Route::middleware(['auth', 'level:2'])
     ->name('hr.')
     ->group(function () {
 
-        Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
-        Route::get('/360', [Monitoring360Controller::class, 'index'])->name('360.index');
+        Route::get('/dashboard', [DashboardController::class, 'index'])->middleware('hr.full')->name('dashboard');
+        Route::get('/360', [Monitoring360Controller::class, 'index'])->middleware('hr.full')->name('360.index');
         Route::get('/sa', [MonitoringSelfAssessmentController::class, 'index'])
+            ->middleware('hr.full')
             ->name('sa.index');
 
         Route::get('/sa/detail/{nik}', [MonitoringSelfAssessmentController::class, 'detail'])
+            ->middleware('hr.full')
             ->name('sa.detail');
 
         Route::get('/sa/export', [MonitoringSelfAssessmentController::class, 'export'])
+            ->middleware('hr.full')
             ->name('sa.export');
 
         Route::get('/relasi', [RelasiMasterController::class, 'index'])
+            ->middleware('hr.full')
             ->name('360.relasi');
 
         Route::get('/relasi/{nik}', [RelasiMasterController::class, 'detail'])
+            ->middleware('hr.full')
             ->name('360.relasi.detail');
 
         Route::post('/relasi/{nik}', [RelasiMasterController::class, 'store'])
+            ->middleware('hr.full')
             ->name('360.relasi.store');
 
         Route::delete('/relasi/{nik}', [RelasiMasterController::class, 'destroy'])
+            ->middleware('hr.full')
             ->name('360.relasi.destroy');
 
         Route::get('/karyawan', [KaryawanController::class, 'index'])
@@ -236,30 +251,49 @@ Route::middleware(['auth', 'level:2'])
             ->name('karyawan.update');
 
         Route::get('/leave', [LeaveController::class, 'index'])
+            ->middleware('hr.full')
             ->name('leave.index');
         Route::post('/leave/{id}/approve', [LeaveController::class, 'approve'])
+            ->middleware('hr.full')
             ->name('leave.approve');
         Route::post('/leave/{id}/reject', [LeaveController::class, 'reject'])
+            ->middleware('hr.full')
             ->name('leave.reject');
         Route::post('/leave/{id}/cancel', [LeaveController::class, 'cancel'])
+            ->middleware('hr.full')
             ->name('leave.cancel');
 
-        Route::prefix('approval')->group(function () {
+        Route::prefix('approval')->middleware('hr.full')->group(function () {
             Route::get('{type}', [ApprovalController::class, 'index'])->name('approval.index');
             Route::get('{type}/export', [ApprovalController::class, 'export'])->name('approval.export');
             Route::post('{type}/{id}/approve', [ApprovalController::class, 'approve'])->name('approval.approve');
             Route::post('{type}/{id}/reject', [ApprovalController::class, 'reject'])->name('approval.reject');
         });
 
+    });
+
+Route::middleware(['auth', 'payroll.access'])
+    ->prefix('hr')
+    ->name('hr.')
+    ->group(function () {
         Route::get('/payroll', [PayrollController::class, 'index'])->name('payroll.index');
         Route::get('/payroll/debug/{id}', [PayrollController::class, 'debug'])->name('payroll.debug');
         Route::get('/payroll/template', [PayrollController::class, 'downloadTemplate'])->name('payroll.template');
+        Route::get('/payroll/history', [PayrollController::class, 'history'])->name('payroll.history');
+        Route::get('/payroll/email-template', [PayrollController::class, 'emailTemplate'])->name('payroll.email-template');
+        Route::post('/payroll/email-template', [PayrollController::class, 'updateEmailTemplate'])->name('payroll.email-template.update');
+        Route::get('/payroll/export', [PayrollController::class, 'export'])->name('payroll.export');
         Route::get('/payroll/upload', [PayrollController::class, 'form'])->name('payroll.upload.form');
         Route::post('/payroll/upload', [PayrollController::class, 'upload'])->name('payroll.upload');
         Route::post('/payroll/blast-email', [PayrollController::class, 'blastEmail'])->name('payroll.blast-email');
         Route::post('/payroll/sync', [PayrollController::class, 'syncKaryawanFromGsheet'])->name('payroll.sync');
         Route::post('/payroll/sync-raw', [PayrollController::class, 'syncRawPayroll'])->name('payroll.sync-raw');
         Route::post('/payroll/convert', [PayrollController::class, 'convertPayroll'])->name('payroll.convert');
+        Route::post('/payroll/{id}/validate', [PayrollController::class, 'validatePayroll'])->name('payroll.validate');
+        Route::post('/payroll/{id}/approve', [PayrollController::class, 'approve'])->name('payroll.approve');
+        Route::post('/payroll/{id}/reject', [PayrollController::class, 'reject'])->name('payroll.reject');
+        Route::post('/payroll/{id}/lock', [PayrollController::class, 'lock'])->name('payroll.lock');
+        Route::post('/payroll/{id}/unlock', [PayrollController::class, 'unlock'])->name('payroll.unlock');
         Route::get('/payroll/{id}', [PayrollController::class, 'show'])->name('payroll.show');
         Route::get('/payroll/{id}/download', [PayrollController::class, 'download'])->name('payroll.download');
         Route::post('/payroll/{id}/send-email', [PayrollController::class, 'sendEmail'])->name('payroll.send-email');

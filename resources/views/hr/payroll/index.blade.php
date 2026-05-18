@@ -5,184 +5,226 @@
 
 @section('content')
 	<style>
-		.table-hover tr:hover {
-			background: linear-gradient(90deg, #f8fafc, #eef2ff);
-			transition: 0.2s ease;
+		.payroll-badge {
+			display: inline-flex;
+			align-items: center;
+			gap: 4px;
+			border-radius: 999px;
+			padding: 3px 9px;
+			font-size: 11px;
+			font-weight: 700;
+			white-space: nowrap;
 		}
 
-		#tblPayroll {
-			border-collapse: separate;
-			border-spacing: 0 8px;
+		.payroll-action-menu {
+			min-width: 190px;
+			z-index: 1050;
 		}
 
-		#tblPayroll thead th {
-			background: #f1f5f9;
+		.payroll-action-menu .dropdown-item {
+			font-size: 12px;
 			font-weight: 600;
-			border-bottom: 2px solid #e2e8f0;
+			padding: 8px 12px;
 		}
 
-		#tblPayroll tbody tr {
-			border-bottom: 1px solid #f1f5f9;
-			background: white;
-			border-radius: 12px;
-			transition: all 0.2s ease;
-		}
-
-		#tblPayroll tbody tr:hover {
-			transform: translateY(-2px);
-			box-shadow: 0 8px 20px rgba(0, 0, 0, 0.05);
-		}
-
-		#tblPayroll tbody td {
-			vertical-align: middle !important;
-		}
-
-		.btn-action {
-			transition: all 0.2s ease;
-		}
-
-		.btn-action:hover {
-			transform: translateY(-2px);
+		.payroll-action-menu .dropdown-item i {
+			width: 16px;
+			margin-right: 8px;
+			text-align: center;
 		}
 	</style>
 
-	{{-- Table --}}
-	<div class="card-outline card-primary overflow-hidden rounded-3xl bg-white shadow-sm">
-		<div class="p-4">
+	@if (session('success'))
+		<div class="mb-3 rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm font-semibold text-green-700">
+			{{ session('success') }}
+		</div>
+	@endif
 
-			{{-- Header row: judul + tombol upload --}}
-			<div class="mb-3 flex items-center justify-between">
-				<h2 class="text-sm font-semibold text-gray-700">Daftar Payroll Karyawan</h2>
-
-				<div class="flex gap-2">
-					{{-- 🔄 Sync Karyawan dari GSheet --}}
-					{{-- <button onclick="convertPayroll()"
-						class="btn-action inline-flex items-center gap-1.5 rounded-xl bg-green-500 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-green-600">
-						<i class="fa-solid fa-arrows-rotate"></i>
-						Convert Payroll
-					</button> --}}
-
-					{{-- 🔄 Sync Karyawan dari GSheet --}}
-					<button onclick="syncKaryawan()"
-						class="btn-action inline-flex items-center gap-1.5 rounded-xl bg-green-500 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-green-600">
-						<i class="fa-solid fa-arrows-rotate"></i>
-						Sync Payroll
-					</button>
-
-					{{-- Download Template --}}
-					{{-- <a href="{{ route('hr.payroll.template') }}"
-						class="btn-action inline-flex items-center gap-1.5 rounded-xl bg-gray-500 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-gray-600">
-						<i class="fa-solid fa-file-arrow-down"></i>
-						Unduh Template
-					</a> --}}
-
-					{{-- Upload --}}
-					{{-- <a href="{{ route('hr.payroll.upload.form') }}"
-						class="btn-action inline-flex items-center gap-1.5 rounded-xl bg-indigo-500 px-4 py-2 text-xs font-bold text-black shadow-sm hover:bg-indigo-600">
-						{{-- <i class="fa-solid fa-upload"></i>
-						Unggah Payroll
-					</a> --}}
-
-					{{-- 🔥 Blast Email --}}
-					<button onclick="blastEmail()"
-						class="btn-action inline-flex items-center gap-1.5 rounded-xl bg-red-500 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-red-600">
-						<i class="fa-solid fa-paper-plane"></i>
-						Kirim Email Massal
-					</button>
-				</div>
-			</div>
-
-			<table id="tblPayroll" class="table-bordered table-striped table-hover table w-full text-xs">
-				<thead class="bg-gray-50 text-gray-600">
-					<tr>
-						<th class="px-4 py-2 text-center font-bold">Periode</th>
-						<th class="px-4 py-2 text-center font-bold">Nama Karyawan</th>
-						<th class="px-4 py-2 text-center font-bold">Departemen</th>
-						<th class="px-4 py-2 text-center font-bold">Unit</th>
-						<th class="px-4 py-2 text-center font-bold">Jabatan</th>
-						<th class="px-4 py-2 text-center font-bold">Total Dibayarkan</th>
-						<th class="px-4 py-2 text-center font-bold">Aksi</th>
-					</tr>
-				</thead>
-
-				<tbody>
-					@forelse ($payrolls as $r)
-						@php
-							$s = \Carbon\Carbon::parse($r->periode_start);
-							$e = \Carbon\Carbon::parse($r->periode_end);
-						@endphp
-
-						<tr>
-							<td class="text-muted px-2 py-2 text-center text-xs font-medium text-gray-700">
-								@if ($s->format('Y-m') === $e->format('Y-m'))
-									{{ $s->format('d') . ' - ' . $e->format('d M Y') }}
-								@else
-									{{ $s->format('d M Y') . ' - ' . $e->format('d M Y') }}
-								@endif
-							</td>
-
-							<td class="px-2 py-2">
-								<div class="font-bold text-gray-900">
-									{{ $r->karyawan?->nama_karyawan ?? '-' }}
-								</div>
-								<div class="text-xs text-gray-500">
-									NIK: {{ $r->karyawan?->nik ?? '-' }}
-								</div>
-							</td>
-
-							<td class="px-2 py-2 text-center text-xs text-gray-600">
-								{{ $r->karyawan?->departement ?? '-' }}
-							</td>
-
-							<td class="px-2 py-2 text-center text-xs text-gray-600">
-								{{ $r->karyawan?->unit ?? '-' }}
-							</td>
-
-							<td class="px-2 py-2 text-center text-xs text-gray-600">
-								{{ $r->karyawan?->jabatan ?? '-' }}
-							</td>
-
-							<td class="px-2 py-2 text-right text-xs font-bold text-gray-900" style="white-space: nowrap;">
-								Rp {{ number_format($r->total_dibayarkan, 0, ',', '.') }}
-							</td>
-
-							<td class="px-3 py-2 text-center" style="white-space: nowrap;">
-								{{-- Preview --}}
-								<a href="{{ route('hr.payroll.show', $r->id) }}"
-									class="btn-action inline-block rounded-xl bg-blue-500 px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-blue-600"
-									title="Pratinjau Slip Gaji">
-									<i class="fas fa-eye"></i>
-								</a>
-
-								{{-- Download --}}
-								<a href="{{ route('hr.payroll.download', $r->id) }}"
-									class="btn-action ml-1 inline-block rounded-xl bg-green-500 px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-green-600"
-									title="Unduh Slip Gaji">
-									<i class="fas fa-download"></i>
-								</a>
-
-								{{-- Kirim Email --}}
-								<button onclick="kirimEmail({{ $r->id }}, '{{ $r->karyawan?->nama_karyawan }}')"
-									class="btn-action ml-1 inline-block rounded-xl bg-amber-500 px-3 py-1.5 text-xs font-bold text-black shadow-sm hover:bg-amber-600"
-									title="Kirim Email Slip Gaji">
-									<i class="fa-solid fa-envelope"></i>
-								</button>
-							</td>
-						</tr>
-					@empty
-						<tr>
-							<td colspan="7" class="px-5 py-10 text-center text-sm text-gray-500">
-								Data payroll belum tersedia. <a href="{{ route('hr.payroll.upload.form') }}"
-									class="text-blue-500 underline hover:text-blue-700">Unggah Payroll Baru</a>
-							</td>
-						</tr>
-					@endforelse
-				</tbody>
-
-			</table>
+	<div class="mb-4 grid grid-cols-1 gap-3 md:grid-cols-4">
+		<div class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+			<div class="text-xs font-semibold uppercase text-slate-500">Total Payroll</div>
+			<div class="text-2xl font-bold text-slate-900">{{ $summary['total'] }}</div>
+		</div>
+		<div class="rounded-lg border border-green-200 bg-white p-4 shadow-sm">
+			<div class="text-xs font-semibold uppercase text-green-600">Approved</div>
+			<div class="text-2xl font-bold text-green-700">{{ $summary['approved'] }}</div>
+		</div>
+		<div class="rounded-lg border border-blue-200 bg-white p-4 shadow-sm">
+			<div class="text-xs font-semibold uppercase text-blue-600">Locked</div>
+			<div class="text-2xl font-bold text-blue-700">{{ $summary['locked'] }}</div>
+		</div>
+		<div class="rounded-lg border border-amber-200 bg-white p-4 shadow-sm">
+			<div class="text-xs font-semibold uppercase text-amber-600">Warning</div>
+			<div class="text-2xl font-bold text-amber-700">{{ $summary['warning'] }}</div>
 		</div>
 	</div>
 
+	<div class="mb-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+		<form method="GET" action="{{ route('hr.payroll.index') }}" class="grid grid-cols-1 items-end gap-3 md:grid-cols-5">
+			<div>
+				<label class="mb-1 block text-xs font-bold text-slate-600">Periode Awal</label>
+				<input type="date" name="periode_start" value="{{ request('periode_start') }}"
+					class="form-control form-control-sm">
+			</div>
+			<div>
+				<label class="mb-1 block text-xs font-bold text-slate-600">Periode Akhir</label>
+				<input type="date" name="periode_end" value="{{ request('periode_end') }}"
+					class="form-control form-control-sm">
+			</div>
+			<div>
+				<label class="mb-1 block text-xs font-bold text-slate-600">Approval</label>
+				<select name="approval_status" class="form-control form-control-sm">
+					<option value="">Semua</option>
+					@foreach (['draft' => 'Draft', 'pending' => 'Pending', 'approved' => 'Approved', 'rejected' => 'Rejected'] as $key => $label)
+						<option value="{{ $key }}" @selected(request('approval_status') === $key)>{{ $label }}</option>
+					@endforeach
+				</select>
+			</div>
+			<div class="flex gap-2">
+				<button type="submit" class="btn btn-primary btn-sm font-bold">
+					<i class="fas fa-search mr-1"></i> Filter
+				</button>
+				<a href="{{ route('hr.payroll.index') }}" class="btn btn-secondary btn-sm font-bold">
+					<i class="fas fa-redo mr-1"></i> Reset
+				</a>
+			</div>
+			<div class="flex flex-wrap justify-end gap-2">
+				<a href="{{ route('hr.payroll.history') }}" class="btn btn-outline-secondary btn-sm font-bold">
+					<i class="fas fa-history mr-1"></i> History
+				</a>
+				<a href="{{ route('hr.payroll.email-template') }}" class="btn btn-outline-secondary btn-sm font-bold">
+					<i class="fas fa-envelope-open-text mr-1"></i> Template
+				</a>
+				<a href="{{ route('hr.payroll.export', request()->query()) }}" class="btn btn-success btn-sm font-bold">
+					<i class="fas fa-file-excel mr-1"></i> Export
+				</a>
+				<button type="button" onclick="syncKaryawan()" class="btn btn-info btn-sm font-bold">
+					<i class="fas fa-sync mr-1"></i> Sync
+				</button>
+				<button type="button" onclick="blastEmail()" class="btn btn-warning btn-sm font-bold">
+					<i class="fas fa-paper-plane mr-1"></i> Blast Email
+				</button>
+			</div>
+		</form>
+	</div>
+
+	<div class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+		<table id="tblPayroll" class="table-bordered table-striped table-hover table w-full text-xs">
+			<thead class="bg-slate-50 text-slate-600">
+				<tr>
+					<th class="text-center">Periode</th>
+					<th>Karyawan</th>
+					<th class="text-right">Total Dibayarkan</th>
+					<th class="text-center">Approval</th>
+					<th class="text-center">Lock</th>
+					<th class="text-center">Validasi</th>
+					<th class="text-center">Email Log</th>
+					<th class="text-center">Aksi</th>
+				</tr>
+			</thead>
+			<tbody>
+				@forelse ($payrolls as $r)
+					@php
+						$warnings = $r->validation_warnings ?? [];
+						$warningText = collect($warnings['critical'] ?? [])
+						    ->merge($warnings['warnings'] ?? [])
+						    ->implode("\n");
+					@endphp
+					<tr>
+						<td class="text-center font-semibold text-slate-700">
+							{{ optional($r->periode_start)->format('d M Y') }}<br>
+							<span class="text-slate-400">s/d</span><br>
+							{{ optional($r->periode_end)->format('d M Y') }}
+						</td>
+						<td>
+							<div class="font-bold text-slate-900">{{ $r->karyawan?->nama_karyawan ?? '-' }}</div>
+							<div class="text-slate-500">NIK: {{ $r->karyawan_nik ?? '-' }}</div>
+							<div class="text-slate-500">{{ $r->karyawan?->departement ?? '-' }} / {{ $r->karyawan?->unit ?? '-' }}</div>
+						</td>
+						<td class="text-right font-bold text-slate-900">Rp {{ number_format($r->total_dibayarkan, 0, ',', '.') }}</td>
+						<td class="text-center">
+							<span @class([
+								'payroll-badge',
+								'bg-slate-100 text-slate-700' => $r->approval_status === 'draft',
+								'bg-amber-100 text-amber-700' => $r->approval_status === 'pending',
+								'bg-green-100 text-green-700' => $r->approval_status === 'approved',
+								'bg-red-100 text-red-700' => $r->approval_status === 'rejected',
+							])>
+								{{ strtoupper($r->approval_status ?? 'draft') }}
+							</span>
+						</td>
+						<td class="text-center">
+							<span class="payroll-badge {{ $r->is_locked ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600' }}">
+								<i class="fas {{ $r->is_locked ? 'fa-lock' : 'fa-lock-open' }}"></i>
+								{{ $r->is_locked ? 'LOCKED' : 'OPEN' }}
+							</span>
+						</td>
+						<td class="text-center">
+							<button type="button" title="{{ $warningText ?: 'Belum ada catatan' }}"
+								class="payroll-badge border-0 {{ $r->validation_status === 'invalid' ? 'bg-red-100 text-red-700' : ($r->validation_status === 'warning' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700') }}"
+								onclick="payrollAction('{{ route('hr.payroll.validate', $r->id) }}', 'Validasi Payroll?', 'Validasi akan diperbarui.', false)">
+								<i class="fas fa-exclamation-triangle"></i>
+								{{ strtoupper($r->validation_status ?? 'unchecked') }}
+							</button>
+						</td>
+						<td class="text-center text-slate-600">
+							@if ($r->latestEmailLog)
+								<div class="font-bold">{{ strtoupper($r->latestEmailLog->status) }}</div>
+								<div>{{ $r->latestEmailLog->created_at?->format('d M H:i') }}</div>
+							@else
+								-
+							@endif
+						</td>
+						<td class="text-center" style="width: 90px; white-space: nowrap;">
+							<div class="dropdown">
+								<button type="button" class="btn btn-primary btn-sm font-bold dropdown-toggle" data-toggle="dropdown"
+									aria-haspopup="true" aria-expanded="false">
+									<i class="fas fa-ellipsis-v mr-1"></i> Aksi
+								</button>
+								<div class="dropdown-menu dropdown-menu-right payroll-action-menu">
+									<a href="{{ route('hr.payroll.show', $r->id) }}" class="dropdown-item">
+										<i class="fas fa-eye text-blue-500"></i> Preview Slip
+									</a>
+									<a href="{{ route('hr.payroll.download', $r->id) }}" class="dropdown-item">
+										<i class="fas fa-download text-green-500"></i> Download PDF
+									</a>
+									<div class="dropdown-divider"></div>
+									<button type="button" class="dropdown-item"
+										onclick="payrollAction('{{ route('hr.payroll.approve', $r->id) }}', 'Approve Payroll?', 'Payroll akan disetujui.')">
+										<i class="fas fa-check text-emerald-500"></i> Approve
+									</button>
+									<button type="button" class="dropdown-item"
+										onclick="rejectPayroll('{{ route('hr.payroll.reject', $r->id) }}')">
+										<i class="fas fa-times text-red-500"></i> Reject
+									</button>
+									@if ($r->is_locked)
+										<button type="button" class="dropdown-item"
+											onclick="payrollAction('{{ route('hr.payroll.unlock', $r->id) }}', 'Buka Lock?', 'Payroll bisa diproses ulang setelah dibuka.')">
+											<i class="fas fa-lock-open text-slate-700"></i> Unlock
+										</button>
+									@else
+										<button type="button" class="dropdown-item"
+											onclick="payrollAction('{{ route('hr.payroll.lock', $r->id) }}', 'Lock Payroll?', 'Payroll harus approved sebelum dikunci.')">
+											<i class="fas fa-lock text-indigo-500"></i> Lock
+										</button>
+									@endif
+									<div class="dropdown-divider"></div>
+									<button type="button" class="dropdown-item"
+										onclick="payrollAction('{{ route('hr.payroll.send-email', $r->id) }}', 'Kirim Ulang Slip Gaji?', 'Email real akan dikirim ke alamat karyawan jika payroll sudah approved, locked, dan valid.')">
+										<i class="fas fa-envelope text-amber-500"></i> Kirim Ulang Email
+									</button>
+								</div>
+							</div>
+						</td>
+					</tr>
+				@empty
+					<tr>
+						<td colspan="8" class="py-8 text-center text-sm text-slate-500">Data payroll belum tersedia.</td>
+					</tr>
+				@endforelse
+			</tbody>
+		</table>
+	</div>
 @endsection
 
 @push('scripts')
@@ -193,251 +235,114 @@
 				autoWidth: false,
 				pageLength: 10,
 				sort: false,
-
-				language: {
-					search: "Cari:",
-					lengthMenu: "Tampilkan _MENU_ data",
-					zeroRecords: "Data tidak ditemukan",
-					info: "Menampilkan _PAGE_ dari _PAGES_",
-					infoEmpty: "Tidak ada data",
-					infoFiltered: "(difilter dari _MAX_ data)",
-					paginate: {
-						first: "Pertama",
-						last: "Terakhir",
-						next: "Selanjutnya",
-						previous: "Sebelumnya"
-					}
-				},
-
-				dom: '<"row"<"col-md-6"l><"col-md-6"f>>' +
-					'<"row"<"col-12"tr>>' +
-					'<"row mt-2"<"col-md-5"i><"col-md-7"p>>',
-
 				columnDefs: [{
-					targets: 6,
+					targets: 7,
 					orderable: false,
-					searchable: false,
-					className: 'text-center'
+					searchable: false
 				}]
 			});
 		});
 
-		function syncKaryawan() {
+		function payrollAction(url, title, text, reload = true, data = {}) {
+			const isLongAction = url.includes('/send-email') || url.includes('/blast-email') || url.includes('/sync');
+			let loadingTitle = 'Memproses...';
+			let loadingText = 'Mohon tunggu, proses sedang berjalan.';
+
+			if (url.includes('/blast-email')) {
+				loadingTitle = 'Mengirim Email Massal...';
+				loadingText = 'Mohon tunggu, slip gaji sedang dikirim ke karyawan yang lolos validasi.';
+			} else if (url.includes('/send-email')) {
+				loadingTitle = 'Mengirim Email...';
+				loadingText = 'Mohon tunggu, slip gaji sedang dikirim ke email karyawan.';
+			} else if (url.includes('/sync')) {
+				loadingTitle = 'Sinkronisasi Payroll...';
+				loadingText = 'Mohon tunggu, data payroll sedang diambil dan diproses.';
+			}
 
 			Swal.fire({
-				title: 'Sync Data Karyawan?',
-				html: 'Data karyawan akan diambil dari <b>Google Sheets</b>.',
+				title,
+				text,
 				icon: 'question',
 				showCancelButton: true,
-				confirmButtonColor: '#22c55e',
-				cancelButtonColor: '#6b7280',
-				confirmButtonText: '<i class="fas fa-rotate mr-1"></i> Sync',
-				cancelButtonText: 'Batal',
-			}).then((result) => {
-
-				if (!result.isConfirmed) return;
-
-				Swal.fire({
-					title: 'Memproses...',
-					text: 'Sedang mengambil data dari Google Sheets.',
-					allowOutsideClick: false,
-					didOpen: () => Swal.showLoading()
-				});
-
-				fetch("{{ route('hr.payroll.sync') }}", {
-						method: "POST",
-						headers: {
-							"X-CSRF-TOKEN": "{{ csrf_token() }}",
-							"Accept": "application/json"
-						}
-					})
-					.then(res => res.json())
-					.then(res => {
-						if (res.status) {
-							// Pastikan res.data ada, jika tidak set default ke 0
-							const inserted = res.data?.inserted || 0;
-							const updated  = res.data?.updated  || 0;
-							const skipped  = res.data?.skipped  || 0;
-
-							let info = `
-								✔️ Data baru: ${inserted} <br>
-								🔄 Update: ${updated} <br>
-								⏭️ Dilewati: ${skipped}
-							`;
-
-							Swal.fire({
-								icon: 'success',
-								title: 'Sync Selesai',
-								html: info
-							}).then(() => {
-								location.reload();
-							});
-						} else {
-							Swal.fire({
-								icon: 'error',
-								title: 'Gagal',
-								text: res.error
-							});
-						}
-					})
-					.catch(err => {
-						Swal.fire({
-							icon: 'error',
-							title: 'Error',
-							text: 'Terjadi kesalahan: ' + err
-						});
-					});
-
-			});
-		}
-
-		function convertPayroll() {
-
-			Swal.fire({
-				title: 'Convert Data?',
-				text: 'Data raw akan diproses ke payroll',
-				icon: 'warning',
-				showCancelButton: true,
-				confirmButtonText: 'Ya, lanjut'
-			}).then((result) => {
-
-				if (!result.isConfirmed) return;
-
-				Swal.fire({
-					title: 'Processing...',
-					allowOutsideClick: false,
-					didOpen: () => Swal.showLoading()
-				});
-
-				fetch('/hr/payroll/convert', {
-						method: 'POST',
-						headers: {
-							'X-CSRF-TOKEN': '{{ csrf_token() }}'
-						}
-					})
-					.then(res => res.json())
-					.then(res => {
-						Swal.fire({
-							icon: 'success',
-							title: 'Selesai',
-							html: `
-							✔️ Insert: ${res.data.inserted}<br>
-							⏭️ Skip: ${res.data.skipped}
-						`
-						});
-					})
-					.catch(err => {
-						Swal.fire('Error', err, 'error');
-					});
-			});
-		}
-
-		function kirimEmail(id, nama) {
-			Swal.fire({
-				title: 'Kirim Slip Gaji?',
-				html: `Slip gaji <b>${nama}</b> akan dikirim ke email karyawan.`,
-				icon: 'question',
-				showCancelButton: true,
-				confirmButtonColor: '#f59e0b',
-				cancelButtonColor: '#6b7280',
-				confirmButtonText: '<i class="fas fa-paper-plane mr-1"></i> Kirim',
+				confirmButtonText: 'Ya',
 				cancelButtonText: 'Batal',
 			}).then((result) => {
 				if (!result.isConfirmed) return;
-
-				Swal.fire({
-					title: 'Mengirim...',
-					text: 'Mohon tunggu sebentar.',
-					allowOutsideClick: false,
-					didOpen: () => Swal.showLoading()
-				});
 
 				$.ajax({
-					url: `/hr/payroll/${id}/send-email`,
-					method: 'POST',
+					url,
+					type: 'POST',
+					beforeSend: function() {
+						if (!isLongAction) return;
+
+						Swal.fire({
+							title: loadingTitle,
+							text: loadingText,
+							allowOutsideClick: false,
+							allowEscapeKey: false,
+							showConfirmButton: false,
+							didOpen: () => {
+								Swal.showLoading();
+							}
+						});
+					},
 					data: {
-						_token: '{{ csrf_token() }}'
+						_token: '{{ csrf_token() }}',
+						...data
 					},
 					success: function(res) {
 						if (res.status) {
+							let message = res.message ?? 'Proses selesai.';
+
+							if (res.data) {
+								message += `<br><br>
+									<div class="text-left">
+										Terkirim: <b>${res.data.sent ?? 0}</b><br>
+										Diblokir: <b>${res.data.blocked ?? 0}</b><br>
+										Gagal: <b>${res.data.failed ?? 0}</b>
+									</div>`;
+							}
+
 							Swal.fire({
 								icon: 'success',
-								title: 'Berhasil!',
-								text: res.message,
-								timer: 2500,
-								showConfirmButton: false
+								title: 'Berhasil',
+								html: message
+							}).then(() => {
+								if (reload) location.reload();
 							});
 						} else {
-							Swal.fire({
-								icon: 'error',
-								title: 'Gagal',
-								text: res.error ?? 'Terjadi kesalahan.'
-							});
+							Swal.fire('Gagal', res.error ?? 'Proses gagal.', 'error');
 						}
 					},
 					error: function(xhr) {
-						Swal.fire({
-							icon: 'error',
-							title: 'Error',
-							text: xhr.responseJSON?.error ?? 'Gagal mengirim email.'
-						});
+						Swal.fire('Error', xhr.responseJSON?.error ?? 'Terjadi kesalahan.', 'error');
 					}
 				});
 			});
+		}
+
+		function rejectPayroll(url) {
+			Swal.fire({
+				title: 'Tolak Payroll',
+				input: 'textarea',
+				inputLabel: 'Catatan',
+				showCancelButton: true,
+				confirmButtonText: 'Tolak',
+				cancelButtonText: 'Batal',
+			}).then((result) => {
+				if (!result.isConfirmed) return;
+				payrollAction(url, 'Konfirmasi Reject?', 'Payroll akan ditolak.', true, {
+					notes: result.value ?? ''
+				});
+			});
+		}
+
+		function syncKaryawan() {
+			payrollAction("{{ route('hr.payroll.sync') }}", 'Sync Payroll?', 'Data akan diambil dari Google Sheets.');
 		}
 
 		function blastEmail() {
-			Swal.fire({
-				title: 'Kirim Email Massal Slip Gaji?',
-				html: 'Semua karyawan akan dikirim slip gaji <b>periode terakhir</b>.',
-				icon: 'warning',
-				showCancelButton: true,
-				confirmButtonColor: '#ef4444',
-				cancelButtonColor: '#6b7280',
-				confirmButtonText: 'Ya, Kirim!',
-				cancelButtonText: 'Batal',
-			}).then((result) => {
-				if (!result.isConfirmed) return;
-
-				Swal.fire({
-					title: 'Mengirim...',
-					text: 'Proses sedang berjalan, mohon tunggu.',
-					allowOutsideClick: false,
-					didOpen: () => Swal.showLoading()
-				});
-
-				$.ajax({
-					url: `/hr/payroll/blast-email`,
-					type: 'POST', // 🔥 pakai ini, lebih pasti
-					headers: {
-						'X-CSRF-TOKEN': '{{ csrf_token() }}'
-					},
-					success: function(res) {
-						console.log(res);
-						if (res.status) {
-							Swal.fire({
-								icon: 'success',
-								title: 'Selesai!',
-								text: res.message,
-							});
-						} else {
-							Swal.fire({
-								icon: 'error',
-								title: 'Gagal',
-								text: res.error
-							});
-						}
-					},
-					error: function(xhr) {
-						console.log(err);
-						Swal.fire({
-							icon: 'error',
-							title: 'Error',
-							text: xhr.responseJSON?.error ?? 'Terjadi kesalahan'
-						});
-					}
-				});
-			});
+			payrollAction("{{ route('hr.payroll.blast-email') }}", 'Blast Email Slip Gaji?', 'Email real akan dikirim untuk payroll periode terakhir yang sudah approved, locked, dan valid.');
 		}
 	</script>
 @endpush

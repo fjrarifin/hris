@@ -1,91 +1,329 @@
 @extends('layouts.app')
 
-@section('title', 'Dasbor')
-@section('page-title', 'Dasbor HR')
+@section('title', 'Preview Slip Gaji')
+@section('page-title', 'Preview Slip Gaji')
 
 @section('content')
 	<style>
-		body {
-			font-family: Arial;
-			font-size: 12px;
+		.payroll-slip-preview {
+			position: relative;
+			max-width: 1120px;
+			margin: 0 auto 28px;
+			padding: 18px;
+			background: #fff;
+			border: 1px solid #d9dee7;
+			box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
+			font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+			color: #1a1a1a;
+			overflow: hidden;
 		}
 
-		.container {
-			border: 2px solid #000;
-			padding: 10px;
+		.payroll-slip-preview::before {
+			content: "";
+			position: absolute;
+			inset: 18px;
+			pointer-events: none;
+			background-image: url("{{ asset('hompimplay_icon.png') }}");
+			background-repeat: repeat;
+			background-size: 96px auto;
+			background-position: 12px 12px;
+			opacity: 0.025;
 		}
 
-		.header {
-			display: flex;
-			justify-content: space-between;
-			border-bottom: 2px solid #000;
-			padding-bottom: 10px;
-		}
-
-		.title {
-			font-size: 20px;
-			font-weight: bold;
-		}
-
-		.row {
-			display: flex;
-			margin-top: 10px;
-		}
-
-		.col {
-			width: 50%;
-		}
-
-		.box {
-			border: 1px solid #000;
-			margin-top: 10px;
-		}
-
-		.box-title {
-			text-align: center;
-			font-weight: bold;
-			border-bottom: 1px solid #000;
-			padding: 5px;
-			letter-spacing: 3px;
-		}
-
-		table {
+		.payroll-slip-preview table {
 			width: 100%;
 			border-collapse: collapse;
 		}
 
-		td {
-			padding: 4px;
+		.payroll-slip-preview .slip-card,
+		.payroll-slip-preview .tbl-benefit {
+			position: relative;
+			z-index: 1;
+			width: 100%;
+			border: 2px solid #1a1a1a;
+			border-collapse: collapse;
+			background: rgba(255, 255, 255, 0.96);
 		}
 
-		.right {
+		.payroll-slip-preview .slip-card td {
+			padding: 0;
+			vertical-align: top;
+		}
+
+		.payroll-slip-preview .header-company {
+			font-size: 18px;
+			font-weight: 800;
+			letter-spacing: 0.5px;
+			text-align: center;
+			padding: 14px 16px;
+			border-right: 2px solid #1a1a1a;
+			border-bottom: 2px solid #1a1a1a;
+			background: #f8fafc;
+		}
+
+		.payroll-slip-preview .header-logo {
+			text-align: right;
+			padding: 12px 18px;
+			border-bottom: 2px solid #1a1a1a;
+		}
+
+		.payroll-slip-preview .tbl-info td,
+		.payroll-slip-preview .tbl-bank td {
+			padding: 4px 5px;
+			font-size: 12px;
+		}
+
+		.payroll-slip-preview .info-label,
+		.payroll-slip-preview .bank-label {
+			color: #667085;
+			white-space: nowrap;
+		}
+
+		.payroll-slip-preview .info-sep,
+		.payroll-slip-preview .bank-sep {
+			color: #667085;
+			width: 12px;
+		}
+
+		.payroll-slip-preview .info-val,
+		.payroll-slip-preview .bank-val {
+			font-weight: 700;
+			padding-left: 8px;
+		}
+
+		.payroll-slip-preview .periode-tag {
+			display: inline-block;
+			background: #1a1a1a;
+			color: #fff;
+			font-size: 12px;
+			font-weight: 800;
+			padding: 5px 12px;
+			border-radius: 5px;
+			margin-bottom: 12px;
+			letter-spacing: 0.3px;
+		}
+
+		.payroll-slip-preview .tbl-absen td {
+			padding: 4px 8px 4px 0;
+			width: 16.66%;
+			vertical-align: top;
+		}
+
+		.payroll-slip-preview .absen-label {
+			display: block;
+			font-size: 11px;
+			color: #8a94a6;
+		}
+
+		.payroll-slip-preview .absen-val {
+			display: block;
+			font-size: 12px;
+			font-weight: 800;
+			color: #111827;
+		}
+
+		.payroll-slip-preview .section-title,
+		.payroll-slip-preview .paid-title {
+			font-size: 12px;
+			font-weight: 800;
+			letter-spacing: 5px;
+			color: #475467;
+			text-align: center;
+			padding: 9px 0;
+			background: #f8fafc;
+			border-bottom: 1px solid #d9dee7;
+		}
+
+		.payroll-slip-preview .tbl-item td {
+			padding: 4px 18px;
+			font-size: 12px;
+		}
+
+		.payroll-slip-preview .item-name {
+			width: 60%;
+		}
+
+		.payroll-slip-preview .item-cur {
+			width: 8%;
+			color: #8a94a6;
+		}
+
+		.payroll-slip-preview .item-amt {
+			width: 32%;
+			text-align: right;
+			font-weight: 650;
+		}
+
+		.payroll-slip-preview .tbl-total {
+			background: #f7f7f5;
+		}
+
+		.payroll-slip-preview .tbl-total td {
+			padding: 12px 18px;
+			font-size: 14px;
+			font-weight: 800;
+		}
+
+		.payroll-slip-preview .total-cur {
+			color: #667085;
+			width: 8%;
+		}
+
+		.payroll-slip-preview .total-amt {
 			text-align: right;
 		}
 
-		.bold {
-			font-weight: bold;
+		.payroll-slip-preview .thp-label {
+			font-size: 11px;
+			font-weight: 800;
+			letter-spacing: 3px;
+			color: #667085;
+			text-transform: uppercase;
+			margin-bottom: 6px;
 		}
 
-		.total {
-			border-top: 2px solid #000;
-			font-weight: bold;
+		.payroll-slip-preview .thp-amount {
+			font-size: 28px;
+			font-weight: 900;
+			border-bottom: 2px solid #1a1a1a;
+			padding-bottom: 5px;
 		}
 
-		.grand-total {
+		.payroll-slip-preview .thp-rp {
+			font-size: 16px;
+			font-weight: 500;
+			color: #667085;
+			margin-right: 6px;
+		}
+
+		.payroll-slip-preview .tbl-benefit {
+			margin-top: 14px;
+		}
+
+		.payroll-slip-preview .benefit-header td {
+			font-size: 12px;
+			font-weight: 800;
+			letter-spacing: 5px;
+			color: #475467;
 			text-align: center;
-			margin-top: 15px;
-			font-size: 18px;
-			font-weight: bold;
+			padding: 9px 0;
+			border-bottom: 2px solid #1a1a1a;
+			background: #f7f7f5;
 		}
 
-		.footer {
-			border-top: 2px solid #000;
-			margin-top: 10px;
-			padding-top: 10px;
+		.payroll-slip-preview .tbl-benefit td {
+			padding: 7px 18px;
+			font-size: 12px;
+		}
+
+		.payroll-slip-preview .br {
+			border-right: 2px solid #1a1a1a;
+		}
+
+		.payroll-slip-preview .bb {
+			border-bottom: 2px solid #1a1a1a;
+		}
+
+		@media (max-width: 768px) {
+			.payroll-slip-preview {
+				padding: 10px;
+				overflow-x: auto;
+			}
+
+			.payroll-slip-preview .slip-card,
+			.payroll-slip-preview .tbl-benefit {
+				min-width: 900px;
+			}
 		}
 	</style>
 
-	<div class="container">
+	@php
+		$itemMap = $payroll->items->keyBy(function ($item) {
+		    return $item->component->nama ?? $item->nama_item;
+		});
+		$critical = $validation['critical'] ?? [];
+		$warnings = $validation['warnings'] ?? [];
+	@endphp
+
+	<div class="mb-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+		<div class="flex flex-wrap items-center justify-between gap-3">
+			<div>
+				<div class="text-sm font-bold text-slate-900">Workflow Payroll</div>
+				<div class="mt-1 flex flex-wrap gap-2 text-xs font-bold">
+					<span class="rounded-full bg-slate-100 px-3 py-1 text-slate-700">Approval:
+						{{ strtoupper($payroll->approval_status ?? 'draft') }}</span>
+					<span class="rounded-full {{ $payroll->is_locked ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600' }} px-3 py-1">
+						{{ $payroll->is_locked ? 'LOCKED' : 'OPEN' }}
+					</span>
+					<span class="rounded-full {{ ($validation['status'] ?? 'unchecked') === 'invalid' ? 'bg-red-100 text-red-700' : (($validation['status'] ?? 'unchecked') === 'warning' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700') }} px-3 py-1">
+						VALIDASI: {{ strtoupper($validation['status'] ?? 'unchecked') }}
+					</span>
+				</div>
+			</div>
+			<div class="flex flex-wrap gap-2">
+				<a href="{{ route('hr.payroll.index') }}" class="btn btn-secondary btn-sm font-bold">
+					<i class="fas fa-arrow-left mr-1"></i> Kembali
+				</a>
+				<a href="{{ route('hr.payroll.download', $payroll->id) }}" class="btn btn-success btn-sm font-bold">
+					<i class="fas fa-download mr-1"></i> PDF
+				</a>
+			</div>
+		</div>
+
+		@if (count($critical) || count($warnings))
+			<div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+				@if (count($critical))
+					<div class="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+						<div class="mb-1 font-bold">Error Validasi</div>
+						<ul class="mb-0 pl-4">
+							@foreach ($critical as $message)
+								<li>{{ $message }}</li>
+							@endforeach
+						</ul>
+					</div>
+				@endif
+				@if (count($warnings))
+					<div class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
+						<div class="mb-1 font-bold">Warning</div>
+						<ul class="mb-0 pl-4">
+							@foreach ($warnings as $message)
+								<li>{{ $message }}</li>
+							@endforeach
+						</ul>
+					</div>
+				@endif
+			</div>
+		@endif
+
+		@if ($payroll->emailLogs->isNotEmpty())
+			<div class="mt-3 overflow-x-auto">
+				<table class="table-bordered table-sm table text-xs">
+					<thead>
+						<tr>
+							<th>Waktu</th>
+							<th>Aksi</th>
+							<th>Status</th>
+							<th>Tujuan</th>
+							<th>Catatan</th>
+						</tr>
+					</thead>
+					<tbody>
+						@foreach ($payroll->emailLogs->sortByDesc('created_at')->take(5) as $log)
+							<tr>
+								<td>{{ $log->created_at?->format('d M Y H:i') }}</td>
+								<td>{{ strtoupper($log->action) }}</td>
+								<td>{{ strtoupper($log->status) }}</td>
+								<td>{{ $log->recipient_email ?? '-' }}</td>
+								<td>{{ $log->notes ?? '-' }}</td>
+							</tr>
+						@endforeach
+					</tbody>
+				</table>
+			</div>
+		@endif
+	</div>
+
+	<div class="payroll-slip-preview">
 
 		<table class="slip-card">
 

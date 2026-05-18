@@ -207,7 +207,7 @@
 				<div class="pw-value">Format: DDMMYY</div>
 				<div class="pw-hint">
 					Gunakan <strong>tanggal lahir</strong> Anda sebagai password untuk membuka file PDF terlampir.<br>
-					Contoh: 20 November 1995 menjadi <strong>201195</strong>.
+					Contoh: 01 Januari 1995 menjadi <strong>010195</strong>.
 				</div>
 			</div>
 

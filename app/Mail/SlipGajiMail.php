@@ -19,13 +19,21 @@ class SlipGajiMail extends Mailable
     public string  $pdfContent;
     public string  $fileName;
     public string  $password;
+    public ?string $emailSubject;
 
-    public function __construct(Payroll $payroll, string $pdfContent, string $fileName, string $password)
+    public function __construct(
+        Payroll $payroll,
+        string $pdfContent,
+        string $fileName,
+        string $password,
+        ?string $emailSubject = null,
+    )
     {
         $this->payroll    = $payroll;
         $this->pdfContent = $pdfContent;
         $this->fileName   = $fileName;
         $this->password   = $password;
+        $this->emailSubject = $emailSubject;
     }
 
     public function envelope(): Envelope
@@ -33,7 +41,7 @@ class SlipGajiMail extends Mailable
         $periode = Carbon::parse($this->payroll->periode_start)->translatedFormat('F Y');
 
         return new Envelope(
-            subject: 'Slip Gaji ' . $periode . ' - ' . $this->payroll->karyawan->nama_karyawan,
+            subject: $this->emailSubject ?: 'Slip Gaji ' . $periode . ' - ' . $this->payroll->karyawan->nama_karyawan,
         );
     }
 

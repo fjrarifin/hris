@@ -24,6 +24,30 @@ class Payroll extends Model
         'cuti_normatif',
         'libur_nasional',
         'ph',
+        'approval_status',
+        'submitted_by',
+        'submitted_at',
+        'approved_by',
+        'approved_at',
+        'approval_notes',
+        'is_locked',
+        'locked_by',
+        'locked_at',
+        'validation_status',
+        'validation_warnings',
+        'validated_by',
+        'validated_at',
+    ];
+
+    protected $casts = [
+        'periode_start' => 'date',
+        'periode_end' => 'date',
+        'submitted_at' => 'datetime',
+        'approved_at' => 'datetime',
+        'is_locked' => 'boolean',
+        'locked_at' => 'datetime',
+        'validation_warnings' => 'array',
+        'validated_at' => 'datetime',
     ];
 
     public function karyawan()
@@ -34,6 +58,26 @@ class Payroll extends Model
     public function items()
     {
         return $this->hasMany(PayrollItem::class);
+    }
+
+    public function emailLogs()
+    {
+        return $this->hasMany(PayrollEmailLog::class);
+    }
+
+    public function latestEmailLog()
+    {
+        return $this->hasOne(PayrollEmailLog::class)->latestOfMany();
+    }
+
+    public function approver()
+    {
+        return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    public function locker()
+    {
+        return $this->belongsTo(User::class, 'locked_by');
     }
 
     public function earnings()

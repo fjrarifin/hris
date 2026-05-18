@@ -3,29 +3,62 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use App\Exports\PayrollExport;
 use App\Models\Payroll;
 use App\Models\PayrollItem;
 use App\Models\PayrollComponent;
+use App\Models\PayrollEmailLog;
+use App\Models\PayrollEmailTemplate;
 use App\Models\Karyawan;
+use App\Mail\SlipGajiMail;
+use App\Services\PayrollValidationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Auth;
 use Maatwebsite\Excel\Facades\Excel;
 use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 use Barryvdh\DomPDF\Facade\Pdf;
-use App\Mail\SlipGajiMail;
 use Illuminate\Support\Facades\Storage;
-use App\Jobs\SendSlipGajiJob;
 use App\Models\PayrollNew;
 use Illuminate\View\Component;
+use Carbon\Carbon;
 
 class PayrollController extends Controller
 {
-    public function index()
+    public function __construct(private readonly PayrollValidationService $validationService)
     {
-        $payrolls = Payroll::with('karyawan')->orderBy('periode_start', 'desc')->get();
-        return view('hr.payroll.index', compact('payrolls'));
+    }
+
+    public function index(Request $request)
+    {
+        $payrolls = Payroll::with(['karyawan', 'latestEmailLog'])
+            ->when($request->filled('periode_start'), function ($query) use ($request) {
+                $query->whereDate('periode_start', $request->periode_start);
+            })
+            ->when($request->filled('periode_end'), function ($query) use ($request) {
+                $query->whereDate('periode_end', $request->periode_end);
+            })
+            ->when($request->filled('approval_status'), function ($query) use ($request) {
+                $query->where('approval_status', $request->approval_status);
+            })
+            ->orderBy('periode_start', 'desc')
+            ->get();
+
+        $periods = Payroll::select('periode_start', 'periode_end')
+            ->distinct()
+            ->orderByDesc('periode_start')
+            ->get();
+
+        $summary = [
+            'total' => $payrolls->count(),
+            'approved' => $payrolls->where('approval_status', 'approved')->count(),
+            'locked' => $payrolls->where('is_locked', true)->count(),
+            'warning' => $payrolls->whereIn('validation_status', ['warning', 'invalid'])->count(),
+        ];
+
+        return view('hr.payroll.index', compact('payrolls', 'periods', 'summary'));
     }
 
     public function form()
@@ -37,10 +70,16 @@ class PayrollController extends Controller
     {
         $payroll = Payroll::with([
             'karyawan',
-            'items.component'
+            'items.component',
+            'emailLogs.creator',
+            'approver',
+            'locker',
         ])->findOrFail($id);
 
-        return view('hr.payroll.slip', compact('payroll'));
+        $validation = $this->validationService->validate($payroll);
+        $template = PayrollEmailTemplate::slipGaji();
+
+        return view('hr.payroll.slip', compact('payroll', 'validation', 'template'));
     }
 
     public function downloadTemplate()
@@ -67,17 +106,39 @@ class PayrollController extends Controller
                 ]);
             }
 
-            $payrolls = Payroll::where('periode_start', $latest->periode_start)
+            $payrolls = Payroll::with(['karyawan', 'items.component'])
+                ->where('periode_start', $latest->periode_start)
                 ->where('periode_end', $latest->periode_end)
                 ->get();
 
+            $sent = 0;
+            $blocked = 0;
+            $failed = 0;
+            $errors = [];
+
             foreach ($payrolls as $payroll) {
-                SendSlipGajiJob::dispatch($payroll);
+                $log = $this->deliverSlipEmail($payroll, 'blast');
+
+                if ($log->status === 'sent') {
+                    $sent++;
+                } elseif ($log->status === 'blocked') {
+                    $blocked++;
+                    $errors[] = $payroll->karyawan_nik . ': ' . $log->notes;
+                } else {
+                    $failed++;
+                    $errors[] = $payroll->karyawan_nik . ': ' . $log->notes;
+                }
             }
 
             return response()->json([
                 'status'  => true,
-                'message' => 'Blast email sedang diproses di background'
+                'message' => 'Blast email real selesai diproses.',
+                'data' => [
+                    'sent' => $sent,
+                    'blocked' => $blocked,
+                    'failed' => $failed,
+                    'errors' => $errors,
+                ],
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -188,25 +249,20 @@ class PayrollController extends Controller
                 'items.component'
             ])->findOrFail($id);
 
-            $email = $payroll->karyawan->email ?? null;
+            $log = $this->deliverSlipEmail($payroll, 'resend');
 
-            if (!$email) {
+            if ($log->status !== 'sent') {
                 return response()->json([
                     'status' => false,
-                    'error'  => 'Email karyawan ' . $payroll->karyawan->nama_karyawan . ' tidak tersedia.'
+                    'error'  => 'Pengiriman gagal/diblokir: ' . $log->notes,
+                    'log_id' => $log->id,
                 ]);
             }
 
-            $password   = $this->pdfPassword($payroll);
-            $pdfContent = $this->buildPdf($payroll, $password);
-
-            Mail::to($email)->send(
-                new SlipGajiMail($payroll, $pdfContent, $this->pdfFileName($payroll), $password)
-            );
-
             return response()->json([
                 'status'  => true,
-                'message' => 'Slip gaji berhasil dikirim ke ' . $email
+                'message' => 'Slip gaji berhasil dikirim ke ' . ($payroll->karyawan->email ?? '-'),
+                'log_id' => $log->id,
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -214,6 +270,268 @@ class PayrollController extends Controller
                 'error'  => $e->getMessage()
             ]);
         }
+    }
+
+    private function deliverSlipEmail(Payroll $payroll, string $action): PayrollEmailLog
+    {
+        $payroll->loadMissing(['karyawan', 'items.component']);
+        $validation = $this->validationService->validateAndStore($payroll, Auth::id(), true);
+        $template = PayrollEmailTemplate::slipGaji();
+        $attemptNo = PayrollEmailLog::where('payroll_id', $payroll->id)->count() + 1;
+        $notes = collect($validation['critical'] ?? [])->merge($validation['warnings'] ?? [])->implode(' | ');
+
+        if (!$validation['can_send']) {
+            return PayrollEmailLog::create([
+                'payroll_id' => $payroll->id,
+                'karyawan_nik' => $payroll->karyawan_nik,
+                'recipient_email' => $payroll->karyawan?->email,
+                'subject' => $template->renderSubject($payroll),
+                'action' => $action,
+                'status' => 'blocked',
+                'attempt_no' => $attemptNo,
+                'created_by' => Auth::id(),
+                'sent_at' => null,
+                'notes' => $notes ?: 'Payroll belum memenuhi syarat pengiriman.',
+                'payload' => [
+                    'dry_run' => false,
+                    'file_name' => $this->pdfFileName($payroll),
+                    'validation' => $validation,
+                ],
+            ]);
+        }
+
+        try {
+            $password = $this->pdfPassword($payroll);
+            $pdfContent = $this->buildPdf($payroll, $password);
+            $fileName = $this->pdfFileName($payroll);
+            $subject = $template->renderSubject($payroll);
+            $body = $template->renderBody($payroll);
+
+            Mail::to($payroll->karyawan->email)->send(
+                new SlipGajiMail($payroll, $pdfContent, $fileName, $password, $subject, $body)
+            );
+
+            return PayrollEmailLog::create([
+                'payroll_id' => $payroll->id,
+                'karyawan_nik' => $payroll->karyawan_nik,
+                'recipient_email' => $payroll->karyawan?->email,
+                'subject' => $subject,
+                'action' => $action,
+                'status' => 'sent',
+                'attempt_no' => $attemptNo,
+                'created_by' => Auth::id(),
+                'sent_at' => now(),
+                'notes' => 'Email slip gaji berhasil dikirim.',
+                'payload' => [
+                    'dry_run' => false,
+                    'body_preview' => $body,
+                    'file_name' => $fileName,
+                    'validation' => $validation,
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Gagal mengirim slip gaji', [
+                'payroll_id' => $payroll->id,
+                'karyawan_nik' => $payroll->karyawan_nik,
+                'recipient_email' => $payroll->karyawan?->email,
+                'error' => $e->getMessage(),
+            ]);
+
+            return PayrollEmailLog::create([
+                'payroll_id' => $payroll->id,
+                'karyawan_nik' => $payroll->karyawan_nik,
+                'recipient_email' => $payroll->karyawan?->email,
+                'subject' => $template->renderSubject($payroll),
+                'action' => $action,
+                'status' => 'failed',
+                'attempt_no' => $attemptNo,
+                'created_by' => Auth::id(),
+                'sent_at' => null,
+                'notes' => $e->getMessage(),
+                'payload' => [
+                    'dry_run' => false,
+                    'file_name' => $this->pdfFileName($payroll),
+                    'validation' => $validation,
+                ],
+            ]);
+        }
+    }
+
+    private function logSlipEmailSimulation(Payroll $payroll, string $action, array $validation): PayrollEmailLog
+    {
+        $payroll->loadMissing('karyawan');
+        $template = PayrollEmailTemplate::slipGaji();
+        $attemptNo = PayrollEmailLog::where('payroll_id', $payroll->id)->count() + 1;
+        $notes = collect($validation['critical'] ?? [])->merge($validation['warnings'] ?? [])->implode(' | ');
+
+        return PayrollEmailLog::create([
+            'payroll_id' => $payroll->id,
+            'karyawan_nik' => $payroll->karyawan_nik,
+            'recipient_email' => $payroll->karyawan?->email,
+            'subject' => $template->renderSubject($payroll),
+            'action' => $action,
+            'status' => $validation['can_send'] ? 'simulated' : 'blocked',
+            'attempt_no' => $attemptNo,
+            'created_by' => Auth::id(),
+            'sent_at' => null,
+            'notes' => $notes ?: 'Siap dikirim, tetapi mode aman aktif sehingga email tidak dikirim.',
+            'payload' => [
+                'dry_run' => true,
+                'body_preview' => $template->renderBody($payroll),
+                'file_name' => $this->pdfFileName($payroll),
+                'validation' => $validation,
+            ],
+        ]);
+    }
+
+    public function validatePayroll($id)
+    {
+        $payroll = Payroll::with(['karyawan', 'items.component'])->findOrFail($id);
+        $validation = $this->validationService->validateAndStore($payroll, Auth::id());
+
+        return response()->json([
+            'status' => $validation['status'] !== 'invalid',
+            'message' => $validation['status'] === 'valid'
+                ? 'Payroll valid.'
+                : 'Payroll memiliki catatan validasi.',
+            'validation' => $validation,
+        ]);
+    }
+
+    public function approve($id)
+    {
+        $payroll = Payroll::with(['karyawan', 'items.component'])->findOrFail($id);
+        $validation = $this->validationService->validateAndStore($payroll, Auth::id());
+
+        if ($validation['status'] === 'invalid') {
+            return response()->json([
+                'status' => false,
+                'error' => 'Payroll belum bisa disetujui karena masih ada error validasi.',
+                'validation' => $validation,
+            ]);
+        }
+
+        $payroll->update([
+            'approval_status' => 'approved',
+            'approved_by' => Auth::id(),
+            'approved_at' => now(),
+            'approval_notes' => null,
+        ]);
+
+        return response()->json(['status' => true, 'message' => 'Payroll disetujui.']);
+    }
+
+    public function reject(Request $request, $id)
+    {
+        $request->validate([
+            'notes' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $payroll = Payroll::findOrFail($id);
+
+        if ($payroll->is_locked) {
+            return response()->json(['status' => false, 'error' => 'Payroll yang sudah dikunci tidak bisa ditolak.']);
+        }
+
+        $payroll->update([
+            'approval_status' => 'rejected',
+            'approved_by' => null,
+            'approved_at' => null,
+            'approval_notes' => $request->notes,
+        ]);
+
+        return response()->json(['status' => true, 'message' => 'Payroll ditolak.']);
+    }
+
+    public function lock($id)
+    {
+        $payroll = Payroll::with(['karyawan', 'items.component'])->findOrFail($id);
+
+        if ($payroll->approval_status !== 'approved') {
+            return response()->json(['status' => false, 'error' => 'Payroll harus disetujui sebelum dikunci.']);
+        }
+
+        $validation = $this->validationService->validateAndStore($payroll, Auth::id());
+
+        if ($validation['status'] === 'invalid') {
+            return response()->json([
+                'status' => false,
+                'error' => 'Payroll belum bisa dikunci karena masih ada error validasi.',
+                'validation' => $validation,
+            ]);
+        }
+
+        $payroll->update([
+            'is_locked' => true,
+            'locked_by' => Auth::id(),
+            'locked_at' => now(),
+        ]);
+
+        return response()->json(['status' => true, 'message' => 'Payroll dikunci.']);
+    }
+
+    public function unlock($id)
+    {
+        $payroll = Payroll::findOrFail($id);
+
+        $payroll->update([
+            'is_locked' => false,
+            'locked_by' => null,
+            'locked_at' => null,
+        ]);
+
+        return response()->json(['status' => true, 'message' => 'Payroll dibuka kembali.']);
+    }
+
+    public function history(Request $request)
+    {
+        $periods = Payroll::select(
+                'periode_start',
+                'periode_end',
+                DB::raw('COUNT(*) as total_payroll'),
+                DB::raw("SUM(CASE WHEN approval_status = 'approved' THEN 1 ELSE 0 END) as total_approved"),
+                DB::raw("SUM(CASE WHEN is_locked = 1 THEN 1 ELSE 0 END) as total_locked"),
+                DB::raw('SUM(total_dibayarkan) as total_dibayarkan')
+            )
+            ->groupBy('periode_start', 'periode_end')
+            ->orderByDesc('periode_start')
+            ->get();
+
+        return view('hr.payroll.history', compact('periods'));
+    }
+
+    public function emailTemplate()
+    {
+        $template = PayrollEmailTemplate::slipGaji();
+
+        return view('hr.payroll.email-template', compact('template'));
+    }
+
+    public function updateEmailTemplate(Request $request)
+    {
+        $data = $request->validate([
+            'subject' => ['required', 'string', 'max:255'],
+            'body' => ['required', 'string'],
+            'is_active' => ['nullable', 'boolean'],
+        ]);
+
+        $template = PayrollEmailTemplate::slipGaji();
+        $template->update([
+            'subject' => $data['subject'],
+            'body' => $data['body'],
+            'is_active' => $request->boolean('is_active'),
+            'updated_by' => Auth::id(),
+        ]);
+
+        return back()->with('success', 'Template email slip gaji diperbarui.');
+    }
+
+    public function export(Request $request)
+    {
+        $filters = $request->only(['periode_start', 'periode_end', 'approval_status']);
+        $fileName = 'hasil_payroll_' . now()->format('Ymd_His') . '.xlsx';
+
+        return Excel::download(new PayrollExport($filters), $fileName);
     }
 
     public function syncKaryawanFromGsheet()
@@ -421,6 +739,11 @@ class PayrollController extends Controller
 
                     $itemCount++;
                 }
+
+                $this->validationService->validateAndStore(
+                    $payroll->load(['karyawan', 'items.component']),
+                    Auth::id()
+                );
 
                 // 🔥 HITUNG TOTAL (SETELAH LOOP)
                 // $totalPendapatan =
