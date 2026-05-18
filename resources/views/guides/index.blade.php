@@ -111,7 +111,7 @@
 		<div class="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
 			<div>
 				<h3 class="mb-1 text-xl font-extrabold text-slate-900">Flow Pengajuan Cuti</h3>
-				<p class="mb-0 text-sm text-slate-600">Alur ini berlaku untuk cuti tahunan dan cuti lainnya dari halaman staff.</p>
+				<p class="mb-0 text-sm text-slate-600">Alur ini berlaku untuk cuti tahunan dan cuti lainnya dari halaman karyawan.</p>
 			</div>
 			<span class="guide-pill bg-blue-50 text-blue-700">Maksimal 5 hari per pengajuan</span>
 		</div>
@@ -119,7 +119,7 @@
 		<div class="grid grid-cols-1 gap-3 md:grid-cols-5">
 			<div class="guide-step">
 				<span class="guide-step-number">1</span>
-				<div class="mt-3 font-bold text-slate-900">Staff Mengajukan</div>
+				<div class="mt-3 font-bold text-slate-900">Karyawan Mengajukan</div>
 				<p class="mb-0 mt-1 text-xs text-slate-600">Buka Pengajuan Cuti, cek saldo tersedia, klik Ajukan Cuti, isi jenis, tanggal, dan alasan.</p>
 			</div>
 			<div class="guide-step">
@@ -146,7 +146,7 @@
 
 		<div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
 			<div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-				<div class="mb-2 font-bold text-slate-900">Yang perlu diperhatikan staff</div>
+				<div class="mb-2 font-bold text-slate-900">Yang perlu diperhatikan karyawan</div>
 				<ul class="mb-0 pl-4 text-sm text-slate-700">
 					<li>Saldo cuti tersedia berasal dari accrual cuti yang belum digunakan dan belum expired.</li>
 					<li>Pengajuan yang masih pending bisa dihapus oleh pemohon.</li>
@@ -217,7 +217,7 @@
 			</div>
 			<div class="rounded-2xl border border-slate-200 p-4">
 				<div class="mb-2 font-bold text-slate-900"><i class="fas fa-user-shield mr-1 text-slate-600"></i> Final HR</div>
-				<p class="mb-0 text-sm text-slate-600">HR hanya memproses pengajuan yang sudah disetujui atasan. Keputusan HR adalah status akhir yang terlihat oleh staff.</p>
+				<p class="mb-0 text-sm text-slate-600">HR hanya memproses pengajuan yang sudah disetujui atasan. Keputusan HR adalah status akhir yang terlihat oleh karyawan.</p>
 			</div>
 		</div>
 		@if ($userLevel === 2 && Route::has('hr.approval.index'))

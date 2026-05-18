@@ -45,7 +45,11 @@ class PublicHolidayController extends Controller
             ->latest()
             ->get();
 
-        return view('staff.public-holiday.index', compact('holidays', 'requests'));
+        $leaveRequests = LeaveRequest::where('user_id', Auth::id())
+            ->whereNotIn('status', ['rejected', 'cancelled'])
+            ->get();
+
+        return view('staff.public-holiday.index', compact('holidays', 'requests', 'leaveRequests'));
     }
 
     public function store(Request $request)

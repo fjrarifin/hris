@@ -54,12 +54,18 @@ class LeaveRequestController extends Controller
             ->latest()
             ->get();
 
+        $phRequests = PublicHolidayRequest::where('user_id', $user->id)
+            ->whereNotIn('status', ['rejected', 'cancelled'])
+            ->latest()
+            ->get();
+
         return view('staff.leave.index', compact(
             'requests',
             'accruals',
             'total',
             'used',
-            'available'
+            'available',
+            'phRequests'
         ));
     }
 

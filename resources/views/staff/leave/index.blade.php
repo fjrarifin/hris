@@ -4,6 +4,13 @@
 @section('page-title', 'Pengajuan Cuti')
 
 @section('content')
+	@php
+		$blockedPhDates = ($phRequests ?? collect())
+		    ->map(fn($request) => optional($request->claim_date)->format('Y-m-d'))
+		    ->filter()
+		    ->values();
+	@endphp
+
 	<style>
 		@media (max-width: 768px) {
 			.desktop-table {
@@ -393,14 +400,19 @@
 						<div class="form-row">
 							<div class="form-group col-md-6">
 								<label class="font-weight-semibold">Tanggal Mulai</label>
-								<input type="date" name="start_date" class="form-control rounded-xl" required>
+								<input type="text" name="start_date" class="form-control rounded-xl" required>
 							</div>
 
 							<div class="form-group col-md-6">
 								<label class="font-weight-semibold">Tanggal Selesai</label>
-								<input type="date" name="end_date" class="form-control rounded-xl" required>
+								<input type="text" name="end_date" class="form-control rounded-xl" required>
 							</div>
 						</div>
+						@if ($blockedPhDates->isNotEmpty())
+							<small class="app-date-help">
+								Tanggal yang sudah diajukan untuk Public Holiday akan tampil abu-abu dan tidak bisa dipilih.
+							</small>
+						@endif
 
 						{{-- JENIS CUTI DROPDOWN --}}
 						<div class="form-group">
@@ -447,19 +459,55 @@
 		</div>
 	</div>
 
+	@include('partials.date-picker')
+
 	<script>
 		document.addEventListener('DOMContentLoaded', function() {
 
 			const form = document.querySelector('#modalPengajuanCuti form');
 			const startInput = form.querySelector('input[name="start_date"]');
 			const endInput = form.querySelector('input[name="end_date"]');
-
-			const today = new Date().toISOString().split('T')[0];
+			const blockedPhDates = new Set(@json($blockedPhDates));
+			const today = @json(now()->toDateString());
 
 			startInput.setAttribute('min', today);
 			endInput.setAttribute('min', today);
 
 			if (!form) return;
+
+			createAppDatePicker(startInput, {
+				minDate: today,
+				disabledDates: Array.from(blockedPhDates),
+				disabledTitle: 'Tanggal ini sudah diajukan untuk Public Holiday'
+			});
+
+			createAppDatePicker(endInput, {
+				minDate: function() {
+					return startInput.value || today;
+				},
+				disabledDates: Array.from(blockedPhDates),
+				disabledTitle: 'Tanggal ini sudah diajukan untuk Public Holiday'
+			});
+
+			startInput.addEventListener('change', function() {
+				if (endInput.value && endInput.value < startInput.value) {
+					endInput.value = '';
+				}
+			});
+
+			function dateRangeContainsBlockedPh(startDate, endDate) {
+				let cursor = startDate;
+
+				while (cursor && cursor <= endDate) {
+					if (blockedPhDates.has(cursor)) {
+						return cursor;
+					}
+
+					cursor = window.datePickerAddDays(cursor, 1);
+				}
+
+				return null;
+			}
 
 			form.addEventListener('submit', function(e) {
 
@@ -469,8 +517,6 @@
 				const endDate = form.end_date.value;
 				const leaveType = form.leave_type.value;
 				const reason = form.reason.value;
-
-				const today = new Date().toISOString().split('T')[0];
 
 				// ❌ Required validation
 				if (!startDate || !endDate || !leaveType || !reason) {
@@ -495,6 +541,11 @@
 				}
 
 				// ✅ Konfirmasi
+				const blockedDate = dateRangeContainsBlockedPh(startDate, endDate);
+				if (blockedDate) {
+					return toastError('Tanggal ' + blockedDate + ' sudah diajukan untuk Public Holiday.');
+				}
+
 				Swal.fire({
 					title: 'Ajukan Cuti?',
 					text: 'Pastikan data sudah benar.',

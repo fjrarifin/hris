@@ -4,6 +4,22 @@
 @section('page-title', 'Pengajuan Hari Libur')
 
 @section('content')
+	@php
+		$blockedLeaveDates = collect();
+
+		foreach (($leaveRequests ?? collect()) as $request) {
+		    if (!$request->start_date || !$request->end_date) {
+		        continue;
+		    }
+
+		    foreach (\Carbon\CarbonPeriod::create($request->start_date, $request->end_date) as $date) {
+		        $blockedLeaveDates->push($date->format('Y-m-d'));
+		    }
+		}
+
+		$blockedLeaveDates = $blockedLeaveDates->unique()->values();
+	@endphp
+
 	<style>
 		@media (max-width: 768px) {
 			.desktop-table {
@@ -262,7 +278,12 @@
 								Tanggal Claim PH <span class="text-danger">*</span>
 							</label>
 
-							<input type="date" name="claim_date" class="form-control rounded-xl" required>
+							<input type="text" name="claim_date" class="form-control rounded-xl" required>
+							@if ($blockedLeaveDates->isNotEmpty())
+								<small class="app-date-help">
+									Tanggal yang sudah diajukan untuk cuti akan tampil abu-abu dan tidak bisa dipilih.
+								</small>
+							@endif
 						</div>
 
 					</div>
@@ -286,20 +307,44 @@
 	{{-- SCRIPT --}}
 	{{-- ============================= --}}
 
+	@include('partials.date-picker')
+
 	<script>
 		document.addEventListener('DOMContentLoaded', function() {
 
 			const submitBtn = document.getElementById('btnSubmitPH');
 			if (!submitBtn) return;
 
+			const today = @json(now()->toDateString());
+			const form = submitBtn.closest('form');
+			const claimInput = form.querySelector('[name="claim_date"]');
+			const blockedLeaveDates = new Set(@json($blockedLeaveDates));
+
+			claimInput.setAttribute('min', today);
+
+			createAppDatePicker(claimInput, {
+				minDate: today,
+				disabledDates: Array.from(blockedLeaveDates),
+				disabledTitle: 'Tanggal ini sudah diajukan untuk cuti'
+			});
+
 			submitBtn.addEventListener('click', function() {
 
-				const form = submitBtn.closest('form');
 				const holiday = form.querySelector('[name="public_holiday_id"]').value;
 				const claimDate = form.querySelector('[name="claim_date"]').value;
 
 				if (!holiday || !claimDate) {
 					toastError('Semua field wajib diisi');
+					return;
+				}
+
+				if (claimDate < today) {
+					toastError('Tanggal claim PH tidak boleh sebelum hari ini.');
+					return;
+				}
+
+				if (blockedLeaveDates.has(claimDate)) {
+					toastError('Tanggal ' + claimDate + ' sudah diajukan untuk cuti.');
 					return;
 				}
 
@@ -350,6 +395,17 @@
 				});
 			});
 		});
+
+		function toastError(message) {
+			Swal.fire({
+				toast: true,
+				position: 'top-end',
+				icon: 'error',
+				title: message,
+				showConfirmButton: false,
+				timer: 3500
+			});
+		}
 	</script>
 
 
