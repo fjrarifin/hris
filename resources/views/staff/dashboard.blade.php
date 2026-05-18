@@ -42,7 +42,7 @@
 							</div>
 
 							<a href="{{ route('staff.leave.index') }}" class="btn btn-outline-success btn-sm btn-block rounded-pill mt-3">
-								Detail
+								Detail Cuti
 							</a>
 
 						</div>
@@ -68,7 +68,7 @@
 							</div>
 
 							<a href="{{ route('staff.leave.index') }}" class="btn btn-outline-success btn-sm rounded-pill px-3">
-								Detail
+								Detail Cuti
 							</a>
 
 						</div>
@@ -97,7 +97,7 @@
 
 							<a href="{{ route('staff.public-holiday.index') }}"
 								class="btn btn-outline-primary btn-sm btn-block rounded-pill mt-3">
-								Detail
+								Detail PH
 							</a>
 
 						</div>
@@ -123,7 +123,7 @@
 							</div>
 
 							<a href="{{ route('staff.public-holiday.index') }}" class="btn btn-outline-primary btn-sm rounded-pill px-3">
-								Detail
+								Detail PH
 							</a>
 
 						</div>
