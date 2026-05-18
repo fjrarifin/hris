@@ -86,6 +86,8 @@ Route::get('/', function () {
 */
 Route::middleware(['auth', 'force.password'])->group(function () {
 
+    Route::view('/panduan', 'guides.index')->name('guide.index');
+
     Route::get('/dashboard', function () {
         if (Auth::user()?->username === 'hrd0002') {
             return redirect()->route('hr.karyawan.index');

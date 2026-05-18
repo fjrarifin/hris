@@ -55,7 +55,7 @@ class PayrollController extends Controller
             'total' => $payrolls->count(),
             'approved' => $payrolls->where('approval_status', 'approved')->count(),
             'locked' => $payrolls->where('is_locked', true)->count(),
-            'warning' => $payrolls->whereIn('validation_status', ['warning', 'invalid'])->count(),
+            'warning' => $payrolls->where('validation_status', 'warning')->count(),
         ];
 
         return view('hr.payroll.index', compact('payrolls', 'periods', 'summary'));
@@ -593,6 +593,8 @@ class PayrollController extends Controller
 
             $inserted = 0;
             $skipped = 0;
+            $pulled = 0;
+            $periodsSynced = [];
             $errors = [];
 
             foreach ($rows as $i => $row) {
@@ -600,6 +602,8 @@ class PayrollController extends Controller
 
                 $nik = trim($row[1] ?? '');
                 if (!$nik) continue;
+
+                $pulled++;
 
                 // 🔥 Ambil data kehadiran
                 $hadir = (int) preg_replace('/[^0-9]/', '', $row[20] ?? '0');
@@ -651,6 +655,10 @@ class PayrollController extends Controller
                     $errors[] = "Baris " . ($i + 1) . ": Format tanggal salah";
                     continue;
                 }
+
+                $periodsSynced[$periodeStart . '|' . $periodeEnd] = \Carbon\Carbon::parse($periodeStart)->format('d M Y')
+                    . ' s/d '
+                    . \Carbon\Carbon::parse($periodeEnd)->format('d M Y');
 
                 // 🔥 Cek duplikat
                 $existing = Payroll::where('karyawan_nik', $nik)
@@ -769,10 +777,17 @@ class PayrollController extends Controller
 
             return response()->json([
                 'status' => true,
-                'message' => 'Sync berhasil',
+                'message' => 'Sync Google Sheet selesai diproses.',
                 'data' => [
+                    'pulled' => $pulled,
                     'inserted' => $inserted,
+                    'duplicated' => $skipped,
                     'skipped' => $skipped,
+                    'failed' => count($errors),
+                    'periods' => array_values($periodsSynced),
+                    'period_label' => count($periodsSynced) === 1
+                        ? array_values($periodsSynced)[0]
+                        : count($periodsSynced) . ' periode',
                     'errors' => $errors
                 ]
             ]);
