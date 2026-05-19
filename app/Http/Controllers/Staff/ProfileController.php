@@ -6,7 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
-use App\Notifications\IncompleteProfileNotification;
+use Illuminate\Validation\Rule;
 
 class ProfileController extends Controller
 {
@@ -24,23 +24,55 @@ class ProfileController extends Controller
 
     public function update(Request $request)
     {
+        $user = Auth::user()->load('karyawan');
+        $karyawan = $user->karyawan;
+
         $request->validate([
             'no_hp' => 'required|string|max:20',
-            'email' => 'required|email',
+            'email' => [
+                'required',
+                'email',
+                Rule::unique('users', 'email')->ignore($user->id),
+            ],
             'photo' => 'nullable|image|mimes:jpg,jpeg,png|max:2048'
         ]);
 
-        $user = Auth::user();
+        $newPhone = trim((string) $request->no_hp);
+        $newEmail = strtolower(trim((string) $request->email));
+        $currentPhone = trim((string) ($karyawan->no_hp ?? ''));
+        $currentEmail = strtolower(trim((string) ($user->email ?? '')));
+        $phoneChanged = $newPhone !== $currentPhone;
+        $emailChanged = $newEmail !== $currentEmail;
 
-        // update email
-        $user->update([
-            'email' => $request->email
-        ]);
+        if ($phoneChanged && $karyawan->phone_updated_at) {
+            return back()->withErrors([
+                'no_hp' => 'Nomor telepon hanya bisa diganti 1 kali. Kesempatan perubahan sudah digunakan.'
+            ])->withInput();
+        }
 
-        // update no hp
-        $user->karyawan->update([
-            'no_hp' => $request->no_hp
-        ]);
+        if ($emailChanged && $user->email_updated_at) {
+            return back()->withErrors([
+                'email' => 'Email hanya bisa diganti 1 kali. Kesempatan perubahan sudah digunakan.'
+            ])->withInput();
+        }
+
+        if ($emailChanged) {
+            $user->update([
+                'email' => $newEmail,
+                'email_updated_at' => now(),
+            ]);
+
+            $karyawan->update([
+                'email' => $newEmail,
+            ]);
+        }
+
+        if ($phoneChanged) {
+            $karyawan->update([
+                'no_hp' => $newPhone,
+                'phone_updated_at' => now(),
+            ]);
+        }
 
         // upload photo
         if ($request->hasFile('photo')) {
@@ -52,7 +84,11 @@ class ProfileController extends Controller
             ]);
         }
 
-        return back()->with('success', 'Data berhasil diperbarui');
+        $message = $phoneChanged || $emailChanged
+            ? 'Data kontak berhasil diperbarui. Kesempatan perubahan untuk field yang diganti sudah terpakai.'
+            : 'Data berhasil diperbarui';
+
+        return back()->with('success', $message);
     }
 
     public function updatePassword(Request $request)

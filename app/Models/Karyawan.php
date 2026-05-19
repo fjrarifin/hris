@@ -30,6 +30,7 @@ class Karyawan extends Model
         'end_date',
         'total_masa_kerja',
         'no_hp',
+        'phone_updated_at',
         'email',
         'tanggal_lahir',
         'jenis_kelamin',
@@ -43,6 +44,7 @@ class Karyawan extends Model
         'join_date' => 'date',
         'start_date' => 'date',
         'end_date' => 'date',
+        'phone_updated_at' => 'datetime',
     ];
 
     public function user()

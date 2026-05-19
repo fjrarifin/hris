@@ -30,6 +30,7 @@ class User extends Authenticatable
         'photo',
         'level',
         'must_change_password',
+        'email_updated_at',
     ];
 
 
@@ -52,6 +53,7 @@ class User extends Authenticatable
     {
         return [
             'email_verified_at' => 'datetime',
+            'email_updated_at' => 'datetime',
             'password' => 'hashed',
         ];
     }

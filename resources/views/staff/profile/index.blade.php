@@ -3,6 +3,10 @@
 @section('title', 'Profil')
 
 @section('content')
+	@php
+		$canUpdatePhone = !$user->karyawan->phone_updated_at;
+		$canUpdateEmail = !$user->email_updated_at;
+	@endphp
 
 	<style>
 		.profile-avatar {
@@ -17,6 +21,15 @@
 			border: 0;
 			cursor: pointer;
 			padding: 0;
+		}
+
+		.profile-edit-badge {
+			display: inline-flex;
+			align-items: center;
+			border-radius: 999px;
+			font-size: 10px;
+			font-weight: 800;
+			padding: 3px 8px;
 		}
 	</style>
 
@@ -174,13 +187,38 @@
 							<div class="col-6 mb-3">
 								<div class="text-muted">No. HP</div>
 								<div class="font-weight-semibold">{{ $user->karyawan->no_hp }}</div>
+								{{-- @if ($canUpdatePhone)
+									<span class="profile-edit-badge bg-warning text-dark">Bisa diganti 1x</span>
+								@else
+									<span class="profile-edit-badge bg-light text-muted">Sudah pernah diganti</span>
+								@endif --}}
 							</div>
 
 							<div class="col-6 mb-3">
 								<div class="text-muted">Email</div>
-								<div class="font-weight-semibold">{{ $user->karyawan->email }}</div>
+								<div class="font-weight-semibold">{{ $user->email }}</div>
+								{{-- @if ($canUpdateEmail)
+									<span class="profile-edit-badge bg-warning text-dark">Bisa diganti 1x</span>
+								@else
+									<span class="profile-edit-badge bg-light text-muted">Sudah pernah diganti</span>
+								@endif --}}
 							</div>
 
+						</div>
+
+						<div class="rounded-xl border bg-light p-3">
+							<div class="d-flex flex-column flex-md-row align-items-md-center">
+								<div class="text-sm text-muted">
+									<i class="fas fa-info-circle text-warning mr-1"></i>
+									Nomor telepon dan email hanya bisa diganti satu kali. Pastikan data baru sudah benar sebelum disimpan.
+								</div>
+								<button type="button" class="btn btn-primary btn-sm rounded-pill ml-md-auto mt-3 mt-md-0"
+									data-toggle="modal" data-target="#updateContactModal"
+									{{ !$canUpdatePhone && !$canUpdateEmail ? 'disabled' : '' }}>
+									<i class="fas fa-edit mr-1"></i>
+									Edit Kontak
+								</button>
+							</div>
 						</div>
 
 					</div>
@@ -191,6 +229,70 @@
 
 		</div>
 
+	</div>
+
+	{{-- UPDATE CONTACT MODAL --}}
+	<div class="modal fade" id="updateContactModal" tabindex="-1" aria-hidden="true">
+		<div class="modal-dialog modal-dialog-centered">
+			<div class="modal-content rounded-3xl">
+				<form method="POST" action="{{ route('staff.profile.update') }}" id="contactUpdateForm">
+					@csrf
+					@method('PUT')
+
+					<div class="modal-header">
+						<h5 class="modal-title">Edit Kontak</h5>
+						<button type="button" class="close" data-dismiss="modal" aria-label="Close">
+							<span aria-hidden="true">&times;</span>
+						</button>
+					</div>
+
+					<div class="modal-body">
+						<div class="alert alert-warning rounded-xl text-sm">
+							<i class="fas fa-exclamation-triangle mr-1"></i>
+							Nomor telepon dan email hanya bisa diganti satu kali. Setelah disimpan, field yang berubah tidak bisa diedit lagi dari profil.
+						</div>
+
+						<div class="form-group">
+							<label class="font-weight-semibold">No. HP</label>
+							<input type="text" name="no_hp" class="form-control rounded-xl"
+								value="{{ old('no_hp', $user->karyawan->no_hp) }}"
+								data-original="{{ $user->karyawan->no_hp }}"
+								{{ $canUpdatePhone ? '' : 'readonly' }}>
+							@if (!$canUpdatePhone)
+								<small class="text-muted">Nomor telepon sudah pernah diganti pada
+									{{ $user->karyawan->phone_updated_at?->format('d M Y H:i') }}.</small>
+							@else
+								<small class="text-warning font-weight-bold">Pastikan nomor baru aktif sebelum disimpan.</small>
+							@endif
+						</div>
+
+						<div class="form-group mb-0">
+							<label class="font-weight-semibold">Email</label>
+							<input type="email" name="email" class="form-control rounded-xl"
+								value="{{ old('email', $user->email) }}"
+								data-original="{{ $user->email }}"
+								{{ $canUpdateEmail ? '' : 'readonly' }}>
+							@if (!$canUpdateEmail)
+								<small class="text-muted">Email sudah pernah diganti pada
+									{{ $user->email_updated_at?->format('d M Y H:i') }}.</small>
+							@else
+								<small class="text-warning font-weight-bold">Pastikan email baru valid sebelum disimpan.</small>
+							@endif
+						</div>
+					</div>
+
+					<div class="modal-footer">
+						<button type="button" class="btn btn-outline-secondary rounded-pill" data-dismiss="modal">
+							Batal
+						</button>
+						<button type="submit" class="btn btn-primary rounded-pill px-4">
+							<i class="fas fa-save mr-1"></i>
+							Simpan Kontak
+						</button>
+					</div>
+				</form>
+			</div>
+		</div>
 	</div>
 
 	{{-- PHOTO ACTION MODAL --}}
@@ -315,6 +417,49 @@
 @push('scripts')
 <script>
 	document.addEventListener('DOMContentLoaded', function () {
+		const contactForm = document.getElementById('contactUpdateForm');
+
+		if (contactForm) {
+			contactForm.addEventListener('submit', function(e) {
+				e.preventDefault();
+
+				const phoneInput = contactForm.querySelector('[name="no_hp"]');
+				const emailInput = contactForm.querySelector('[name="email"]');
+				const phoneChanged = phoneInput.value.trim() !== (phoneInput.dataset.original || '').trim();
+				const emailChanged = emailInput.value.trim().toLowerCase() !== (emailInput.dataset.original || '').trim().toLowerCase();
+				const changedFields = [];
+
+				if (phoneChanged) changedFields.push('nomor telepon');
+				if (emailChanged) changedFields.push('email');
+
+				if (!phoneChanged && !emailChanged) {
+					Swal.fire({
+						icon: 'info',
+						title: 'Tidak Ada Perubahan',
+						text: 'Nomor telepon dan email tidak berubah.'
+					});
+					return;
+				}
+
+				Swal.fire({
+					title: 'Simpan Perubahan Kontak?',
+					html: 'Anda akan menggunakan kesempatan edit 1x untuk <b>' + changedFields.join(' dan ') + '</b>. Pastikan data sudah benar.',
+					icon: 'warning',
+					showCancelButton: true,
+					confirmButtonText: 'Ya, Simpan',
+					cancelButtonText: 'Batal',
+					confirmButtonColor: '#007bff'
+				}).then((result) => {
+					if (!result.isConfirmed) return;
+
+					const submitBtn = contactForm.querySelector('button[type="submit"]');
+					submitBtn.disabled = true;
+					submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Menyimpan...';
+					contactForm.submit();
+				});
+			});
+		}
+
 		const dropzone = document.getElementById('photoDropzone');
 		const input = document.getElementById('photoInput');
 		const fileName = document.getElementById('photoFileName');
