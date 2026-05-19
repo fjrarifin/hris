@@ -7,21 +7,72 @@ use App\Exports\HRApprovalExport;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use App\Models\LeaveRequest;
+use App\Models\EmployeePermission;
 use App\Models\PublicHolidayRequest;
+use App\Models\OvertimeRequest;
 use App\Notifications\LeaveStatusNotification;
 use App\Notifications\PublicHolidayStatusNotification;
+use App\Notifications\RequestStatusNotification;
 use Maatwebsite\Excel\Facades\Excel;
 
 class ApprovalController extends Controller
 {
+    public function all()
+    {
+        $requests = LeaveRequest::with('user.karyawan')
+            ->whereNotNull('manager_approved_at')
+            ->whereNull('hr_approved_at')
+            ->whereNotIn('status', ['rejected', 'cancelled'])
+            ->latest()
+            ->get()
+            ->map(fn ($request) => (object) ['type' => 'leave', 'request' => $request])
+            ->concat(
+                PublicHolidayRequest::with('user.karyawan', 'holiday')
+                    ->whereNotNull('manager_approved_at')
+                    ->whereNull('hr_approved_at')
+                    ->whereNotIn('status', ['rejected', 'cancelled'])
+                    ->latest()
+                    ->get()
+                    ->map(fn ($request) => (object) ['type' => 'ph', 'request' => $request])
+            )
+            ->concat(
+                EmployeePermission::with('user.karyawan')
+                    ->whereNotNull('manager_approved_at')
+                    ->whereNull('hr_approved_at')
+                    ->whereNotIn('status', ['rejected', 'cancelled'])
+                    ->latest()
+                    ->get()
+                    ->map(fn ($request) => (object) ['type' => 'permission', 'request' => $request])
+            )
+            ->concat(
+                OvertimeRequest::with('user.karyawan', 'requestedBy')
+                    ->whereNotNull('requested_by_user_id')
+                    ->whereNull('hr_approved_at')
+                    ->whereNotIn('status', ['rejected', 'cancelled'])
+                    ->latest()
+                    ->get()
+                    ->map(fn ($request) => (object) ['type' => 'overtime', 'request' => $request])
+            )
+            ->sortByDesc(fn ($item) => $item->request->created_at)
+            ->values();
+
+        return view('hr.approval.all', compact('requests'));
+    }
+
     public function index($type)
     {
         $model = $this->resolveModel($type);
 
-        $relations = $type === 'ph' ? ['user', 'holiday'] : ['user'];
+        $relations = match ($type) {
+            'ph' => ['user', 'holiday'],
+            'overtime' => ['user.karyawan', 'requestedBy'],
+            'permission' => ['user.karyawan'],
+            default => ['user'],
+        };
 
         $requests = $model::with($relations)
-            ->whereNotNull('manager_approved_at')
+            ->when($type === 'overtime', fn ($query) => $query->whereNotNull('requested_by_user_id'))
+            ->when($type !== 'overtime', fn ($query) => $query->whereNotNull('manager_approved_at'))
             ->latest()
             ->get();
 
@@ -78,6 +129,8 @@ class ApprovalController extends Controller
         return match ($type) {
             'leave' => LeaveRequest::class,
             'ph' => PublicHolidayRequest::class,
+            'permission' => EmployeePermission::class,
+            'overtime' => OvertimeRequest::class,
             default => abort(404),
         };
     }
@@ -90,6 +143,12 @@ class ApprovalController extends Controller
             ),
             'ph' => $model->user->notify(
                 new PublicHolidayStatusNotification($model, $status)
+            ),
+            'permission' => $model->user->notify(
+                new RequestStatusNotification($model, 'IZIN', $status)
+            ),
+            'overtime' => $model->user->notify(
+                new RequestStatusNotification($model, 'LEMBUR', $status)
             ),
         };
     }

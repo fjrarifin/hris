@@ -4,6 +4,8 @@ namespace App\Notifications;
 
 use App\Models\LeaveRequest;
 use App\Models\PublicHolidayRequest;
+use App\Models\EmployeePermission;
+use App\Models\OvertimeRequest;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Notification;
 
@@ -23,7 +25,12 @@ class DirectManagerDecisionNotification extends Notification
     public function toArray(object $notifiable): array
     {
         $employeeName = $this->request->user->name;
-        $requestType = $this->type === 'PH' ? 'PH' : 'cuti';
+        $requestType = match (strtoupper($this->type)) {
+            'PH' => 'PH',
+            'IZIN' => 'izin/sakit',
+            'LEMBUR' => 'lembur',
+            default => 'cuti',
+        };
         $statusLabel = $this->status === 'approved' ? 'disetujui' : 'ditolak';
 
         return [
@@ -32,9 +39,13 @@ class DirectManagerDecisionNotification extends Notification
             'request_id' => $this->request->id,
             'type' => $this->type,
             'status' => $this->status,
-            'model' => $this->request instanceof LeaveRequest
-                ? LeaveRequest::class
-                : PublicHolidayRequest::class,
+            'model' => match (true) {
+                $this->request instanceof LeaveRequest => LeaveRequest::class,
+                $this->request instanceof PublicHolidayRequest => PublicHolidayRequest::class,
+                $this->request instanceof EmployeePermission => EmployeePermission::class,
+                $this->request instanceof OvertimeRequest => OvertimeRequest::class,
+                default => get_class($this->request),
+            },
         ];
     }
 }

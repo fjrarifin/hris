@@ -90,7 +90,7 @@ Route::middleware(['auth', 'force.password'])->group(function () {
 
     Route::get('/dashboard', function () {
         if (Auth::user()?->username === 'hrd0002') {
-            return redirect()->route('hr.karyawan.index');
+            return redirect()->route('hr.approval.all');
         }
 
         return match ((int) Auth::user()->level) {
@@ -145,7 +145,7 @@ Route::middleware(['auth', 'force.password'])->group(function () {
 
     Route::get('/dashboard', function () {
         if (Auth::user()?->username === 'hrd0002') {
-            return redirect()->route('hr.karyawan.index');
+            return redirect()->route('hr.approval.all');
         }
 
         return match ((int) Auth::user()->level) {
@@ -275,6 +275,7 @@ Route::middleware(['auth', 'level:2'])
             ->name('leave.cancel');
 
         Route::prefix('approval')->middleware('hr.full')->group(function () {
+            Route::get('/', [ApprovalController::class, 'all'])->name('approval.all');
             Route::get('{type}', [ApprovalController::class, 'index'])->name('approval.index');
             Route::get('{type}/export', [ApprovalController::class, 'export'])->name('approval.export');
             Route::post('{type}/{id}/approve', [ApprovalController::class, 'approve'])->name('approval.approve');
@@ -374,6 +375,13 @@ Route::middleware(['auth', 'level:3'])
 
                 Route::post('/ph/{id}/reject', [LeaveApprovalController::class, 'rejectPH'])
                     ->name('ph.reject');
+
+                Route::post('/permission/{id}/approve', [LeaveApprovalController::class, 'approvePermission'])
+                    ->name('permission.approve');
+
+                Route::post('/permission/{id}/reject', [LeaveApprovalController::class, 'rejectPermission'])
+                    ->name('permission.reject');
+
             });
 
         Route::prefix('public-holiday')->name('public-holiday.')->group(function () {

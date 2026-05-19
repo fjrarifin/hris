@@ -5,10 +5,12 @@ namespace App\Http\Controllers\Staff;
 use App\Http\Controllers\Controller;
 use App\Models\LeaveRequest;
 use App\Models\PublicHolidayRequest;
+use App\Models\EmployeePermission;
 use App\Models\Karyawan;
 use Illuminate\Support\Facades\Auth;
 use App\Notifications\LeaveStatusNotification;
 use App\Notifications\PublicHolidayStatusNotification;
+use App\Notifications\RequestStatusNotification;
 use App\Http\Services\ApprovalNotificationService;
 use App\Models\User;
 
@@ -32,19 +34,34 @@ class LeaveApprovalController extends Controller
         $directSubordinates = Karyawan::where('nama_atasan_langsung', $me->nama_karyawan)
             ->pluck('nik');
 
-        $leaveRequests = LeaveRequest::where(function ($q) use ($directSubordinates) {
-            $q->whereIn('user_id', function ($q2) use ($directSubordinates) {
-                $q2->select('id')
-                    ->from('users')
-                    ->whereIn('username', $directSubordinates);
-            })
-                ->whereNull('manager_approved_at')
-                ->where('status', 'pending');
-        })
+        $subordinateUserIds = User::whereIn('username', $directSubordinates)->pluck('id');
+
+        $leaveRequests = LeaveRequest::with('user.karyawan')
+            ->whereIn('user_id', $subordinateUserIds)
+            ->whereNull('manager_approved_at')
+            ->where('status', 'pending')
             ->latest()
             ->get();
 
-        $requests = $leaveRequests;
+        $phRequests = PublicHolidayRequest::with('user.karyawan', 'holiday')
+            ->whereIn('user_id', $subordinateUserIds)
+            ->whereNull('manager_approved_at')
+            ->where('status', 'pending')
+            ->latest()
+            ->get();
+
+        $permissionRequests = EmployeePermission::with('user.karyawan')
+            ->whereIn('user_id', $subordinateUserIds)
+            ->whereNull('manager_approved_at')
+            ->where('status', 'pending')
+            ->latest()
+            ->get();
+
+        $requests = $leaveRequests
+            ->concat($phRequests)
+            ->concat($permissionRequests)
+            ->sortByDesc('created_at')
+            ->values();
 
         return view('staff.leave.approval', compact('requests'));
     }
@@ -84,6 +101,7 @@ class LeaveApprovalController extends Controller
             ]);
 
             $this->approvalNotification->notifyIndirectManagerOfDirectManagerDecision($leave, 'CUTI', 'approved');
+            $this->approvalNotification->notifyHrGroups($leave, 'CUTI');
             $leave->user->notify(
                 new LeaveStatusNotification($leave, 'approved')
             );
@@ -136,6 +154,22 @@ class LeaveApprovalController extends Controller
         return in_array($userNik, $bawahan);
     }
 
+    private function isMySubordinateRequest($request): bool
+    {
+        $nikLogin = Auth::user()->username;
+        $me = Karyawan::where('nik', $nikLogin)->first();
+
+        if (! $me || ! $request->user) {
+            return false;
+        }
+
+        $bawahan = Karyawan::where('nama_atasan_langsung', $me->nama_karyawan)
+            ->pluck('nik')
+            ->toArray();
+
+        return in_array($request->user->username, $bawahan, true);
+    }
+
     public function approvePH($id)
     {
         $phRequest = PublicHolidayRequest::with('user')->findOrFail($id);
@@ -155,6 +189,7 @@ class LeaveApprovalController extends Controller
         ]);
 
         $this->approvalNotification->notifyIndirectManagerOfDirectManagerDecision($phRequest, 'PH', 'approved');
+        $this->approvalNotification->notifyHrGroups($phRequest, 'PH');
 
         // 🔔 Kirim notifikasi ke staff
         $phRequest->user->notify(
@@ -189,4 +224,58 @@ class LeaveApprovalController extends Controller
 
         return back()->with('success', 'PH berhasil ditolak');
     }
+
+    public function approvePermission($id)
+    {
+        $permission = EmployeePermission::with('user')->findOrFail($id);
+
+        if (! $this->isMySubordinateRequest($permission)) {
+            abort(403, 'Anda tidak berhak menyetujui izin ini.');
+        }
+
+        if ($permission->status !== 'pending') {
+            return back()->with('error', 'Izin sudah diproses.');
+        }
+
+        $permission->update([
+            'status' => 'approved',
+            'manager_approved_at' => now(),
+            'manager_approved_by' => Auth::id(),
+            'approval_token' => null,
+            'approval_token_expires_at' => null,
+        ]);
+
+        $this->approvalNotification->notifyIndirectManagerOfDirectManagerDecision($permission, 'IZIN', 'approved');
+        $this->approvalNotification->notifyHrGroups($permission, 'IZIN');
+        $permission->user->notify(new RequestStatusNotification($permission, 'IZIN', 'approved'));
+
+        return back()->with('success', 'Izin berhasil disetujui');
+    }
+
+    public function rejectPermission($id)
+    {
+        $permission = EmployeePermission::with('user')->findOrFail($id);
+
+        if (! $this->isMySubordinateRequest($permission)) {
+            abort(403, 'Anda tidak berhak menolak izin ini.');
+        }
+
+        if ($permission->status !== 'pending') {
+            return back()->with('error', 'Izin sudah diproses.');
+        }
+
+        $permission->update([
+            'status' => 'rejected',
+            'manager_approved_at' => now(),
+            'manager_approved_by' => Auth::id(),
+            'approval_token' => null,
+            'approval_token_expires_at' => null,
+        ]);
+
+        $this->approvalNotification->notifyIndirectManagerOfDirectManagerDecision($permission, 'IZIN', 'rejected');
+        $permission->user->notify(new RequestStatusNotification($permission, 'IZIN', 'rejected'));
+
+        return back()->with('success', 'Izin berhasil ditolak');
+    }
+
 }

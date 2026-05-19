@@ -4,9 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\LeaveRequest;
 use App\Models\PublicHolidayRequest;
+use App\Models\EmployeePermission;
 use App\Http\Services\ApprovalNotificationService;
 use App\Notifications\LeaveStatusNotification;
 use App\Notifications\PublicHolidayStatusNotification;
+use App\Notifications\RequestStatusNotification;
 use Illuminate\Http\Request;
 
 class PublicApprovalController extends Controller
@@ -80,8 +82,12 @@ class PublicApprovalController extends Controller
         // 🔔 Notify Staff
         $this->approvalNotificationService->notifyIndirectManagerOfDirectManagerDecision(
             $request,
-            $request instanceof LeaveRequest ? 'CUTI' : 'PH',
+            $this->notificationType($request),
             'approved'
+        );
+        $this->approvalNotificationService->notifyHrGroups(
+            $request,
+            $this->notificationType($request)
         );
 
         $this->notifyUser($request, 'approved');
@@ -124,7 +130,7 @@ class PublicApprovalController extends Controller
         // 🔔 Notify Staff
         $this->approvalNotificationService->notifyIndirectManagerOfDirectManagerDecision(
             $request,
-            $request instanceof LeaveRequest ? 'CUTI' : 'PH',
+            $this->notificationType($request),
             'rejected'
         );
 
@@ -145,6 +151,9 @@ class PublicApprovalController extends Controller
             ->first()
             ?? PublicHolidayRequest::with('user', 'holiday')
             ->where('approval_token', $token)
+            ->first()
+            ?? EmployeePermission::with('user')
+            ->where('approval_token', $token)
             ->first();
     }
 
@@ -163,7 +172,21 @@ class PublicApprovalController extends Controller
             return 'ph';
         }
 
+        if ($request instanceof EmployeePermission) {
+            return 'permission';
+        }
+
         return 'unknown';
+    }
+
+    private function notificationType($request): string
+    {
+        return match (true) {
+            $request instanceof LeaveRequest => 'CUTI',
+            $request instanceof PublicHolidayRequest => 'PH',
+            $request instanceof EmployeePermission => 'IZIN',
+            default => 'UNKNOWN',
+        };
     }
 
     /*
@@ -184,5 +207,12 @@ class PublicApprovalController extends Controller
                 new PublicHolidayStatusNotification($request, $status)
             );
         }
+
+        if ($request instanceof EmployeePermission) {
+            $request->user->notify(
+                new RequestStatusNotification($request, 'IZIN', $status)
+            );
+        }
+
     }
 }

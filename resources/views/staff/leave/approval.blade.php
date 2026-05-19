@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
-@section('title', 'Approval Cuti & PH')
-@section('page-title', 'Persetujuan Pengajuan Cuti & Hari Libur')
+@section('title', 'Approval Pengajuan')
+@section('page-title', 'Persetujuan Pengajuan Tim')
 
 @section('content')
 
@@ -26,7 +26,7 @@
 	<div class="card card-primary card-outline rounded-xl shadow-sm">
 		<div class="card-header">
 			<h3 class="card-title mb-0">
-				Daftar Pengajuan Cuti & Hari Libur Tim
+				Daftar Pengajuan Tim
 			</h3>
 		</div>
 
@@ -54,6 +54,7 @@
 								// Determine request type
 								$isLeave = get_class($r) === 'App\Models\LeaveRequest';
 								$isPH = get_class($r) === 'App\Models\PublicHolidayRequest';
+								$isPermission = get_class($r) === 'App\Models\EmployeePermission';
 
 								if ($r->status === 'rejected') {
 								    $label = 'Ditolak';
@@ -61,10 +62,10 @@
 								} elseif ($r->status === 'cancelled') {
 								    $label = 'Dibatalkan';
 								    $class = 'secondary';
-								} elseif ($r->hr_approved_at) {
+								} elseif ($r->hr_approved_at ?? null) {
 								    $label = 'Disetujui HR';
 								    $class = 'success';
-								} elseif ($r->manager_approved_at) {
+								} elseif ($r->manager_approved_at ?? null) {
 								    $label = 'Disetujui Atasan';
 								    $class = 'info';
 								} else {
@@ -80,6 +81,8 @@
 										<span class="badge badge-primary">Cuti</span>
 									@elseif($isPH)
 										<span class="badge badge-secondary">PH</span>
+									@elseif($isPermission)
+										<span class="badge badge-info">Izin</span>
 									@endif
 								</td>
 								<td>
@@ -87,6 +90,8 @@
 										{{ \App\Models\LeaveRequest::LEAVE_TYPES[$r->leave_type] ?? $r->leave_type }}
 									@elseif($isPH)
 										{{ $r->holiday->nama_hari ?? 'Hari Libur' }}
+									@elseif($isPermission)
+										{{ $r->type === 'sakit' ? 'Sakit' : 'Izin Tidak Masuk' }}
 									@endif
 								</td>
 								<td>
@@ -95,12 +100,16 @@
 										s/d {{ \Carbon\Carbon::parse($r->end_date)->format('Y-m-d') }}
 									@elseif($isPH)
 										{{ \Carbon\Carbon::parse($r->claim_date)->format('Y-m-d') }}
+									@elseif($isPermission)
+										{{ \Carbon\Carbon::parse($r->date)->format('Y-m-d') }}
 									@endif
 								</td>
 								<td>
 									@if ($isLeave)
 										{{ \Carbon\Carbon::parse($r->start_date)->diffInDays($r->end_date) + 1 }} hari
 									@elseif($isPH)
+										1 hari
+									@elseif($isPermission)
 										1 hari
 									@endif
 								</td>
@@ -142,6 +151,20 @@
 													<i class="fas fa-times"></i>
 												</button>
 											</form>
+										@elseif($isPermission)
+											<form method="POST" action="{{ route('staff.approval.permission.approve', $r->id) }}" class="d-inline">
+												@csrf
+												<button class="btn btn-success btn-xs" title="Setujui">
+													<i class="fas fa-check"></i>
+												</button>
+											</form>
+
+											<form method="POST" action="{{ route('staff.approval.permission.reject', $r->id) }}" class="d-inline">
+												@csrf
+												<button class="btn btn-danger btn-xs" title="Tolak">
+													<i class="fas fa-times"></i>
+												</button>
+											</form>
 										@endif
 									@else
 										<span class="text-muted">-</span>
@@ -152,7 +175,7 @@
 						@empty
 							<tr>
 								<td colspan="10" class="text-muted text-center">
-									Tidak ada pengajuan cuti atau PH
+									Tidak ada pengajuan tim
 								</td>
 							</tr>
 						@endforelse
@@ -166,6 +189,7 @@
 					@php
 						$isLeave = $r instanceof \App\Models\LeaveRequest;
 						$isPH = $r instanceof \App\Models\PublicHolidayRequest;
+						$isPermission = $r instanceof \App\Models\EmployeePermission;
 					@endphp
 
 					<div class="card shadow-sm">
@@ -206,8 +230,22 @@
 							<div class="mt-3">
 
 								@if ($r->status === 'pending')
+									@php
+										$approveRoute = match (true) {
+											$isLeave => route('staff.approval.leave.approve', $r->id),
+											$isPH => route('staff.approval.ph.approve', $r->id),
+											$isPermission => route('staff.approval.permission.approve', $r->id),
+											default => route('staff.approval.permission.approve', $r->id),
+										};
+										$rejectRoute = match (true) {
+											$isLeave => route('staff.approval.leave.reject', $r->id),
+											$isPH => route('staff.approval.ph.reject', $r->id),
+											$isPermission => route('staff.approval.permission.reject', $r->id),
+											default => route('staff.approval.permission.reject', $r->id),
+										};
+									@endphp
 									<form method="POST"
-										action="{{ $isLeave ? route('staff.approval.leave.approve', $r->id) : route('staff.approval.ph.approve', $r->id) }}">
+										action="{{ $approveRoute }}">
 										@csrf
 										<button class="btn btn-success btn-block btn-sm">
 											✔ Setujui
@@ -215,7 +253,7 @@
 									</form>
 
 									<form method="POST"
-										action="{{ $isLeave ? route('staff.approval.leave.reject', $r->id) : route('staff.approval.ph.reject', $r->id) }}"
+										action="{{ $rejectRoute }}"
 										class="mt-2">
 										@csrf
 										<button class="btn btn-danger btn-block btn-sm">

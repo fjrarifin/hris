@@ -35,9 +35,11 @@ class ApprovalRequestNotification extends Notification
 
     private function buildTitle()
     {
-        return match ($this->type) {
-            'Cuti' => 'Pengajuan Cuti Baru',
-            'PH'   => 'Pengajuan PH Baru',
+        return match (strtoupper($this->type)) {
+            'CUTI' => 'Pengajuan Cuti Baru',
+            'PH' => 'Pengajuan PH Baru',
+            'IZIN' => 'Pengajuan Izin/Sakit Baru',
+            'LEMBUR' => 'Pengajuan Lembur Baru',
             default => 'Pengajuan Baru'
         };
     }
@@ -46,6 +48,14 @@ class ApprovalRequestNotification extends Notification
     {
         $nama = $this->request->user->name;
 
-        return "Pengajuan {$this->type} dari {$nama} menunggu persetujuan Anda.";
+        $type = match (strtoupper($this->type)) {
+            'CUTI' => 'cuti',
+            'PH' => 'PH',
+            'IZIN' => 'izin/sakit',
+            'LEMBUR' => 'lembur',
+            default => strtolower($this->type),
+        };
+
+        return "Pengajuan {$type} dari {$nama} menunggu persetujuan Anda.";
     }
 }

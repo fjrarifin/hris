@@ -3,6 +3,8 @@
 namespace App\Exports;
 
 use App\Models\LeaveRequest;
+use App\Models\EmployeePermission;
+use App\Models\OvertimeRequest;
 use App\Models\PublicHolidayRequest;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
@@ -21,6 +23,8 @@ class HRApprovalExport implements FromCollection, ShouldAutoSize, WithHeadings
         return match ($this->type) {
             'leave' => $this->leaveRows(),
             'ph' => $this->phRows(),
+            'permission' => $this->permissionRows(),
+            'overtime' => $this->overtimeRows(),
             default => collect(),
         };
     }
@@ -51,6 +55,33 @@ class HRApprovalExport implements FromCollection, ShouldAutoSize, WithHeadings
                 'Tanggal Pengambilan',
                 'Status',
                 'Disetujui Atasan',
+                'Disetujui HR',
+                'Alasan Penolakan',
+                'Tanggal Pengajuan',
+            ],
+            'permission' => [
+                'ID',
+                'NIK',
+                'Nama',
+                'Jenis',
+                'Tanggal',
+                'Alasan',
+                'Status',
+                'Disetujui Atasan',
+                'Disetujui HR',
+                'Alasan Penolakan',
+                'Tanggal Pengajuan',
+            ],
+            'overtime' => [
+                'ID',
+                'NIK',
+                'Nama Karyawan',
+                'Diajukan Oleh',
+                'Tanggal Lembur',
+                'Jam Mulai',
+                'Jam Selesai',
+                'Alasan',
+                'Status',
                 'Disetujui HR',
                 'Alasan Penolakan',
                 'Tanggal Pengajuan',
@@ -96,6 +127,49 @@ class HRApprovalExport implements FromCollection, ShouldAutoSize, WithHeadings
                 $this->formatDate($request->claim_date),
                 $this->statusLabel($request),
                 $this->formatDateTime($request->manager_approved_at),
+                $this->formatDateTime($request->hr_approved_at),
+                $request->reject_reason,
+                $this->formatDateTime($request->created_at),
+            ]);
+    }
+
+    private function permissionRows(): Collection
+    {
+        return EmployeePermission::with('user')
+            ->whereNotNull('manager_approved_at')
+            ->latest()
+            ->get()
+            ->map(fn($request) => [
+                $request->id,
+                $request->user?->username,
+                $request->user?->name,
+                $request->type === 'sakit' ? 'Sakit' : 'Izin Tidak Masuk',
+                $this->formatDate($request->date),
+                $request->reason,
+                $this->statusLabel($request),
+                $this->formatDateTime($request->manager_approved_at),
+                $this->formatDateTime($request->hr_approved_at),
+                $request->reject_reason,
+                $this->formatDateTime($request->created_at),
+            ]);
+    }
+
+    private function overtimeRows(): Collection
+    {
+        return OvertimeRequest::with(['user', 'requestedBy'])
+            ->whereNotNull('requested_by_user_id')
+            ->latest()
+            ->get()
+            ->map(fn($request) => [
+                $request->id,
+                $request->user?->username,
+                $request->user?->name,
+                $request->requestedBy?->name,
+                $this->formatDate($request->date),
+                $request->start_time,
+                $request->end_time,
+                $request->reason,
+                $this->statusLabel($request),
                 $this->formatDateTime($request->hr_approved_at),
                 $request->reject_reason,
                 $this->formatDateTime($request->created_at),

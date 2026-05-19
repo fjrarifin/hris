@@ -63,6 +63,10 @@ class WhatsAppService
 
     private function normalizePhone(string $phone): string
     {
+        if (str_contains($phone, '@g.us')) {
+            return $phone;
+        }
+
         $phone = preg_replace('/[^0-9]/', '', $phone);
 
         if (str_starts_with($phone, '08')) {

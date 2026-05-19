@@ -38,13 +38,15 @@ function sidebarMenus()
             $menu->setRelation(
                 'children',
                 $menu->children
-                    ->filter(fn ($child) => $child->route === 'hr.karyawan.index')
+                    ->filter(fn ($child) => str_starts_with((string) $child->route, 'hr.approval'))
                     ->values()
             );
         });
 
         return $parents->filter(function ($menu) {
-            return $menu->route === 'dashboard' || $menu->children->count() > 0;
+            return $menu->route === 'dashboard'
+                || str_starts_with((string) $menu->route, 'hr.approval')
+                || $menu->children->count() > 0;
         })->values();
     }
 

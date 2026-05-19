@@ -6,6 +6,8 @@ use App\Models\Karyawan;
 use App\Models\User;
 use App\Models\LeaveRequest;
 use App\Models\PublicHolidayRequest;
+use App\Models\EmployeePermission;
+use App\Models\OvertimeRequest;
 use App\Notifications\DirectManagerDecisionNotification;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
@@ -122,6 +124,65 @@ class ApprovalNotificationService
             MSG;
         }
 
+        if ($request instanceof EmployeePermission) {
+            $date = Carbon::parse($request->date)->format('d M Y');
+            $type = $request->type === 'sakit' ? 'Sakit' : 'Izin Tidak Masuk';
+            $reason = $request->reason ?: '-';
+
+            return <<<MSG
+            {$header}
+
+            Yth. Bapak/Ibu,
+
+            Terdapat *pengajuan {$type}* baru yang memerlukan persetujuan Anda.
+
+            ðŸ‘¤ *Karyawan*
+            {$karyawan->nama_karyawan}
+
+            ðŸ“… *Tanggal*
+            {$date}
+
+            ðŸ“ *Alasan*
+            {$reason}
+
+            Mohon segera ditindaklanjuti melalui tautan berikut:
+            ðŸ‘‡
+            {$link}
+
+            {$footer}
+            MSG;
+        }
+
+        if ($request instanceof OvertimeRequest) {
+            $date = Carbon::parse($request->date)->format('d M Y');
+
+            return <<<MSG
+            {$header}
+
+            Yth. Bapak/Ibu,
+
+            Terdapat *pengajuan lembur* baru yang memerlukan persetujuan Anda.
+
+            ðŸ‘¤ *Karyawan*
+            {$karyawan->nama_karyawan}
+
+            ðŸ“… *Tanggal*
+            {$date}
+
+            â° *Jam*
+            {$request->start_time} - {$request->end_time}
+
+            ðŸ“ *Pekerjaan/Alasan*
+            {$request->reason}
+
+            Mohon segera ditindaklanjuti melalui tautan berikut:
+            ðŸ‘‡
+            {$link}
+
+            {$footer}
+            MSG;
+        }
+
         return "━━━━━━━━━━━━━━━━━━━━━━━\n🏢 *HomPim Play*\n━━━━━━━━━━━━━━━━━━━━━━━\n\nYth. Bapak/Ibu,\n\nTerdapat pengajuan baru yang memerlukan persetujuan Anda.\n\n👇\n{$link}\n\n{$footer}";
     }
 
@@ -197,6 +258,90 @@ class ApprovalNotificationService
         }
     }
 
+    public function notifyHrGroups($request, string $type): void
+    {
+        try {
+            $groups = $this->hrGroupIds($type);
+
+            if (empty($groups)) {
+                return;
+            }
+
+            $message = $this->buildHrGroupMessage($request, $type);
+
+            foreach ($groups as $groupId) {
+                $this->whatsAppService->sendMessage($groupId, $message);
+            }
+        } catch (\Throwable $e) {
+            Log::error('HR group notification failed', [
+                'type' => $type,
+                'request_id' => $request->id ?? null,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function hrGroupIds(string $type): array
+    {
+        return match (strtoupper($type)) {
+            'PH' => ['120363425559804944@g.us'],
+            'CUTI' => [
+                '120363426186027080@g.us',
+            ],
+            'LEMBUR' => [
+                '120363426538856642@g.us',
+            ],
+            default => [],
+        };
+    }
+
+    private function buildHrGroupMessage($request, string $type): string
+    {
+        $request->loadMissing('user.karyawan');
+        $employeeName = $request->user->karyawan->nama_karyawan ?? $request->user->name ?? '-';
+        $employeeNik = $request->user->username ?? '-';
+        $approvalType = match (strtoupper($type)) {
+            'CUTI' => 'leave',
+            'PH' => 'ph',
+            'IZIN' => 'permission',
+            'LEMBUR' => 'overtime',
+            default => strtolower($type),
+        };
+        $link = route('hr.approval.index', $approvalType);
+        $label = match (strtoupper($type)) {
+            'CUTI' => 'Cuti',
+            'PH' => 'Public Holiday',
+            'IZIN' => 'Izin/Sakit',
+            'LEMBUR' => 'Lembur',
+            default => $type,
+        };
+
+        $detail = '';
+
+        if ($request instanceof LeaveRequest) {
+            $start = Carbon::parse($request->start_date)->format('d M Y');
+            $end = Carbon::parse($request->end_date)->format('d M Y');
+            $detail = "Periode: {$start} - {$end}\nAlasan: " . ($request->reason ?: '-');
+        } elseif ($request instanceof PublicHolidayRequest) {
+            $claim = Carbon::parse($request->claim_date)->format('d M Y');
+            $holiday = optional($request->holiday)->name ?: 'Hari Libur';
+            $detail = "PH: {$holiday}\nTanggal Pengambilan: {$claim}";
+        } elseif ($request instanceof EmployeePermission) {
+            $date = Carbon::parse($request->date)->format('d M Y');
+            $kind = $request->type === 'sakit' ? 'Sakit' : 'Izin Tidak Masuk';
+            $detail = "Jenis: {$kind}\nTanggal: {$date}\nAlasan: " . ($request->reason ?: '-');
+        } elseif ($request instanceof OvertimeRequest) {
+            $date = Carbon::parse($request->date)->format('d M Y');
+            $detail = "Tanggal: {$date}\nJam: {$request->start_time} - {$request->end_time}\nAlasan: {$request->reason}";
+        }
+
+        return "Pengajuan {$label} membutuhkan approval HR.\n\n"
+            . "Nama: {$employeeName}\n"
+            . "NIK: {$employeeNik}\n"
+            . "{$detail}\n\n"
+            . "Silakan proses di aplikasi:\n{$link}";
+    }
+
     private function buildDirectManagerDecisionMessage($request, Karyawan $karyawan, string $type, string $status): string
     {
         $statusLabel = $status === 'approved' ? 'disetujui' : 'ditolak';
@@ -219,6 +364,26 @@ class ApprovalNotificationService
                 . "Nama: {$karyawan->nama_karyawan}\n"
                 . "PH: {$holiday}\n"
                 . "Tanggal Pengambilan: {$claim}\n\n"
+                . "Status: *{$statusLabel}* oleh atasan langsung.";
+        }
+
+        if ($request instanceof EmployeePermission) {
+            $date = Carbon::parse($request->date)->format('d M Y');
+            $type = $request->type === 'sakit' ? 'Sakit' : 'Izin Tidak Masuk';
+
+            return "ðŸ“Œ *Keputusan {$type} dari Atasan Langsung*\n\n"
+                . "Nama: {$karyawan->nama_karyawan}\n"
+                . "Tanggal: {$date}\n\n"
+                . "Status: *{$statusLabel}* oleh atasan langsung.";
+        }
+
+        if ($request instanceof OvertimeRequest) {
+            $date = Carbon::parse($request->date)->format('d M Y');
+
+            return "ðŸ“Œ *Keputusan Lembur dari Atasan Langsung*\n\n"
+                . "Nama: {$karyawan->nama_karyawan}\n"
+                . "Tanggal: {$date}\n"
+                . "Jam: {$request->start_time} - {$request->end_time}\n\n"
                 . "Status: *{$statusLabel}* oleh atasan langsung.";
         }
 

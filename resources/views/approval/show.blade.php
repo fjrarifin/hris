@@ -115,6 +115,90 @@
 
         @endif
 
+        {{-- ============================= --}}
+        {{-- DETAIL IZIN / SAKIT --}}
+        {{-- ============================= --}}
+        @if($type === 'permission')
+
+            <div class="space-y-3 mb-4">
+
+                <div class="flex items-start gap-2 text-sm">
+                    <i class="fas fa-user-clock text-indigo-600 mt-0.5 text-xs"></i>
+                    <div class="flex-1">
+                        <p class="text-xs text-gray-500">Jenis</p>
+                        <p class="font-semibold text-gray-800">
+                            {{ $request->type === 'sakit' ? 'Sakit' : 'Izin Tidak Masuk' }}
+                        </p>
+                    </div>
+                </div>
+
+                <div class="flex items-start gap-2 text-sm">
+                    <i class="fas fa-calendar-alt text-blue-600 mt-0.5 text-xs"></i>
+                    <div class="flex-1">
+                        <p class="text-xs text-gray-500">Tanggal</p>
+                        <p class="font-semibold text-gray-800">
+                            {{ \Carbon\Carbon::parse($request->date)->isoFormat('D MMM YYYY') }}
+                        </p>
+                    </div>
+                </div>
+
+                @if($request->reason)
+                    <div class="flex items-start gap-2 text-sm">
+                        <i class="fas fa-comment-alt text-purple-600 mt-0.5 text-xs"></i>
+                        <div class="flex-1">
+                            <p class="text-xs text-gray-500">Alasan</p>
+                            <p class="text-gray-700 text-sm">
+                                {{ $request->reason }}
+                            </p>
+                        </div>
+                    </div>
+                @endif
+
+            </div>
+
+        @endif
+
+        {{-- ============================= --}}
+        {{-- DETAIL LEMBUR --}}
+        {{-- ============================= --}}
+        @if($type === 'overtime')
+
+            <div class="space-y-3 mb-4">
+
+                <div class="flex items-start gap-2 text-sm">
+                    <i class="fas fa-calendar-alt text-blue-600 mt-0.5 text-xs"></i>
+                    <div class="flex-1">
+                        <p class="text-xs text-gray-500">Tanggal</p>
+                        <p class="font-semibold text-gray-800">
+                            {{ \Carbon\Carbon::parse($request->date)->isoFormat('D MMM YYYY') }}
+                        </p>
+                    </div>
+                </div>
+
+                <div class="flex items-start gap-2 text-sm">
+                    <i class="fas fa-clock text-indigo-600 mt-0.5 text-xs"></i>
+                    <div class="flex-1">
+                        <p class="text-xs text-gray-500">Jam Lembur</p>
+                        <p class="font-semibold text-gray-800">
+                            {{ $request->start_time }} - {{ $request->end_time }}
+                        </p>
+                    </div>
+                </div>
+
+                <div class="flex items-start gap-2 text-sm">
+                    <i class="fas fa-tasks text-purple-600 mt-0.5 text-xs"></i>
+                    <div class="flex-1">
+                        <p class="text-xs text-gray-500">Pekerjaan/Alasan</p>
+                        <p class="text-gray-700 text-sm">
+                            {{ $request->reason }}
+                        </p>
+                    </div>
+                </div>
+
+            </div>
+
+        @endif
+
 
         {{-- WARNING --}}
         <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">

@@ -55,6 +55,19 @@
 								<th>Claim</th>
 							@endif
 
+							@if ($type === 'permission')
+								<th>Jenis</th>
+								<th>Tanggal</th>
+								<th>Alasan</th>
+							@endif
+
+							@if ($type === 'overtime')
+								<th>Diajukan Oleh</th>
+								<th>Tanggal</th>
+								<th>Jam</th>
+								<th>Alasan</th>
+							@endif
+
 							<th>Status</th>
 							<th width="120">Aksi</th>
 						</tr>
@@ -72,6 +85,9 @@
 								} elseif ($r->hr_approved_at) {
 								    $label = 'Disetujui HR';
 								    $class = 'success';
+								} elseif ($type === 'overtime') {
+								    $label = 'Menunggu HR';
+								    $class = 'warning';
 								} elseif ($r->manager_approved_at) {
 								    $label = $r->hr_approved_at ? 'Disetujui HR' : 'Menunggu HR';
 								    $class = $r->hr_approved_at ? 'success' : 'warning';
@@ -111,6 +127,21 @@
 									</td>
 								@endif
 
+								{{-- PERMISSION --}}
+								@if ($type === 'permission')
+									<td>{{ $r->type === 'sakit' ? 'Sakit' : 'Izin Tidak Masuk' }}</td>
+									<td>{{ \Carbon\Carbon::parse($r->date)->format('d M Y') }}</td>
+									<td>{{ $r->reason ?: '-' }}</td>
+								@endif
+
+								{{-- OVERTIME --}}
+								@if ($type === 'overtime')
+									<td>{{ $r->requestedBy->name ?? '-' }}</td>
+									<td>{{ \Carbon\Carbon::parse($r->date)->format('d M Y') }}</td>
+									<td>{{ $r->start_time }} - {{ $r->end_time }}</td>
+									<td>{{ $r->reason }}</td>
+								@endif
+
 								<td>
 									<span class="badge badge-{{ $class }}">
 										{{ $label }}
@@ -120,7 +151,7 @@
 								<td class="text-center">
 
 									{{-- APPROVE --}}
-									@if (!$r->hr_approved_at && $r->manager_approved_at && !in_array($r->status, ['rejected', 'cancelled']))
+									@if (!$r->hr_approved_at && ($r->manager_approved_at || $type === 'overtime') && !in_array($r->status, ['rejected', 'cancelled']))
 										<form method="POST" action="{{ route('hr.approval.approve', [$type, $r->id]) }}" class="d-inline">
 											@csrf
 											<button class="btn btn-success btn-xs" title="Setujui">
@@ -130,7 +161,7 @@
 									@endif
 
 									{{-- REJECT --}}
-									@if (!$r->hr_approved_at && $r->manager_approved_at && !in_array($r->status, ['rejected', 'cancelled']))
+									@if (!$r->hr_approved_at && ($r->manager_approved_at || $type === 'overtime') && !in_array($r->status, ['rejected', 'cancelled']))
 										<button class="btn btn-danger btn-xs btn-reject" data-id="{{ $r->id }}"
 											data-type="{{ $type }}" data-name="{{ $r->user->name }}" title="Tolak">
 											<i class="fas fa-times"></i>
@@ -158,6 +189,8 @@
 					@php
 						$isLeave = $type === 'leave';
 						$isPH = $type === 'ph';
+						$isPermission = $type === 'permission';
+						$isOvertime = $type === 'overtime';
 
 						if ($r->status === 'rejected') {
 						    $label = 'Ditolak';
@@ -168,7 +201,7 @@
 						} elseif ($r->hr_approved_at) {
 						    $label = 'Disetujui HR';
 						    $class = 'success';
-						} elseif ($r->manager_approved_at) {
+						} elseif ($r->manager_approved_at || $isOvertime) {
 						    $label = 'Menunggu HR';
 						    $class = 'warning';
 						} else {
@@ -233,10 +266,54 @@
 									</p>
 								@endif
 
+								@if ($isPermission)
+									<p class="mb-1">
+										<strong>Jenis:</strong>
+										{{ $r->type === 'sakit' ? 'Sakit' : 'Izin Tidak Masuk' }}
+									</p>
+
+									<p class="mb-1">
+										<strong>Tanggal:</strong>
+										{{ \Carbon\Carbon::parse($r->date)->format('d M Y') }}
+									</p>
+
+									<p class="mb-1">
+										<strong>Alasan:</strong>
+										{{ $r->reason ?: '-' }}
+									</p>
+								@endif
+
+								@if ($isOvertime)
+									<p class="mb-1">
+										<strong>Karyawan:</strong>
+										{{ $r->user->karyawan->nama_karyawan ?? $r->user->name }}
+									</p>
+
+									<p class="mb-1">
+										<strong>Diajukan Oleh:</strong>
+										{{ $r->requestedBy->name ?? '-' }}
+									</p>
+
+									<p class="mb-1">
+										<strong>Tanggal:</strong>
+										{{ \Carbon\Carbon::parse($r->date)->format('d M Y') }}
+									</p>
+
+									<p class="mb-1">
+										<strong>Jam:</strong>
+										{{ $r->start_time }} - {{ $r->end_time }}
+									</p>
+
+									<p class="mb-1">
+										<strong>Alasan:</strong>
+										{{ $r->reason }}
+									</p>
+								@endif
+
 							</div>
 
 							{{-- ACTION --}}
-							@if (!$r->hr_approved_at && $r->manager_approved_at && !in_array($r->status, ['rejected', 'cancelled']))
+							@if (!$r->hr_approved_at && ($r->manager_approved_at || $type === 'overtime') && !in_array($r->status, ['rejected', 'cancelled']))
 								<div class="d-flex mt-2 gap-2">
 									<form method="POST" action="{{ route('hr.approval.approve', [$type, $r->id]) }}" class="mr-2">
 										@csrf
