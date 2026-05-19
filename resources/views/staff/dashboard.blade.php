@@ -114,7 +114,7 @@
 								</div>
 
 								<div>
-									<div class="text-muted small">Sisa Saldo Hari Libur</div>
+									<div class="text-muted small">Sisa Saldo PH</div>
 									<div class="font-weight-bold text-primary" style="font-size:18px;">
 										{{ $publicHolidayBalance }} Hari
 									</div>

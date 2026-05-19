@@ -249,6 +249,15 @@ Route::middleware(['auth', 'level:2'])
         Route::get('/karyawan/{nik}', [KaryawanController::class, 'edit'])
             ->name('karyawan.detail');
 
+        Route::post('/karyawan/{nik}/kontrak', [KaryawanController::class, 'storeKontrak'])
+            ->name('karyawan.kontrak.store');
+
+        Route::post('/karyawan/{nik}/kontrak/{kontrakId}', [KaryawanController::class, 'updateKontrak'])
+            ->name('karyawan.kontrak.update');
+
+        Route::post('/karyawan/{nik}/photo', [KaryawanController::class, 'updatePhoto'])
+            ->name('karyawan.photo.update');
+
         Route::post('/karyawan/{nik}', [KaryawanController::class, 'update'])
             ->name('karyawan.update');
 
