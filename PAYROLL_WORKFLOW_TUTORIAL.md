@@ -8,16 +8,15 @@ Modul Payroll bersifat confidential.
 
 User yang boleh mengakses Payroll:
 
-- Administrator level 1.
-- HR Manager user `hrd0001`.
+- User `hrd0002`.
 - User lain yang dimasukkan ke allowlist `PAYROLL_ALLOWED_USERNAMES`.
 
-User `hrd0002` adalah HR Admin dan hanya diarahkan untuk akses Master Karyawan. User ini tidak bisa membuka Payroll.
+User `hrd0001` tetap dapat mengakses menu HR lain, tetapi tidak dapat membuka Payroll kecuali dimasukkan ke allowlist.
 
 Jika perlu menambah akses payroll khusus, tambahkan username/NIK ke `.env`:
 
 ```env
-PAYROLL_ALLOWED_USERNAMES=hrd0001,NIK_LAIN
+PAYROLL_ALLOWED_USERNAMES=hrd0002,NIK_LAIN
 ```
 
 Setelah mengubah `.env`, jalankan:
@@ -365,7 +364,7 @@ Kemungkinan:
 
 Solusi:
 
-- Login sebagai `hrd0001`, atau
+- Login sebagai `hrd0002`, atau
 - Tambahkan username ke `PAYROLL_ALLOWED_USERNAMES`.
 
 ### Sync gagal

@@ -33,23 +33,6 @@ function sidebarMenus()
         });
     }
 
-    if (Auth::user()?->username === 'hrd0002') {
-        $parents->each(function ($menu) {
-            $menu->setRelation(
-                'children',
-                $menu->children
-                    ->filter(fn ($child) => str_starts_with((string) $child->route, 'hr.approval'))
-                    ->values()
-            );
-        });
-
-        return $parents->filter(function ($menu) {
-            return $menu->route === 'dashboard'
-                || str_starts_with((string) $menu->route, 'hr.approval')
-                || $menu->children->count() > 0;
-        })->values();
-    }
-
     // filter parent:
     // - punya child yg lolos
     // - ATAU parent sendiri boleh

@@ -89,10 +89,6 @@ Route::middleware(['auth', 'force.password'])->group(function () {
     Route::view('/panduan', 'guides.index')->name('guide.index');
 
     Route::get('/dashboard', function () {
-        if (Auth::user()?->username === 'hrd0002') {
-            return redirect()->route('hr.approval.all');
-        }
-
         return match ((int) Auth::user()->level) {
             0 => redirect()->route('it.dashboard'),
             1 => redirect()->route('admin.dashboard'),
@@ -144,10 +140,6 @@ Route::middleware('auth')->group(function () {
 Route::middleware(['auth', 'force.password'])->group(function () {
 
     Route::get('/dashboard', function () {
-        if (Auth::user()?->username === 'hrd0002') {
-            return redirect()->route('hr.approval.all');
-        }
-
         return match ((int) Auth::user()->level) {
             0 => redirect()->route('it.dashboard'),
             1 => redirect()->route('admin.dashboard'),
