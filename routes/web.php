@@ -26,6 +26,7 @@ use App\Http\Controllers\HR\RelasiMasterController;
 use App\Http\Controllers\HR\KaryawanController;
 use App\Http\Controllers\HR\LeaveController;
 use App\Http\Controllers\HR\ApprovalController;
+use App\Http\Controllers\HR\AttendanceLogController;
 use App\Http\Controllers\MGR\LeaveRequestController as MGRLeaveRequestController;
 use App\Http\Controllers\WhatsAppController;
 use App\Http\Controllers\PasswordController;
@@ -237,6 +238,10 @@ Route::middleware(['auth', 'level:2'])
 
         Route::get('/karyawan', [KaryawanController::class, 'index'])
             ->name('karyawan.index');
+
+        Route::get('/attendance', [AttendanceLogController::class, 'index'])
+            ->middleware('hr.full')
+            ->name('attendance.index');
 
         Route::get('/karyawan/{nik}', [KaryawanController::class, 'edit'])
             ->name('karyawan.detail');

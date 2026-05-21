@@ -2,16 +2,22 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\FingerspotAttendanceService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use InvalidArgumentException;
 
 class FingerspotController extends Controller
 {
-    private function sendToFingerspot(string $endpoint, array $payload)
+    public function __construct(private FingerspotAttendanceService $attendanceService)
     {
-        $url = rtrim(env('FINGERSPOT_BASE_URL'), '/') . '/' . ltrim($endpoint, '/');
+    }
+
+    private function sendToFingerspot(string $endpoint, array $payload, bool $storeAttendance = false)
+    {
+        $url = rtrim(env('FINGERSPOT_BASE_URL', 'https://developer.fingerspot.io/api'), '/') . '/' . ltrim($endpoint, '/');
 
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . env('FINGERSPOT_API_TOKEN'),
@@ -22,11 +28,19 @@ class FingerspotController extends Controller
         ->withBody(json_encode($payload), 'application/json')
         ->post($url);
 
+        $responsePayload = $response->json();
+        $storeResult = null;
+
+        if ($storeAttendance && is_array($responsePayload)) {
+            $storeResult = $this->attendanceService->storeFromApiResponse($responsePayload, $payload);
+        }
+
         return response()->json([
             'status' => $response->successful(),
             'http_status' => $response->status(),
             'request_payload' => $payload,
-            'response' => $response->json(),
+            'response' => $responsePayload,
+            'attendance_sync' => $storeResult,
             'raw_response' => $response->body(),
         ], $response->status());
     }
@@ -44,12 +58,20 @@ class FingerspotController extends Controller
             'end_date' => 'required|date|after_or_equal:start_date',
         ]);
 
-        return $this->sendToFingerspot('get_attlog', [
-            'trans_id' => $this->transId('ATTLOG'),
-            'cloud_id' => $request->cloud_id,
-            'start_date' => $request->start_date,
-            'end_date' => $request->end_date,
-        ]);
+        try {
+            $result = $this->attendanceService->syncFromFingerspot(
+                $request->start_date,
+                $request->end_date,
+                $request->cloud_id
+            );
+        } catch (InvalidArgumentException $e) {
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+
+        return response()->json($result, $result['http_status']);
     }
 
     public function getUserinfo(Request $request)
@@ -177,9 +199,12 @@ class FingerspotController extends Controller
             now()->format('Y-m-d H:i:s') . ' | ' . json_encode($payload)
         );
 
+        $storeResult = $this->attendanceService->storeFromWebhook($payload);
+
         return response()->json([
             'success' => true,
             'message' => 'Webhook received',
+            'attendance_sync' => $storeResult,
         ]);
     }
 }

@@ -2,33 +2,39 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\FingerspotAttendanceService;
 use Illuminate\Http\Request;
-
-use Illuminate\Support\Facades\Http;
+use InvalidArgumentException;
 
 class AttendanceController extends Controller
 {
-    public function pull()
+    public function __construct(private FingerspotAttendanceService $attendanceService)
     {
-        $response = Http::withHeaders([
-            'Authorization' => 'Bearer XRRU7MBYK0KENQBO',
-            'Content-Type' => 'application/json'
-        ])->post('https://developer.fingerspot.io/api/get_attlog', [
-            "trans_id"   => time(), // unique aja
-            "cloud_id"   => "C262C4452315262F",
-            // "start_date" => now()->subDays(2)->format('Y-m-d'),
-            "start_date" => "2026-03-15",
-            // "end_date"   => now()->format('Y-m-d'),
-            "end_date"   => "2026-03-15",
-            // "pin"       => "0147", // bisa juga array of pin kalau mau banyak sekaligus
+    }
+
+    public function pull(Request $request)
+    {
+        $data = $request->validate([
+            'cloud_id' => ['nullable', 'string'],
+            'start_date' => ['nullable', 'date'],
+            'end_date' => ['nullable', 'date', 'after_or_equal:start_date'],
         ]);
 
-        \Log::info('FINGERSPOT RESPONSE', $response->json());
-        dd($response->json());
+        try {
+            $result = $this->attendanceService->syncFromFingerspot(
+                $data['start_date'] ?? null,
+                $data['end_date'] ?? null,
+                $data['cloud_id'] ?? null
+            );
+        } catch (InvalidArgumentException $e) {
+            return response()->json([
+                'status' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
 
-        return response()->json([
-            'status' => $response->status(),
-            'data'   => $response->json()
-        ]);
+        \Log::info('FINGERSPOT RESPONSE', $result);
+
+        return response()->json($result, $result['http_status']);
     }
 }
