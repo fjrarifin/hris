@@ -4,6 +4,10 @@
 @section('page-title', 'Log Absensi Fingerspot')
 
 @section('content')
+    @php
+        $lastSync = $summary['last_sync'] ? \Carbon\Carbon::parse($summary['last_sync']) : null;
+    @endphp
+
     <div class="mb-3 d-flex flex-wrap align-items-center justify-content-between gap-2">
         <div>
             <h4 class="mb-1 font-weight-bold">Log Absensi Fingerspot</h4>
@@ -13,7 +17,7 @@
         </div>
         <div class="text-muted small">
             Sync terakhir:
-            <strong>{{ $summary['last_sync'] ? $summary['last_sync']->format('d/m/Y H:i') : '-' }}</strong>
+            <strong>{{ $lastSync ? $lastSync->format('d/m/Y H:i') : '-' }}</strong>
         </div>
     </div>
 
@@ -63,8 +67,8 @@
                         <input type="date" name="end_date" value="{{ $endDate }}" class="form-control">
                     </div>
                     <div class="col-md-3">
-                        <label class="small text-muted mb-1">Cari PIN / Nama / Departement</label>
-                        <input type="text" name="q" value="{{ $q }}" class="form-control" placeholder="Contoh: 0147 atau Budi">
+                        <label class="small text-muted mb-1">Cari PIN / Cloud ID / Source / Trans ID</label>
+                        <input type="text" name="q" value="{{ $q }}" class="form-control" placeholder="Contoh: 0147 atau webhook">
                     </div>
                     <div class="col-md-2">
                         <label class="small text-muted mb-1">Status Scan</label>
@@ -89,28 +93,33 @@
             <table class="table-hover table-striped mb-0 table">
                 <thead class="thead-light">
                     <tr>
+                        <th style="width: 80px;">ID</th>
                         <th style="width: 160px;">Tanggal Scan</th>
                         <th>PIN</th>
-                        <th>Nama Karyawan</th>
-                        <th>Departement</th>
-                        <th>Unit</th>
                         <th class="text-center">Verify</th>
                         <th class="text-center">Status</th>
                         <th>Source</th>
                         <th>Trans ID</th>
+                        <th>Cloud ID</th>
+                        <th style="min-width: 260px;">Raw Payload</th>
+                        <th>Created</th>
+                        <th>Updated</th>
                     </tr>
                 </thead>
                 <tbody>
                     @forelse ($logs as $log)
+                        @php
+                            $scanDate = $log->scan_date ? \Carbon\Carbon::parse($log->scan_date) : null;
+                            $createdAt = $log->created_at ? \Carbon\Carbon::parse($log->created_at) : null;
+                            $updatedAt = $log->updated_at ? \Carbon\Carbon::parse($log->updated_at) : null;
+                        @endphp
                         <tr>
+                            <td class="text-muted">{{ $log->id }}</td>
                             <td>
-                                <div class="font-weight-bold">{{ $log->scan_date?->format('d/m/Y') }}</div>
-                                <div class="text-muted small">{{ $log->scan_date?->format('H:i:s') }}</div>
+                                <div class="font-weight-bold">{{ $scanDate ? $scanDate->format('d/m/Y') : '-' }}</div>
+                                <div class="text-muted small">{{ $scanDate ? $scanDate->format('H:i:s') : '-' }}</div>
                             </td>
                             <td class="font-weight-bold">{{ $log->pin }}</td>
-                            <td>{{ $log->karyawan?->nama_karyawan ?? '-' }}</td>
-                            <td>{{ $log->karyawan?->departement ?? '-' }}</td>
-                            <td>{{ $log->karyawan?->unit ?? '-' }}</td>
                             <td class="text-center">
                                 <span class="badge badge-light">{{ $log->verify ?? '-' }}</span>
                             </td>
@@ -123,10 +132,18 @@
                                 </span>
                             </td>
                             <td class="small text-muted">{{ $log->trans_id ?? '-' }}</td>
+                            <td class="small text-muted">{{ $log->cloud_id ?? '-' }}</td>
+                            <td>
+                                <code class="small text-wrap d-block" style="white-space: pre-wrap;">
+{{ json_encode($log->raw_payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: '-' }}
+                                </code>
+                            </td>
+                            <td class="small text-muted">{{ $createdAt ? $createdAt->format('d/m/Y H:i') : '-' }}</td>
+                            <td class="small text-muted">{{ $updatedAt ? $updatedAt->format('d/m/Y H:i') : '-' }}</td>
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="9" class="py-5 text-center text-muted">
+                            <td colspan="11" class="py-5 text-center text-muted">
                                 Data absensi belum tersedia untuk filter ini.
                             </td>
                         </tr>
