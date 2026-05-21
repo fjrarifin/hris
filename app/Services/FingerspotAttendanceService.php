@@ -120,7 +120,7 @@ class FingerspotAttendanceService
             } catch (\Throwable $e) {
                 $result['errors'][] = [
                     'pin' => $record['pin'] ?? null,
-                    'scan_date' => $record['scan_date'] ?? $record['scan_time'] ?? null,
+                    'scan_date' => $record['scan_date'] ?? $record['scan_time'] ?? $record['scan'] ?? null,
                     'message' => $e->getMessage(),
                 ];
 
@@ -165,7 +165,12 @@ class FingerspotAttendanceService
     private function normalizeRecord(array $record): ?array
     {
         $pin = trim((string) ($record['pin'] ?? $record['nik'] ?? $record['user_id'] ?? ''));
-        $scanDate = $record['scan_date'] ?? $record['scan_time'] ?? $record['date_time'] ?? $record['timestamp'] ?? null;
+        $scanDate = $record['scan_date']
+            ?? $record['scan_time']
+            ?? $record['scan']
+            ?? $record['date_time']
+            ?? $record['timestamp']
+            ?? null;
 
         if ($pin === '' || empty($scanDate)) {
             return null;
@@ -192,6 +197,10 @@ class FingerspotAttendanceService
     private function looksLikeAttendanceRecord(array $payload): bool
     {
         return array_key_exists('pin', $payload)
-            && (array_key_exists('scan_date', $payload) || array_key_exists('scan_time', $payload));
+            && (
+                array_key_exists('scan_date', $payload)
+                || array_key_exists('scan_time', $payload)
+                || array_key_exists('scan', $payload)
+            );
     }
 }

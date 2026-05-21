@@ -9,6 +9,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('fingerspot_attendance_logs', function (Blueprint $table) {
+            $table->charset = 'utf8mb4';
+            $table->collation = 'utf8mb4_unicode_ci';
+
             $table->id();
             $table->string('pin', 50)->index();
             $table->dateTime('scan_date')->index();
