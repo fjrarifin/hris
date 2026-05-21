@@ -199,11 +199,17 @@ class FingerspotController extends Controller
             now()->format('Y-m-d H:i:s') . ' | ' . json_encode($payload)
         );
 
+        $webhookLog = $this->attendanceService->storeWebhookPayload(
+            $payload,
+            $request->ip(),
+            $request->userAgent()
+        );
         $storeResult = $this->attendanceService->storeFromWebhook($payload);
 
         return response()->json([
             'success' => true,
             'message' => 'Webhook received',
+            'webhook_log_id' => $webhookLog->id,
             'attendance_sync' => $storeResult,
         ]);
     }

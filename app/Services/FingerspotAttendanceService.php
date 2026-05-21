@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\FingerspotAttendanceLog;
+use App\Models\FingerspotWebhookLog;
 use Carbon\Carbon;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
@@ -79,6 +80,35 @@ class FingerspotAttendanceService
             'trans_id' => Arr::get($payload, 'trans_id'),
             'cloud_id' => Arr::get($payload, 'cloud_id'),
             'source' => 'webhook',
+        ]);
+    }
+
+    public function storeWebhookPayload(array $payload, ?string $ipAddress = null, ?string $userAgent = null): FingerspotWebhookLog
+    {
+        $record = $this->firstWebhookRecord($payload);
+        $scan = $record['scan'] ?? $record['scan_date'] ?? $record['scan_time'] ?? null;
+
+        try {
+            $scan = $scan ? Carbon::parse($scan)->format('Y-m-d H:i:s') : null;
+        } catch (\Throwable) {
+            $scan = null;
+        }
+
+        return FingerspotWebhookLog::create([
+            'type' => Arr::get($payload, 'type'),
+            'cloud_id' => Arr::get($payload, 'cloud_id'),
+            'pin' => isset($record['pin']) ? (string) $record['pin'] : null,
+            'scan' => $scan,
+            'verify' => isset($record['verify'])
+                ? (string) $record['verify']
+                : (isset($record['verification']) ? (string) $record['verification'] : null),
+            'status_scan' => isset($record['status_scan'])
+                ? (string) $record['status_scan']
+                : (isset($record['status']) ? (string) $record['status'] : null),
+            'raw_payload' => $payload,
+            'ip_address' => $ipAddress,
+            'user_agent' => $userAgent,
+            'received_at' => now(),
         ]);
     }
 
@@ -160,6 +190,17 @@ class FingerspotAttendanceService
         }
 
         return array_values(array_filter($data, fn ($item) => is_array($item)));
+    }
+
+    private function firstWebhookRecord(array $payload): array
+    {
+        $records = $this->extractRecords($payload);
+
+        if (! empty($records)) {
+            return $records[0];
+        }
+
+        return is_array($payload['data'] ?? null) ? $payload['data'] : $payload;
     }
 
     private function normalizeRecord(array $record): ?array

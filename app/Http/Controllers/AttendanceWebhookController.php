@@ -20,11 +20,17 @@ class AttendanceWebhookController extends Controller
             'data' => $request->all()
         ]);
 
+        $webhookLog = $this->attendanceService->storeWebhookPayload(
+            $request->all(),
+            $request->ip(),
+            $request->userAgent()
+        );
         $storeResult = $this->attendanceService->storeFromWebhook($request->all());
 
         return response()->json([
             'status' => 'ok',
             'message' => 'Webhook received',
+            'webhook_log_id' => $webhookLog->id,
             'attendance_sync' => $storeResult,
         ]);
     }
