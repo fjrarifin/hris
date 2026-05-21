@@ -47,12 +47,16 @@ class KaryawanController extends Controller
 
     public function store(Request $request)
     {
+        $this->mergePositionPayload($request);
+
         $request->validate([
             'nik' => ['required', 'string', 'max:30', 'unique:m_karyawan,nik'],
             'nama_karyawan' => ['required', 'string', 'max:150'],
             'jabatan' => ['nullable', 'string', 'max:100'],
             'posisi' => ['nullable', 'string', 'max:100'],
-            'divisi' => ['nullable', 'string', 'max:100'],
+            'posisi_level' => ['nullable', Rule::in($this->positionLevels())],
+            'posisi_title' => ['nullable', Rule::in($this->positionTitles())],
+            'divisi' => ['nullable', Rule::in($this->divisionOptions())],
             'departement' => ['nullable', 'string', 'max:100'],
             'unit' => ['nullable', 'string', 'max:100'],
             'nama_atasan_langsung' => ['nullable', 'string', 'max:150'],
@@ -140,12 +144,15 @@ class KaryawanController extends Controller
     public function update(Request $request, $nik)
     {
         $data = Karyawan::with('user')->where('nik', $nik)->firstOrFail();
+        $this->mergePositionPayload($request);
 
         $request->validate([
             'nama_karyawan' => ['required', 'string', 'max:150'],
             'jabatan' => ['nullable', 'string', 'max:100'],
             'posisi' => ['nullable', 'string', 'max:100'],
-            'divisi' => ['nullable', 'string', 'max:100'],
+            'posisi_level' => ['nullable', Rule::in($this->positionLevels())],
+            'posisi_title' => ['nullable', Rule::in($this->positionTitles())],
+            'divisi' => ['nullable', Rule::in($this->divisionOptions())],
             'departement' => ['nullable', 'string', 'max:100'],
             'unit' => ['nullable', 'string', 'max:100'],
             'nama_atasan_langsung' => ['nullable', 'string', 'max:150'],
@@ -189,6 +196,8 @@ class KaryawanController extends Controller
             'nama_karyawan',
             'jabatan',
             'posisi',
+            'posisi_level',
+            'posisi_title',
             'divisi',
             'departement',
             'unit',
@@ -368,5 +377,32 @@ class KaryawanController extends Controller
             'level' => 3,
             'must_change_password' => true,
         ]);
+    }
+
+    private function mergePositionPayload(Request $request): void
+    {
+        $level = trim((string) $request->input('posisi_level'));
+        $title = trim((string) $request->input('posisi_title'));
+
+        $request->merge([
+            'posisi_level' => $level ?: null,
+            'posisi_title' => $title ?: null,
+            'posisi' => trim($level . ' ' . $title) ?: null,
+        ]);
+    }
+
+    private function positionLevels(): array
+    {
+        return ['Sr.', 'Md.', 'Jr.'];
+    }
+
+    private function positionTitles(): array
+    {
+        return ['Operator', 'Staff', 'Leader', 'Supervisor', 'Asst. Manager', 'Manager', 'GM'];
+    }
+
+    private function divisionOptions(): array
+    {
+        return ['Business Partner', 'Commercial Business'];
     }
 }

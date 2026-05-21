@@ -239,6 +239,12 @@ Route::middleware(['auth', 'level:2'])
         Route::get('/karyawan', [KaryawanController::class, 'index'])
             ->name('karyawan.index');
 
+        Route::get('/karyawan/create', [KaryawanController::class, 'create'])
+            ->name('karyawan.create');
+
+        Route::post('/karyawan', [KaryawanController::class, 'store'])
+            ->name('karyawan.store');
+
         Route::get('/attendance', [AttendanceLogController::class, 'index'])
             ->middleware('hr.full')
             ->name('attendance.index');

@@ -1,19 +1,41 @@
 @extends('layouts.app')
 
-@section('title', 'Detail Karyawan')
-@section('page-title', 'Detail Karyawan')
+@section('title', ($mode ?? 'edit') === 'create' ? 'Tambah Karyawan' : 'Detail Karyawan')
+@section('page-title', ($mode ?? 'edit') === 'create' ? 'Tambah Karyawan' : 'Detail Karyawan')
 
 @section('content')
+	<link rel="stylesheet" href="{{ asset('adminlte/plugins/select2/css/select2.min.css') }}">
+	<link rel="stylesheet" href="{{ asset('adminlte/plugins/select2-bootstrap4-theme/select2-bootstrap4.min.css') }}">
+
 	@php
-		$posisiOptions = collect($posisiOptions ?? []);
-		$divisiOptions = collect($divisiOptions ?? []);
+		$isCreate = ($mode ?? 'edit') === 'create';
+		$positionLevels = ['Sr.', 'Md.', 'Jr.'];
+		$positionTitles = ['Operator', 'Staff', 'Leader', 'Supervisor', 'Asst. Manager', 'Manager', 'GM'];
+		$divisiOptions = collect(['Business Partner', 'Commercial Business']);
 		$departementOptions = collect($departementOptions ?? []);
 		$atasanOptions = collect($atasanOptions ?? []);
 		$photo = optional($data->user)->photo;
-		$initial = strtoupper(substr($data->nama_karyawan ?: 'K', 0, 1));
+		$initial = strtoupper(substr(old('nama_karyawan', $data->nama_karyawan) ?: 'K', 0, 1));
 		$fmtDate = fn ($value) => $value ? \Carbon\Carbon::parse($value)->format('d M Y') : '-';
 		$currentEmail = old('email', $data->email ?: optional($data->user)->email);
 		$currentPosisi = old('posisi', $data->posisi);
+		$currentPosisiLevel = old('posisi_level', $data->posisi_level);
+		$currentPosisiTitle = old('posisi_title', $data->posisi_title);
+
+		if (!$currentPosisiLevel && $currentPosisi) {
+			foreach ($positionLevels as $level) {
+				if (str_starts_with((string) $currentPosisi, $level . ' ')) {
+					$currentPosisiLevel = $level;
+					$currentPosisiTitle = trim(substr((string) $currentPosisi, strlen($level)));
+					break;
+				}
+			}
+		}
+
+		if (!$currentPosisiTitle && $currentPosisi && in_array($currentPosisi, $positionTitles, true)) {
+			$currentPosisiTitle = $currentPosisi;
+		}
+
 		$currentDivisi = old('divisi', $data->divisi);
 		$currentDepartement = old('departement', $data->departement);
 		$currentAtasan = old('nama_atasan_langsung', $data->nama_atasan_langsung);
@@ -22,22 +44,22 @@
 
 	<style>
 		.hr-karyawan-detail {
-			font-size: 11px;
+			font-size: 10.5px;
 		}
 
 		.hr-karyawan-detail h1,
 		.hr-karyawan-detail h2,
 		.hr-karyawan-detail h3 {
-			font-size: 14px !important;
-			line-height: 1.35;
+			font-size: 13px !important;
+			line-height: 1.25;
 		}
 
 		.hr-karyawan-detail h4,
 		.hr-karyawan-detail label,
 		.hr-karyawan-detail .subheading,
 		.hr-karyawan-detail .tab-btn {
-			font-size: 12px !important;
-			line-height: 1.35;
+			font-size: 10.5px !important;
+			line-height: 1.25;
 		}
 
 		.hr-karyawan-detail input,
@@ -46,7 +68,71 @@
 		.hr-karyawan-detail table,
 		.hr-karyawan-detail .body-text,
 		.hr-karyawan-detail .content-text {
-			font-size: 11px !important;
+			font-size: 10.5px !important;
+		}
+
+		.hr-karyawan-detail .card-body {
+			padding: 12px !important;
+		}
+
+		.hr-karyawan-detail .card {
+			margin-bottom: 10px !important;
+		}
+
+		.hr-karyawan-detail .grid {
+			gap: 10px !important;
+		}
+
+		.hr-karyawan-detail input,
+		.hr-karyawan-detail select {
+			min-height: 30px;
+			padding: 4px 8px !important;
+		}
+
+		.hr-karyawan-detail textarea {
+			padding: 6px 8px !important;
+		}
+
+		.hr-karyawan-detail .btn,
+		.hr-karyawan-detail button,
+		.hr-karyawan-detail a[class*="px-"] {
+			font-size: 10.5px !important;
+		}
+
+		.hr-karyawan-detail .rounded-lg[class*="px-"],
+		.hr-karyawan-detail .rounded-xl[class*="px-"] {
+			padding-left: 10px !important;
+			padding-right: 10px !important;
+		}
+
+		.hr-karyawan-detail .rounded-lg[class*="py-"],
+		.hr-karyawan-detail .rounded-xl[class*="py-"] {
+			padding-top: 5px !important;
+			padding-bottom: 5px !important;
+		}
+
+		.hr-karyawan-detail .mb-4 {
+			margin-bottom: 10px !important;
+		}
+
+		.hr-karyawan-detail .mb-3 {
+			margin-bottom: 8px !important;
+		}
+
+		.hr-karyawan-detail .mt-5 {
+			margin-top: 16px !important;
+		}
+
+		.hr-karyawan-detail .mt-6 {
+			margin-top: 14px !important;
+		}
+
+		.hr-karyawan-detail .p-4 {
+			padding: 12px !important;
+		}
+
+		.hr-karyawan-detail .p-1 {
+			padding: 0 !important;
 		}
 
 		.profile-avatar {
@@ -54,6 +140,14 @@
 			border-radius: 50%;
 			display: block;
 			object-fit: cover;
+			height: 104px !important;
+			width: 104px !important;
+		}
+
+		.profile-avatar-button > .rounded-circle {
+			font-size: 34px !important;
+			height: 104px !important;
+			width: 104px !important;
 		}
 
 		.profile-avatar-button {
@@ -72,11 +166,11 @@
 			bottom: 3px;
 			color: #fff;
 			display: inline-flex;
-			height: 28px;
+			height: 24px;
 			justify-content: center;
 			position: absolute;
 			right: 3px;
-			width: 28px;
+			width: 24px;
 		}
 
 		.tab-btn {
@@ -87,8 +181,8 @@
 			border-right: 1px solid #e5e7eb;
 			display: flex;
 			justify-content: center;
-			min-height: 46px;
-			padding: 8px 10px;
+			min-height: 36px;
+			padding: 5px 8px;
 			text-align: center;
 			transition: 0.2s;
 			width: 100%;
@@ -123,6 +217,7 @@
 		.tab-panel {
 			border-radius: 0 0 12px 12px;
 			min-width: 0;
+			padding: 12px !important;
 		}
 
 		.table-scroll {
@@ -140,6 +235,8 @@
 		.contract-table td {
 			vertical-align: middle;
 			word-break: normal;
+			font-size: 10.5px !important;
+			padding: 5px 8px !important;
 		}
 
 		.contract-table .col-small {
@@ -157,6 +254,27 @@
 		.contract-table .col-status {
 			width: 96px;
 		}
+
+		.hr-karyawan-detail .select2-container--bootstrap4 .select2-selection {
+			border-color: #d1d5db;
+			border-radius: 8px;
+			font-size: 10.5px;
+			min-height: 30px;
+		}
+
+		.hr-karyawan-detail .select2-container--bootstrap4 .select2-selection--single .select2-selection__rendered {
+			line-height: 28px;
+			padding-left: 8px;
+		}
+
+		.hr-karyawan-detail .select2-container--bootstrap4 .select2-selection--single .select2-selection__arrow {
+			height: 28px;
+		}
+
+		.select2-results__option,
+		.select2-search__field {
+			font-size: 11px;
+		}
 	</style>
 
 	<div class="hr-karyawan-detail">
@@ -165,7 +283,7 @@
 				<div class="card card-outline card-primary mb-4 rounded-3xl shadow-sm">
 					<div class="card-body text-center py-4">
 						<div class="d-flex justify-content-center mb-3">
-							<button type="button" class="profile-avatar-button" data-toggle="modal" data-target="#photoActionModal">
+							<button type="button" class="profile-avatar-button" @unless($isCreate) data-toggle="modal" data-target="#photoActionModal" @endunless>
 								@if ($photo)
 									<img src="{{ asset('storage/' . $photo) }}" class="profile-avatar shadow" width="132" height="132"
 										oncontextmenu="return false;" draggable="false">
@@ -175,18 +293,20 @@
 										{{ $initial }}
 									</div>
 								@endif
-								<span class="avatar-edit-mark">
-									<i class="fas fa-camera"></i>
-								</span>
+								@unless ($isCreate)
+									<span class="avatar-edit-mark">
+										<i class="fas fa-camera"></i>
+									</span>
+								@endunless
 							</button>
 						</div>
 
 						<h2 class="font-extrabold mb-1 text-gray-900">
-							{{ $data->nama_karyawan }}
+							{{ old('nama_karyawan', $data->nama_karyawan) ?: 'Karyawan Baru' }}
 						</h2>
 
 						<div class="text-muted mb-2">
-							{{ $data->jabatan ?: '-' }} &bull; {{ $data->departement ?: '-' }}
+							{{ old('jabatan', $data->jabatan) ?: '-' }} &bull; {{ old('departement', $data->departement) ?: '-' }}
 						</div>
 
 						<span class="badge badge-success px-3 py-1">
@@ -201,7 +321,7 @@
 						<div class="border-top mt-4 pt-3 text-left">
 							<div class="d-flex justify-content-between mb-2">
 								<span class="text-muted">NIK</span>
-								<strong>{{ $data->nik }}</strong>
+								<strong>{{ old('nik', $data->nik) ?: '-' }}</strong>
 							</div>
 							<div class="d-flex justify-content-between mb-2">
 								<span class="text-muted">No. HP</span>
@@ -222,7 +342,7 @@
 
 			<div class="col-md-8">
 				<div class="relative">
-					<div class="hr-tabs">
+					<div class="hr-tabs" @if($isCreate) style="grid-template-columns: repeat(2, minmax(0, 1fr));" @endif>
 						<button onclick="openTab('tab-info')" id="btn-info" class="tab-btn font-semibold"
 							type="button">
 							Info & Kontak
@@ -233,14 +353,16 @@
 							Data Pribadi
 						</button>
 
-						<button onclick="openTab('tab-kontrak')" id="btn-kontrak" class="tab-btn font-semibold"
-							type="button">
-							Kontrak
-						</button>
+						@unless ($isCreate)
+							<button onclick="openTab('tab-kontrak')" id="btn-kontrak" class="tab-btn font-semibold"
+								type="button">
+								Kontrak
+							</button>
+						@endunless
 					</div>
 
 					<div class="tab-panel bg-white p-4 shadow-sm">
-				<form method="POST" action="{{ route('hr.karyawan.update', $data->nik) }}">
+				<form method="POST" action="{{ $isCreate ? route('hr.karyawan.store') : route('hr.karyawan.update', $data->nik) }}">
 					@csrf
 
 					<div id="tab-info" class="tab-content">
@@ -250,6 +372,14 @@
 							</h3>
 
 							<div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+								@if ($isCreate)
+									<div>
+										<label class="font-bold text-gray-600">NIK</label>
+										<input type="text" name="nik" value="{{ old('nik', $data->nik) }}"
+											class="mt-1 w-full rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500" required>
+									</div>
+								@endif
+
 								<div>
 									<label class="font-bold text-gray-600">Nama Karyawan</label>
 									<input type="text" name="nama_karyawan" value="{{ old('nama_karyawan', $data->nama_karyawan) }}"
@@ -264,17 +394,28 @@
 
 								<div>
 									<label class="font-bold text-gray-600">Posisi</label>
-									<select name="posisi" class="mt-1 w-full rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
-										<option value="">- Pilih -</option>
-										@foreach ($posisiOptions as $option)
-											<option value="{{ $option }}" @selected((string) $currentPosisi === (string) $option)>
-												{{ $option }}
-											</option>
-										@endforeach
-										@if ($currentPosisi && ! $posisiOptions->contains($currentPosisi))
-											<option value="{{ $currentPosisi }}" selected>{{ $currentPosisi }}</option>
-										@endif
-									</select>
+									<input type="hidden" name="posisi" id="posisiCombined" value="{{ $currentPosisi }}">
+									<div class="grid grid-cols-2 gap-2">
+										<select name="posisi_level" id="posisiLevel"
+											class="mt-1 w-full rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
+											<option value="">Level</option>
+											@foreach ($positionLevels as $level)
+												<option value="{{ $level }}" @selected((string) $currentPosisiLevel === (string) $level)>
+													{{ $level }}
+												</option>
+											@endforeach
+										</select>
+
+										<select name="posisi_title" id="posisiTitle"
+											class="mt-1 w-full rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
+											<option value="">Sub Posisi</option>
+											@foreach ($positionTitles as $title)
+												<option value="{{ $title }}" @selected((string) $currentPosisiTitle === (string) $title)>
+													{{ $title }}
+												</option>
+											@endforeach
+										</select>
+									</div>
 								</div>
 
 								<div>
@@ -317,7 +458,8 @@
 								<div>
 									<label class="font-bold text-gray-600">Atasan Langsung</label>
 									<select name="nama_atasan_langsung"
-										class="mt-1 w-full rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
+										class="searchable-supervisor-select mt-1 w-full rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500"
+										data-placeholder="- Pilih Atasan Langsung -">
 										<option value="">- Pilih -</option>
 										@foreach ($atasanOptions as $atasan)
 											<option value="{{ $atasan->nama_karyawan }}" @selected((string) $currentAtasan === (string) $atasan->nama_karyawan)>
@@ -333,7 +475,8 @@
 								<div>
 									<label class="font-bold text-gray-600">Atasan Tidak Langsung</label>
 									<select name="atasan_tidak_langsung"
-										class="mt-1 w-full rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
+										class="searchable-supervisor-select mt-1 w-full rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500"
+										data-placeholder="- Pilih Atasan Tidak Langsung -">
 										<option value="">- Pilih -</option>
 										@foreach ($atasanOptions as $atasan)
 											<option value="{{ $atasan->nama_karyawan }}" @selected((string) $currentAtasanTidakLangsung === (string) $atasan->nama_karyawan)>
@@ -418,7 +561,7 @@
 								<button type="submit"
 									class="rounded-lg bg-indigo-600 px-5 py-2 font-semibold text-white transition hover:bg-indigo-700">
 									<i class="fas fa-save mr-1"></i>
-									Simpan Perubahan
+									{{ $isCreate ? 'Simpan Karyawan' : 'Simpan Perubahan' }}
 								</button>
 							</div>
 						</div>
@@ -592,13 +735,14 @@
 								<button type="submit"
 									class="rounded-lg bg-indigo-600 px-5 py-2 font-semibold text-white transition hover:bg-indigo-700">
 									<i class="fas fa-save mr-1"></i>
-									Simpan Perubahan
+									{{ $isCreate ? 'Simpan Karyawan' : 'Simpan Perubahan' }}
 								</button>
 							</div>
 						</div>
 					</div>
 				</form>
 
+				@unless ($isCreate)
 				<div id="tab-kontrak" class="tab-content hidden">
 					<div class="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
 						<h3 class="font-extrabold text-gray-900">
@@ -924,10 +1068,12 @@
 				</div>
 			</div>
 		</div>
+		@endunless
 	</div>
 @endsection
 
 @push('scripts')
+	<script src="{{ asset('adminlte/plugins/select2/js/select2.full.min.js') }}"></script>
 	<script>
 		function openTab(tabId) {
 			document.querySelectorAll('.tab-content').forEach(el => {
@@ -948,6 +1094,34 @@
 
 		document.addEventListener('DOMContentLoaded', function () {
 			openTab('tab-info');
+
+			$('.searchable-supervisor-select').select2({
+				theme: 'bootstrap4',
+				width: '100%',
+				allowClear: true,
+				placeholder: function () {
+					return $(this).data('placeholder') || '- Pilih -';
+				}
+			});
+
+			const posisiLevel = document.getElementById('posisiLevel');
+			const posisiTitle = document.getElementById('posisiTitle');
+			const posisiCombined = document.getElementById('posisiCombined');
+
+			function syncPosisi() {
+				if (!posisiLevel || !posisiTitle || !posisiCombined) return;
+
+				posisiCombined.value = [posisiLevel.value, posisiTitle.value]
+					.filter(Boolean)
+					.join(' ')
+					.trim();
+			}
+
+			if (posisiLevel && posisiTitle) {
+				posisiLevel.addEventListener('change', syncPosisi);
+				posisiTitle.addEventListener('change', syncPosisi);
+				syncPosisi();
+			}
 
 			const dropzone = document.getElementById('hrPhotoDropzone');
 			const input = document.getElementById('hrPhotoInput');

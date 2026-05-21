@@ -18,6 +18,8 @@ class Karyawan extends Model
         'nama_karyawan',
         'jabatan',
         'posisi',
+        'posisi_level',
+        'posisi_title',
         'divisi',
         'departement',
         'unit',

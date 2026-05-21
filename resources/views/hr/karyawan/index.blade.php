@@ -5,9 +5,23 @@
 
 @section('content')
 	<style>
+		.karyawan-index {
+			font-size: 11px;
+		}
+
+		.karyawan-index h4 {
+			font-size: 15px;
+			line-height: 1.25;
+		}
+
+		.karyawan-index .btn {
+			font-size: 11px;
+			padding: 5px 10px;
+		}
+
 		.avatar-sm {
-			width: 32px;
-			height: 32px;
+			width: 26px;
+			height: 26px;
 			border-radius: 50%;
 			object-fit: cover;
 			cursor: pointer;
@@ -46,13 +60,15 @@
 
 		#tblKaryawan {
 			border-collapse: separate;
-			border-spacing: 0 8px;
+			border-spacing: 0 4px;
+			font-size: 11px;
 		}
 
 		#tblKaryawan thead th {
 			background: #f1f5f9;
 			font-weight: 600;
 			border-bottom: 2px solid #e2e8f0;
+			padding: 6px 8px !important;
 		}
 
 		#tblKaryawan tbody tr {
@@ -69,6 +85,23 @@
 
 		#tblKaryawan tbody td {
 			vertical-align: middle !important;
+			padding: 5px 8px !important;
+		}
+
+		#tblKaryawan tbody tr:hover {
+			transform: translateY(-1px);
+		}
+
+		.karyawan-index .dataTables_wrapper,
+		.karyawan-index .dataTables_wrapper .form-control,
+		.karyawan-index .dataTables_wrapper .btn {
+			font-size: 11px;
+		}
+
+		.karyawan-index .dataTables_wrapper .dataTables_filter input,
+		.karyawan-index .dataTables_wrapper .dataTables_length select {
+			height: 28px;
+			padding: 2px 8px;
 		}
 
 		#tblKaryawan .btn-detail {
@@ -92,9 +125,21 @@
 		}
 	</style>
 
+	<div class="karyawan-index">
+	<div class="mb-2 d-flex flex-wrap align-items-center justify-content-between">
+		<div>
+			<h4 class="mb-1 font-weight-bold text-gray-900">Master Karyawan</h4>
+			<div class="text-muted small">Kelola data karyawan HRD.</div>
+		</div>
+		<a href="{{ route('hr.karyawan.create') }}" class="btn btn-primary rounded-lg font-weight-bold">
+			<i class="fas fa-user-plus mr-1"></i>
+			Tambah Karyawan
+		</a>
+	</div>
+
 	{{-- Table --}}
 	<div class="card-outline card-primary overflow-hidden rounded-3xl bg-white shadow-sm">
-		<div class="p-4">
+		<div class="p-2">
 			<table id="tblKaryawan" class="table-bordered table-striped table-hover table w-full text-xs">
 				<thead class="bg-gray-50 text-gray-600">
 					<tr>
@@ -162,6 +207,7 @@
 
 			</table>
 		</div>
+	</div>
 	</div>
 
 @endsection
