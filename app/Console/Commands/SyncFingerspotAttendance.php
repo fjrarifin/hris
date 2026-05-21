@@ -13,7 +13,8 @@ class SyncFingerspotAttendance extends Command
     protected $signature = 'fingerspot:sync-attendance
         {--start_date= : Tanggal awal format Y-m-d}
         {--end_date= : Tanggal akhir format Y-m-d}
-        {--cloud_id= : Override cloud ID Fingerspot}';
+        {--cloud_id= : Override cloud ID Fingerspot}
+        {--show-response : Tampilkan response API per chunk untuk debug}';
 
     protected $description = 'Sync log absensi Fingerspot ke database.';
 
@@ -118,6 +119,11 @@ class SyncFingerspotAttendance extends Command
                 $sync['updated'] ?? 0,
                 $sync['skipped'] ?? 0
             ));
+
+            if ($this->option('show-response')) {
+                $this->line('  Request: ' . json_encode($result['request_payload'] ?? []));
+                $this->line('  Response: ' . json_encode($result['response'] ?? $result['raw_response'] ?? null));
+            }
         }
 
         return $summary;

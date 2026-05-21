@@ -8,6 +8,7 @@ use Carbon\Carbon;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use InvalidArgumentException;
 
 class FingerspotAttendanceService
@@ -36,7 +37,7 @@ class FingerspotAttendanceService
         }
 
         $payload = [
-            'trans_id' => 'ATTLOG-' . now()->format('YmdHis'),
+            'trans_id' => 'ATTLOG-' . now()->format('YmdHisv') . '-' . Str::upper(Str::random(6)),
             'cloud_id' => $cloudId,
             'start_date' => $start->toDateString(),
             'end_date' => $end->toDateString(),
