@@ -24,6 +24,6 @@ class FingerspotAttendanceLog extends Model
 
     public function karyawan()
     {
-        return $this->belongsTo(Karyawan::class, 'pin', 'nik');
+        return $this->belongsTo(Karyawan::class, 'pin', 'pin');
     }
 }

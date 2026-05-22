@@ -67,8 +67,8 @@
                         <input type="date" name="end_date" value="{{ $endDate }}" class="form-control">
                     </div>
                     <div class="col-md-3">
-                        <label class="small text-muted mb-1">Cari PIN / Cloud ID / Source / Trans ID</label>
-                        <input type="text" name="q" value="{{ $q }}" class="form-control" placeholder="Contoh: 0147 atau webhook">
+                        <label class="small text-muted mb-1">Cari Nama / NIK / PIN / Source</label>
+                        <input type="text" name="q" value="{{ $q }}" class="form-control" placeholder="Contoh: Budi atau 0147">
                     </div>
                     <div class="col-md-2">
                         <label class="small text-muted mb-1">Status Scan</label>
@@ -96,6 +96,8 @@
                         <th style="width: 80px;">ID</th>
                         <th style="width: 160px;">Tanggal Scan</th>
                         <th>PIN</th>
+                        <th>Nama Karyawan</th>
+                        <th>NIK</th>
                         <th class="text-center">Verify</th>
                         <th class="text-center">Status</th>
                         <th>Source</th>
@@ -120,6 +122,8 @@
                                 <div class="text-muted small">{{ $scanDate ? $scanDate->format('H:i:s') : '-' }}</div>
                             </td>
                             <td class="font-weight-bold">{{ $log->pin }}</td>
+                            <td>{{ $log->karyawan?->nama_karyawan ?? '-' }}</td>
+                            <td class="small text-muted">{{ $log->karyawan?->nik ?? '-' }}</td>
                             <td class="text-center">
                                 <span class="badge badge-light">{{ $log->verify ?? '-' }}</span>
                             </td>
@@ -143,7 +147,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="11" class="py-5 text-center text-muted">
+                            <td colspan="13" class="py-5 text-center text-muted">
                                 Data absensi belum tersedia untuk filter ini.
                             </td>
                         </tr>

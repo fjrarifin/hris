@@ -4,6 +4,7 @@ namespace App\Http\Controllers\HR;
 
 use App\Http\Controllers\Controller;
 use App\Models\FingerspotAttendanceLog;
+use App\Models\Karyawan;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 
@@ -25,15 +26,34 @@ class AttendanceLogController extends Controller
 
         $start = Carbon::parse($startDate)->startOfDay();
         $end = Carbon::parse($endDate)->endOfDay();
+        $employeePins = collect();
+
+        if ($q !== '') {
+            $employeePins = Karyawan::query()
+                ->where(function ($query) use ($q) {
+                    $query->where('pin', 'like', "%{$q}%")
+                        ->orWhere('nik', 'like', "%{$q}%")
+                        ->orWhere('nama_karyawan', 'like', "%{$q}%");
+                })
+                ->whereNotNull('pin')
+                ->pluck('pin')
+                ->filter()
+                ->values();
+        }
 
         $logs = FingerspotAttendanceLog::query()
+            ->with('karyawan')
             ->whereBetween('scan_date', [$start, $end])
-            ->when($q !== '', function ($query) use ($q) {
-                $query->where(function ($subQuery) use ($q) {
+            ->when($q !== '', function ($query) use ($q, $employeePins) {
+                $query->where(function ($subQuery) use ($q, $employeePins) {
                     $subQuery->where('pin', 'like', "%{$q}%")
                         ->orWhere('cloud_id', 'like', "%{$q}%")
                         ->orWhere('source', 'like', "%{$q}%")
                         ->orWhere('trans_id', 'like', "%{$q}%");
+
+                    if ($employeePins->isNotEmpty()) {
+                        $subQuery->orWhereIn('pin', $employeePins);
+                    }
                 });
             })
             ->when($statusScan !== null && $statusScan !== '', fn ($query) => $query->where('status_scan', $statusScan))

@@ -324,6 +324,10 @@
 								<strong>{{ old('nik', $data->nik) ?: '-' }}</strong>
 							</div>
 							<div class="d-flex justify-content-between mb-2">
+								<span class="text-muted">PIN</span>
+								<strong>{{ old('pin', $data->pin) ?: '-' }}</strong>
+							</div>
+							<div class="d-flex justify-content-between mb-2">
 								<span class="text-muted">No. HP</span>
 								<strong>{{ $data->no_hp ?: '-' }}</strong>
 							</div>
@@ -379,6 +383,12 @@
 											class="mt-1 w-full rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500" required>
 									</div>
 								@endif
+
+								<div>
+									<label class="font-bold text-gray-600">PIN Fingerspot</label>
+									<input type="text" name="pin" value="{{ old('pin', $data->pin) }}"
+										class="mt-1 w-full rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
+								</div>
 
 								<div>
 									<label class="font-bold text-gray-600">Nama Karyawan</label>

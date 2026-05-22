@@ -51,6 +51,7 @@ class KaryawanController extends Controller
 
         $request->validate([
             'nik' => ['required', 'string', 'max:30', 'unique:m_karyawan,nik'],
+            'pin' => ['nullable', 'string', 'max:50'],
             'nama_karyawan' => ['required', 'string', 'max:150'],
             'jabatan' => ['nullable', 'string', 'max:100'],
             'posisi' => ['nullable', 'string', 'max:100'],
@@ -147,6 +148,7 @@ class KaryawanController extends Controller
         $this->mergePositionPayload($request);
 
         $request->validate([
+            'pin' => ['nullable', 'string', 'max:50'],
             'nama_karyawan' => ['required', 'string', 'max:150'],
             'jabatan' => ['nullable', 'string', 'max:100'],
             'posisi' => ['nullable', 'string', 'max:100'],
@@ -193,6 +195,7 @@ class KaryawanController extends Controller
         ]);
 
         $payload = $request->only([
+            'pin',
             'nama_karyawan',
             'jabatan',
             'posisi',
