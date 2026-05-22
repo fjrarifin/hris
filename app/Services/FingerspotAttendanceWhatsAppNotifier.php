@@ -52,14 +52,21 @@ class FingerspotAttendanceWhatsAppNotifier
             ? $webhookLog->scan->format('d/m/Y H:i:s')
             : '-';
 
-        return implode("\n", [
+        $lines = [
             '*Notifikasi Absensi Fingerspot*',
             'Nama: ' . ($karyawan?->nama_karyawan ?? '-'),
             'Jabatan: ' . ($karyawan?->jabatan ?? '-'),
             'Tipe Absensi: ' . $this->attendanceType($webhookLog->status_scan),
             'Waktu: ' . $scanTime,
             'PIN: ' . ($webhookLog->pin ?? '-'),
-        ]);
+        ];
+
+        if (! $karyawan) {
+            $lines[] = '';
+            $lines[] = '_Karyawan tersebut belum terdaftar di HRIS, harap daftarkan segera untuk keakuratan data._';
+        }
+
+        return implode("\n", $lines);
     }
 
     private function attendanceType($value): string
