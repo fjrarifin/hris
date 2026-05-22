@@ -51,12 +51,13 @@ class FingerspotAttendanceWhatsAppNotifier
         $scanTime = $webhookLog->scan
             ? $webhookLog->scan->format('d/m/Y H:i:s')
             : '-';
+        $attendanceType = $this->attendanceType($webhookLog->status_scan);
 
         $lines = [
-            '*Notifikasi Absensi Fingerspot*',
+            'Absensi Karyawan *' . $this->headlineType($webhookLog->status_scan) . '*',
             'Nama: ' . ($karyawan?->nama_karyawan ?? '-'),
             'Jabatan: ' . ($karyawan?->jabatan ?? '-'),
-            'Tipe Absensi: ' . $this->attendanceType($webhookLog->status_scan),
+            'Tipe Absensi: ' . $attendanceType,
             'Waktu: ' . $scanTime,
             'PIN: ' . ($webhookLog->pin ?? '-'),
         ];
@@ -67,6 +68,15 @@ class FingerspotAttendanceWhatsAppNotifier
         }
 
         return implode("\n", $lines);
+    }
+
+    private function headlineType($value): string
+    {
+        return match ((string) $value) {
+            '0', '2', '4', '6' => 'MASUK',
+            '1', '3', '5', '7' => 'KELUAR',
+            default => 'ABSENSI',
+        };
     }
 
     private function attendanceType($value): string
