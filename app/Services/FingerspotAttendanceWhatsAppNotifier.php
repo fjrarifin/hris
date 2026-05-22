@@ -52,19 +52,27 @@ class FingerspotAttendanceWhatsAppNotifier
             ? $webhookLog->scan->format('d/m/Y H:i:s')
             : '-';
         $attendanceType = $this->attendanceType($webhookLog->status_scan);
+        $headline = $this->headlineType($webhookLog->status_scan);
+        $nama = $karyawan?->nama_karyawan ?? '-';
+
+        $emoji = match ($headline) {
+            'MASUK' => '👋',
+            'KELUAR' => '🏠',
+            default => '📋',
+        };
 
         $lines = [
-            'Absensi Karyawan *' . $this->headlineType($webhookLog->status_scan) . '*',
-            'Nama: ' . ($karyawan?->nama_karyawan ?? '-'),
-            'Jabatan: ' . ($karyawan?->jabatan ?? '-'),
-            'Tipe Absensi: ' . $attendanceType,
-            'Waktu: ' . $scanTime,
-            'PIN: ' . ($webhookLog->pin ?? '-'),
+            $emoji . ' *' . $nama . ' ' . strtolower($attendanceType) . '*',
+            '',
+            '🕐 Waktu     : ' . $scanTime,
+            '💼 Jabatan   : ' . ($karyawan?->jabatan ?? '-'),
+            '📌 Tipe       : ' . $attendanceType,
+            '🔢 PIN        : ' . ($webhookLog->pin ?? '-'),
         ];
 
         if (! $karyawan) {
             $lines[] = '';
-            $lines[] = '_Karyawan tersebut belum terdaftar di HRIS, harap daftarkan segera untuk keakuratan data._';
+            $lines[] = '⚠️ _Hei, sepertinya karyawan ini belum terdaftar di HRIS. Tolong segera didaftarkan ya biar datanya akurat!_';
         }
 
         return implode("\n", $lines);
