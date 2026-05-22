@@ -43,7 +43,7 @@ class FingerspotAttendanceLogExport implements FromCollection, ShouldAutoSize, W
             optional($log->scan_date)->format('H:i:s'),
             $this->verificationType($log->verify),
             $this->attendanceType($log->status_scan),
-            $log->karyawan?->unit,
+            $log->karyawan?->jabatan,
         ];
     }
 

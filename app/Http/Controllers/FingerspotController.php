@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\FingerspotAttendanceService;
+use App\Services\FingerspotAttendanceWhatsAppNotifier;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -11,7 +12,10 @@ use InvalidArgumentException;
 
 class FingerspotController extends Controller
 {
-    public function __construct(private FingerspotAttendanceService $attendanceService)
+    public function __construct(
+        private FingerspotAttendanceService $attendanceService,
+        private FingerspotAttendanceWhatsAppNotifier $whatsAppNotifier
+    )
     {
     }
 
@@ -205,6 +209,7 @@ class FingerspotController extends Controller
             $request->userAgent()
         );
         $storeResult = $this->attendanceService->storeFromWebhook($payload);
+        $this->whatsAppNotifier->notify($webhookLog);
 
         return response()->json([
             'success' => true,
