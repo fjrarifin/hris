@@ -77,4 +77,9 @@ class Karyawan extends Model
     {
         return $this->belongsTo(User::class, 'nik', 'username');
     }
+
+    public function dailySchedules()
+    {
+        return $this->hasMany(EmployeeDailySchedule::class, 'karyawan_nik', 'nik');
+    }
 }

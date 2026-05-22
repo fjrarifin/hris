@@ -27,6 +27,8 @@ use App\Http\Controllers\HR\KaryawanController;
 use App\Http\Controllers\HR\LeaveController;
 use App\Http\Controllers\HR\ApprovalController;
 use App\Http\Controllers\HR\AttendanceLogController;
+use App\Http\Controllers\HR\ScheduleCategoryController;
+use App\Http\Controllers\HR\EmployeeScheduleController;
 use App\Http\Controllers\MGR\LeaveRequestController as MGRLeaveRequestController;
 use App\Http\Controllers\WhatsAppController;
 use App\Http\Controllers\PasswordController;
@@ -252,6 +254,35 @@ Route::middleware(['auth', 'level:2'])
         Route::get('/attendance/export', [AttendanceLogController::class, 'export'])
             ->middleware('hr.full')
             ->name('attendance.export');
+
+        Route::resource('schedule-categories', ScheduleCategoryController::class)
+            ->only(['index', 'store', 'update', 'destroy'])
+            ->parameters(['schedule-categories' => 'scheduleCategory'])
+            ->middleware('hr.full');
+
+        Route::get('/employee-schedules', [EmployeeScheduleController::class, 'index'])
+            ->middleware('hr.full')
+            ->name('employee-schedules.index');
+
+        Route::post('/employee-schedules', [EmployeeScheduleController::class, 'store'])
+            ->middleware('hr.full')
+            ->name('employee-schedules.store');
+
+        Route::post('/employee-schedules/upload', [EmployeeScheduleController::class, 'upload'])
+            ->middleware('hr.full')
+            ->name('employee-schedules.upload');
+
+        Route::get('/employee-schedules/template', [EmployeeScheduleController::class, 'template'])
+            ->middleware('hr.full')
+            ->name('employee-schedules.template');
+
+        Route::get('/employee-schedules/export', [EmployeeScheduleController::class, 'export'])
+            ->middleware('hr.full')
+            ->name('employee-schedules.export');
+
+        Route::get('/employee-schedules/{nik}', [EmployeeScheduleController::class, 'show'])
+            ->middleware('hr.full')
+            ->name('employee-schedules.show');
 
         Route::get('/karyawan/{nik}', [KaryawanController::class, 'edit'])
             ->name('karyawan.detail');
