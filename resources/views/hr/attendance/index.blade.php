@@ -175,7 +175,7 @@
                             <td class="text-center">
                                 <span class="badge badge-primary">{{ $attendanceType }}</span>
                             </td>
-                            <td>{{ $log->karyawan?->unit ?? '-' }}</td>
+                            <td>{{ $log->karyawan?->jabatan ?? '-' }}</td>
                         </tr>
                     @empty
                         <tr>
