@@ -41,17 +41,38 @@ class FingerspotAttendanceLogExport implements FromCollection, ShouldAutoSize, W
             $log->karyawan?->nama_karyawan,
             optional($log->scan_date)->format('Y-m-d'),
             optional($log->scan_date)->format('H:i:s'),
-            $log->verify,
+            $this->verificationType($log->verify),
             $this->attendanceType($log->status_scan),
             $log->karyawan?->unit,
         ];
     }
 
+    private function verificationType($value): string
+    {
+        return match ((string) $value) {
+            '1' => 'Finger',
+            '2' => 'Password',
+            '3' => 'Card',
+            '4' => 'Face',
+            '6' => 'Vein',
+            '7' => 'QR',
+            default => (string) ($value ?? '-'),
+        };
+    }
+
     private function attendanceType($value): string
     {
         return match ((string) $value) {
-            '0' => 'Absen Masuk',
-            '1' => 'Absen Keluar',
+            '0' => 'Scan In',
+            '1' => 'Scan Out',
+            '2' => 'Break In',
+            '3' => 'Break Out',
+            '4' => 'Overtime In',
+            '5' => 'Overtime Out',
+            '6' => 'Rapat In',
+            '7' => 'Rapat Out',
+            '8' => 'Custom 1',
+            '9' => 'Custom 2',
             default => (string) ($value ?? '-'),
         };
     }

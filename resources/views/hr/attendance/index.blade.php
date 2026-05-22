@@ -154,9 +154,26 @@
                     @forelse ($logs as $log)
                         @php
                             $scanDate = $log->scan_date ? \Carbon\Carbon::parse($log->scan_date) : null;
+                            $verificationType = match ((string) $log->verify) {
+                                '1' => 'Finger',
+                                '2' => 'Password',
+                                '3' => 'Card',
+                                '4' => 'Face',
+                                '6' => 'Vein',
+                                '7' => 'QR',
+                                default => $log->verify ?? '-',
+                            };
                             $attendanceType = match ((string) $log->status_scan) {
-                                '0' => 'Absen Masuk',
-                                '1' => 'Absen Keluar',
+                                '0' => 'Scan In',
+                                '1' => 'Scan Out',
+                                '2' => 'Break In',
+                                '3' => 'Break Out',
+                                '4' => 'Overtime In',
+                                '5' => 'Overtime Out',
+                                '6' => 'Rapat In',
+                                '7' => 'Rapat Out',
+                                '8' => 'Custom 1',
+                                '9' => 'Custom 2',
                                 default => $log->status_scan ?? '-',
                             };
                         @endphp
@@ -170,7 +187,7 @@
                             <td>{{ $scanDate ? $scanDate->format('d/m/Y') : '-' }}</td>
                             <td>{{ $scanDate ? $scanDate->format('H:i:s') : '-' }}</td>
                             <td class="text-center">
-                                <span class="badge badge-light">{{ $log->verify ?? '-' }}</span>
+                                <span class="badge badge-light">{{ $verificationType }}</span>
                             </td>
                             <td class="text-center">
                                 <span class="badge badge-primary">{{ $attendanceType }}</span>
