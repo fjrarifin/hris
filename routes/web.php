@@ -249,6 +249,10 @@ Route::middleware(['auth', 'level:2'])
             ->middleware('hr.full')
             ->name('attendance.index');
 
+        Route::get('/attendance/export', [AttendanceLogController::class, 'export'])
+            ->middleware('hr.full')
+            ->name('attendance.export');
+
         Route::get('/karyawan/{nik}', [KaryawanController::class, 'edit'])
             ->name('karyawan.detail');
 
