@@ -22,31 +22,57 @@ class SyncFingerspotAttendance extends Command
     {
         $startDate = $this->option('start_date') ?: null;
         $endDate = $this->option('end_date') ?: null;
-        $cloudId = $this->option('cloud_id') ?: null;
 
         try {
-            $result = ($startDate || $endDate)
-                ? $this->syncDateRange($attendanceService, $startDate, $endDate, $cloudId)
-                : $attendanceService->syncFromFingerspot(null, null, $cloudId, 'scheduled');
+            $clouds = $this->configuredClouds($this->option('cloud_id') ?: null);
         } catch (InvalidArgumentException $e) {
             $this->error($e->getMessage());
 
             return self::FAILURE;
         }
 
-        Log::info('Fingerspot attendance scheduled sync finished', $result);
+        $summary = [
+            'ok' => true,
+            'http_status' => 200,
+            'clouds' => [],
+            'attendance_sync' => [
+                'received' => 0,
+                'created' => 0,
+                'updated' => 0,
+                'skipped' => 0,
+                'errors' => [],
+            ],
+        ];
 
-        $sync = $result['attendance_sync'] ?? [];
+        foreach ($clouds as $cloud) {
+            $this->line(sprintf('Cloud %s (%s)', $cloud['name'], $cloud['id']));
+
+            try {
+                $result = ($startDate || $endDate)
+                    ? $this->syncDateRange($attendanceService, $startDate, $endDate, $cloud['id'])
+                    : $attendanceService->syncFromFingerspot(null, null, $cloud['id'], 'scheduled');
+            } catch (InvalidArgumentException $e) {
+                $this->error($e->getMessage());
+
+                return self::FAILURE;
+            }
+
+            $this->mergeCloudResult($summary, $cloud, $result);
+        }
+
+        Log::info('Fingerspot attendance scheduled sync finished', $summary);
+
+        $sync = $summary['attendance_sync'];
         $this->info(sprintf(
-            'Fingerspot sync selesai. HTTP %s, received: %s, created: %s, updated: %s, skipped: %s.',
-            $result['http_status'],
+            'Fingerspot sync selesai untuk %s cloud. received: %s, created: %s, updated: %s, skipped: %s.',
+            count($clouds),
             $sync['received'] ?? 0,
             $sync['created'] ?? 0,
             $sync['updated'] ?? 0,
             $sync['skipped'] ?? 0
         ));
 
-        return $result['ok'] ? self::SUCCESS : self::FAILURE;
+        return $summary['ok'] ? self::SUCCESS : self::FAILURE;
     }
 
     private function syncDateRange(
@@ -68,7 +94,7 @@ class SyncFingerspotAttendance extends Command
             'request_payload' => [
                 'start_date' => $start->toDateString(),
                 'end_date' => $end->toDateString(),
-                'cloud_id' => $cloudId ?: env('FINGERSPOT_CLOUD_ID'),
+                'cloud_id' => $cloudId ?: config('fingerspot.default_cloud_id'),
             ],
             'chunks' => [],
             'attendance_sync' => [
@@ -127,5 +153,59 @@ class SyncFingerspotAttendance extends Command
         }
 
         return $summary;
+    }
+
+    private function configuredClouds(?string $overrideCloudId): array
+    {
+        if ($overrideCloudId) {
+            return [[
+                'id' => $overrideCloudId,
+                'name' => 'Override',
+            ]];
+        }
+
+        $clouds = config('fingerspot.clouds', []);
+
+        if (! empty($clouds)) {
+            return $clouds;
+        }
+
+        $defaultCloudId = config('fingerspot.default_cloud_id');
+
+        if (! $defaultCloudId) {
+            throw new InvalidArgumentException('Cloud Fingerspot belum dikonfigurasi di .env.');
+        }
+
+        return [[
+            'id' => $defaultCloudId,
+            'name' => 'Default',
+        ]];
+    }
+
+    private function mergeCloudResult(array &$summary, array $cloud, array $result): void
+    {
+        $sync = $result['attendance_sync'] ?? [];
+        $summary['ok'] = $summary['ok'] && (bool) ($result['ok'] ?? false);
+
+        if (! ($result['ok'] ?? false)) {
+            $summary['http_status'] = $result['http_status'] ?? 500;
+        }
+
+        $summary['clouds'][] = [
+            'id' => $cloud['id'],
+            'name' => $cloud['name'],
+            'ok' => $result['ok'] ?? false,
+            'http_status' => $result['http_status'] ?? null,
+            'attendance_sync' => $sync,
+        ];
+
+        foreach (['received', 'created', 'updated', 'skipped'] as $key) {
+            $summary['attendance_sync'][$key] += (int) ($sync[$key] ?? 0);
+        }
+
+        $summary['attendance_sync']['errors'] = array_merge(
+            $summary['attendance_sync']['errors'],
+            $sync['errors'] ?? []
+        );
     }
 }

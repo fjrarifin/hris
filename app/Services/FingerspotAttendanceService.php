@@ -30,7 +30,7 @@ class FingerspotAttendanceService
             throw new InvalidArgumentException('Fingerspot hanya bisa ditarik maksimal 2 hari per request.');
         }
 
-        $cloudId ??= env('FINGERSPOT_CLOUD_ID');
+        $cloudId ??= config('fingerspot.default_cloud_id');
 
         if (! $cloudId) {
             throw new InvalidArgumentException('FINGERSPOT_CLOUD_ID belum diset di .env.');
@@ -44,12 +44,12 @@ class FingerspotAttendanceService
         ];
 
         $response = Http::withHeaders([
-            'Authorization' => 'Bearer ' . env('FINGERSPOT_API_TOKEN'),
+            'Authorization' => 'Bearer ' . config('fingerspot.api_token'),
             'Content-Type' => 'application/json',
             'Accept' => 'application/json',
         ])
             ->timeout(30)
-            ->post(rtrim(env('FINGERSPOT_BASE_URL', 'https://developer.fingerspot.io/api'), '/') . '/get_attlog', $payload);
+            ->post(rtrim(config('fingerspot.base_url'), '/') . '/get_attlog', $payload);
 
         $responsePayload = $response->json();
         $syncResult = is_array($responsePayload)
@@ -134,6 +134,7 @@ class FingerspotAttendanceService
             try {
                 $log = FingerspotAttendanceLog::updateOrCreate(
                     [
+                        'cloud_id' => $context['cloud_id'] ?? null,
                         'pin' => $normalized['pin'],
                         'scan_date' => $normalized['scan_date'],
                         'status_scan' => $normalized['status_scan'],
@@ -141,7 +142,6 @@ class FingerspotAttendanceService
                     [
                         'verify' => $normalized['verify'],
                         'trans_id' => $context['trans_id'] ?? null,
-                        'cloud_id' => $context['cloud_id'] ?? null,
                         'source' => $context['source'] ?? 'pull',
                         'raw_payload' => $record,
                     ]
