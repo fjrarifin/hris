@@ -1,11 +1,11 @@
 <?php
 
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\RfidController;
-use App\Http\Controllers\AttendanceWebhookController;
+use App\Http\Controllers\Api\EmployeeController;
 use App\Http\Controllers\AttendanceController;
+use App\Http\Controllers\AttendanceWebhookController;
 use App\Http\Controllers\FingerspotController;
+use App\Http\Controllers\RfidController;
+use Illuminate\Support\Facades\Route;
 
 Route::post('/rfid', [RfidController::class, 'scan'])->withoutMiddleware(['auth']);
 Route::get('/rfid', [RfidController::class, 'last'])->withoutMiddleware(['auth']);
@@ -28,3 +28,7 @@ Route::prefix('fingerspot')->group(function () {
 
     Route::post('/webhook', [FingerspotController::class, 'webhook']);
 });
+
+Route::apiResource('employee', EmployeeController::class);
+
+Route::get('/employees', [EmployeeController::class, 'index']);
