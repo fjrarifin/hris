@@ -1,21 +1,23 @@
 <?php
 
+use App\Http\Controllers\LeaveAccrualService;
+use App\Http\Middleware\CheckLevel;
+use App\Http\Middleware\EnsureApiPasswordChanged;
+use App\Http\Middleware\ForceChangePassword;
+use App\Http\Middleware\FrontendMenuAccessMiddleware;
+use App\Http\Middleware\FullHrAccessMiddleware;
+use App\Http\Middleware\PayrollAccessMiddleware;
+use App\Http\Middleware\PermissionMiddleware;
+use App\Models\User;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
-use App\Http\Middleware\PermissionMiddleware;
-use App\Http\Middleware\CheckLevel;
-use App\Http\Middleware\ForceChangePassword;
-use App\Http\Middleware\FullHrAccessMiddleware;
-use App\Http\Middleware\PayrollAccessMiddleware;
-use App\Http\Controllers\LeaveAccrualService;
-use App\Models\User;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
-        web: __DIR__ . '/../routes/web.php',
-        api: __DIR__ . '/../routes/api.php',
-        commands: __DIR__ . '/../routes/console.php',
+        web: __DIR__.'/../routes/web.php',
+        api: __DIR__.'/../routes/api.php',
+        commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
@@ -25,6 +27,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'force.password' => ForceChangePassword::class,
             'hr.full' => FullHrAccessMiddleware::class,
             'payroll.access' => PayrollAccessMiddleware::class,
+            'frontend.menu' => FrontendMenuAccessMiddleware::class,
+            'password.changed.api' => EnsureApiPasswordChanged::class,
         ]);
     })
     ->withCommands([
@@ -46,7 +50,6 @@ return Application::configure(basePath: dirname(__DIR__))
     // ->withSchedule(function ($schedule) {
     //     $schedule->command('leave:auto-reject')->everyMinute();
     // })
-
 
     ->withExceptions(function (Exceptions $exceptions): void {
         //

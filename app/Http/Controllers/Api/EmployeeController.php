@@ -7,9 +7,62 @@ use App\Models\Karyawan;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class EmployeeController extends Controller
 {
+    public function frontendIndex(): JsonResponse
+    {
+        $employees = Karyawan::query()
+            ->orderBy('nik')
+            ->get()
+            ->map(fn (Karyawan $employee) => [
+                'id' => $employee->id,
+                'nik' => $employee->nik,
+                'name' => $employee->nama_karyawan,
+                'email' => $employee->email,
+                'position' => $employee->jabatan ?: $employee->posisi,
+                'department' => $employee->departement ?: $employee->divisi,
+            ]);
+
+        return response()->json([
+            'data' => $employees,
+        ]);
+    }
+
+    public function export(): StreamedResponse
+    {
+        $employees = Karyawan::query()->orderBy('nik')->get();
+
+        return response()->streamDownload(function () use ($employees): void {
+            $file = fopen('php://output', 'w');
+            fputcsv($file, [
+                'NIK', 'Nama', 'Jabatan', 'Posisi', 'Divisi', 'Departemen', 'Unit',
+                'Email', 'No HP', 'Status Kontrak', 'Tanggal Bergabung',
+            ]);
+
+            foreach ($employees as $employee) {
+                fputcsv($file, [
+                    $employee->nik,
+                    $employee->nama_karyawan,
+                    $employee->jabatan,
+                    $employee->posisi,
+                    $employee->divisi,
+                    $employee->departement,
+                    $employee->unit,
+                    $employee->email,
+                    $employee->no_hp,
+                    $employee->status_kontrak,
+                    $employee->join_date?->toDateString(),
+                ]);
+            }
+
+            fclose($file);
+        }, 'Data_Karyawan_'.now()->format('Ymd_His').'.csv', [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    }
+
     public function index(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -90,7 +143,9 @@ class EmployeeController extends Controller
             'nik' => $isUpdate
                 ? ['prohibited']
                 : ['required', 'string', 'max:30', 'unique:m_karyawan,nik'],
-            'pin' => ['nullable', 'string', 'max:50'],
+            'pin' => $isUpdate
+                ? ['prohibited']
+                : ['nullable', 'string', 'max:50'],
             'nama_karyawan' => [$requiredOnCreate, 'string', 'max:150'],
             'jabatan' => ['nullable', 'string', 'max:100'],
             'posisi' => ['nullable', 'string', 'max:100'],

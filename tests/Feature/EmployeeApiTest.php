@@ -2,9 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Models\FrontendMenu;
 use App\Models\Karyawan;
+use App\Models\User;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class EmployeeApiTest extends TestCase
@@ -14,6 +17,8 @@ class EmployeeApiTest extends TestCase
         parent::setUp();
 
         Schema::dropIfExists('m_karyawan');
+        Schema::dropIfExists('frontend_menu_user_access');
+        Schema::dropIfExists('frontend_menus');
         Schema::dropIfExists('users');
 
         Schema::create('users', function (Blueprint $table) {
@@ -21,6 +26,27 @@ class EmployeeApiTest extends TestCase
             $table->string('username')->nullable();
             $table->string('name');
             $table->string('email')->unique();
+            $table->string('password');
+            $table->unsignedTinyInteger('level')->default(2);
+            $table->timestamps();
+        });
+
+        Schema::create('frontend_menus', function (Blueprint $table) {
+            $table->id();
+            $table->string('key')->unique();
+            $table->string('label');
+            $table->string('path');
+            $table->string('allowed_levels')->nullable();
+            $table->unsignedInteger('sort_order')->default(0);
+            $table->boolean('is_active')->default(true);
+            $table->timestamps();
+        });
+
+        Schema::create('frontend_menu_user_access', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('frontend_menu_id');
+            $table->foreignId('user_id');
+            $table->boolean('is_allowed');
             $table->timestamps();
         });
 
@@ -74,6 +100,22 @@ class EmployeeApiTest extends TestCase
             $table->string('no_bpjs')->nullable();
             $table->timestamps();
         });
+
+        FrontendMenu::create([
+            'key' => 'employees',
+            'label' => 'Karyawan',
+            'path' => '/employees',
+            'allowed_levels' => '2',
+            'is_active' => true,
+        ]);
+
+        Sanctum::actingAs(User::create([
+            'username' => 'hradmin',
+            'name' => 'HR Administrator',
+            'email' => 'hr@example.test',
+            'password' => 'password',
+            'level' => 2,
+        ]));
     }
 
     public function test_it_lists_and_shows_employee_data_from_database(): void
@@ -98,9 +140,13 @@ class EmployeeApiTest extends TestCase
             ->assertJsonPath('data.0.nik', 'EMP002')
             ->assertJsonPath('data.0.nama_karyawan', 'Fajar Wijaya');
 
-        $this->getJson('/api/employees?q=Budi')
+        $this->getJson('/api/employees')
             ->assertOk()
-            ->assertJsonPath('data.0.nik', 'EMP001');
+            ->assertJsonCount(2, 'data')
+            ->assertJsonPath('data.0.nik', 'EMP001')
+            ->assertJsonPath('data.0.name', 'Budi Santoso')
+            ->assertJsonPath('data.0.position', 'HR Staff')
+            ->assertJsonPath('data.0.department', 'HRD');
 
         $this->getJson('/api/employee/EMP002')
             ->assertOk()
@@ -142,5 +188,39 @@ class EmployeeApiTest extends TestCase
             ->assertNoContent();
 
         $this->assertDatabaseMissing('m_karyawan', ['nik' => 'EMP003']);
+    }
+
+    public function test_level_zero_can_receive_and_manage_its_allowed_frontend_menu(): void
+    {
+        FrontendMenu::query()->where('key', 'employees')->update([
+            'allowed_levels' => '0,2',
+        ]);
+
+        FrontendMenu::create([
+            'key' => 'menu-access',
+            'label' => 'Akses Menu',
+            'path' => '/access/menus',
+            'allowed_levels' => '0',
+            'sort_order' => 99,
+            'is_active' => true,
+        ]);
+
+        Sanctum::actingAs(User::create([
+            'username' => 'itadmin',
+            'name' => 'IT Administrator',
+            'email' => 'it@example.test',
+            'password' => 'password',
+            'level' => 0,
+        ]));
+
+        $this->getJson('/api/navigation')
+            ->assertOk()
+            ->assertJsonFragment(['key' => 'employees'])
+            ->assertJsonFragment(['key' => 'menu-access']);
+
+        $this->getJson('/api/navigation/access')
+            ->assertOk()
+            ->assertJsonPath('menus.0.allowed_levels.0', 0)
+            ->assertJsonPath('menus.0.allowed_levels.1', 2);
     }
 }

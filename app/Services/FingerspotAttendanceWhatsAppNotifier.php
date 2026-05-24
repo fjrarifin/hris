@@ -34,8 +34,11 @@ class FingerspotAttendanceWhatsAppNotifier
                 ->where('pin', $webhookLog->pin)
                 ->first();
 
-            $message = $this->message($webhookLog, $karyawan);
+            if ($karyawan) {
+                return;
+            }
 
+            $message = $this->unregisteredPinMessage($webhookLog);
             app(WhatsAppService::class)->sendMessage($groupId, $message);
         } catch (\Throwable $e) {
             Log::error('Fingerspot attendance WhatsApp notification failed', [
@@ -46,15 +49,13 @@ class FingerspotAttendanceWhatsAppNotifier
         }
     }
 
-    private function message(FingerspotWebhookLog $webhookLog, ?Karyawan $karyawan): string
+    private function unregisteredPinMessage(FingerspotWebhookLog $webhookLog): string
     {
         $scanTime = $webhookLog->scan
             ? $webhookLog->scan->format('d/m/Y H:i:s')
             : '-';
         $attendanceType = $this->attendanceType($webhookLog->status_scan);
         $headline = $this->headlineType($webhookLog->status_scan);
-        $nama = $karyawan?->nama_karyawan ?? '-';
-
         $emoji = match ($headline) {
             'MASUK' => '👋',
             'KELUAR' => '🏠',
@@ -62,18 +63,15 @@ class FingerspotAttendanceWhatsAppNotifier
         };
 
         $lines = [
-            $emoji . ' *' . $nama . ' ' . strtolower($attendanceType) . '*',
+            $emoji.' *- '.strtolower($attendanceType).'*',
             '',
-            '🕐 Waktu     : ' . $scanTime,
-            '💼 Jabatan   : ' . ($karyawan?->jabatan ?? '-'),
-            '📌 Tipe       : ' . $attendanceType,
-            '🔢 PIN        : ' . ($webhookLog->pin ?? '-'),
+            '🕐 Waktu     : '.$scanTime,
+            '💼 Jabatan   : -',
+            '📌 Tipe       : '.$attendanceType,
+            '🔢 PIN        : '.($webhookLog->pin ?? '-'),
+            '',
+            '⚠️ _Hei, sepertinya karyawan ini belum terdaftar di HRIS. Tolong segera didaftarkan ya biar datanya akurat!_',
         ];
-
-        if (! $karyawan) {
-            $lines[] = '';
-            $lines[] = '⚠️ _Hei, sepertinya karyawan ini belum terdaftar di HRIS. Tolong segera didaftarkan ya biar datanya akurat!_';
-        }
 
         return implode("\n", $lines);
     }

@@ -9,9 +9,7 @@ class RequestStatusNotification extends Notification
 {
     use Queueable;
 
-    public function __construct(private object $request, private string $type, private string $status)
-    {
-    }
+    public function __construct(private object $request, private string $type, private string $status) {}
 
     public function via(object $notifiable): array
     {
@@ -27,10 +25,14 @@ class RequestStatusNotification extends Notification
             default => 'Cuti',
         };
 
-        $statusLabel = $this->status === 'approved' ? 'disetujui' : 'ditolak';
+        $statusLabel = match ($this->status) {
+            'approved' => 'disetujui',
+            'cancelled' => 'dibatalkan',
+            default => 'ditolak',
+        };
 
         return [
-            'title' => "{$typeLabel} " . ucfirst($statusLabel),
+            'title' => "{$typeLabel} ".ucfirst($statusLabel),
             'message' => "Pengajuan {$typeLabel} Anda telah {$statusLabel}.",
             'request_id' => $this->request->id,
             'type' => $this->type,

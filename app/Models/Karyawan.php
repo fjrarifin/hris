@@ -9,7 +9,9 @@ class Karyawan extends Model
     protected $table = 'm_karyawan';
 
     protected $primaryKey = 'nik';
+
     public $incrementing = false;
+
     protected $keyType = 'string';
 
     protected $fillable = [
@@ -26,6 +28,7 @@ class Karyawan extends Model
         'unit',
         'nama_atasan_langsung',
         'atasan_tidak_langsung',
+        'status_karyawan',
         'status_kontrak',
         'join_date',
         'start_date',

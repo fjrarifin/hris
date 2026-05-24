@@ -1,0 +1,25 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Support\Facades\DB;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("ALTER TABLE overtime_requests MODIFY status ENUM('pending','approved','rejected','cancelled') NOT NULL DEFAULT 'pending'");
+            DB::statement("ALTER TABLE employee_permissions MODIFY status ENUM('pending','approved','rejected','cancelled') NOT NULL DEFAULT 'pending'");
+        }
+    }
+
+    public function down(): void
+    {
+        if (DB::getDriverName() === 'mysql') {
+            DB::table('overtime_requests')->where('status', 'cancelled')->update(['status' => 'rejected']);
+            DB::table('employee_permissions')->where('status', 'cancelled')->update(['status' => 'rejected']);
+            DB::statement("ALTER TABLE overtime_requests MODIFY status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending'");
+            DB::statement("ALTER TABLE employee_permissions MODIFY status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending'");
+        }
+    }
+};
