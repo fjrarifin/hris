@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Karyawan;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -38,7 +40,7 @@ class EmployeeController extends Controller
             $file = fopen('php://output', 'w');
             fputcsv($file, [
                 'NIK', 'Nama', 'Jabatan', 'Posisi', 'Divisi', 'Departemen', 'Unit',
-                'Email', 'No HP', 'Status Kontrak', 'Tanggal Bergabung',
+                'Email', 'No HP', 'Status Karyawan', 'Tanggal Bergabung',
             ]);
 
             foreach ($employees as $employee) {
@@ -52,7 +54,7 @@ class EmployeeController extends Controller
                     $employee->unit,
                     $employee->email,
                     $employee->no_hp,
-                    $employee->status_kontrak,
+                    $employee->status_karyawan,
                     $employee->join_date?->toDateString(),
                 ]);
             }
@@ -93,18 +95,23 @@ class EmployeeController extends Controller
         $payload = $this->validatedPayload($request);
         $payload = $this->preparePayload($request, $payload);
 
-        $employee = Karyawan::create($payload);
+        $employee = DB::transaction(function () use ($payload): Karyawan {
+            $employee = Karyawan::create($this->profilePayload($payload));
+            $this->saveContract($employee, $payload);
+
+            return $employee;
+        });
 
         return response()->json([
             'message' => 'Data karyawan berhasil ditambahkan.',
-            'data' => $employee->fresh(),
+            'data' => $this->employeeData($employee->fresh()),
         ], 201);
     }
 
     public function show(Karyawan $employee): JsonResponse
     {
         return response()->json([
-            'data' => $employee,
+            'data' => $this->employeeData($employee),
         ]);
     }
 
@@ -113,12 +120,16 @@ class EmployeeController extends Controller
         $payload = $this->validatedPayload($request, $employee);
         $payload = $this->preparePayload($request, $payload, $employee);
 
-        $employee->update($payload);
-        $this->syncExistingUser($employee, $payload);
+        DB::transaction(function () use ($employee, $payload): void {
+            $profilePayload = $this->profilePayload($payload);
+            $employee->update($profilePayload);
+            $this->syncExistingUser($employee, $profilePayload);
+            $this->saveContract($employee, $payload);
+        });
 
         return response()->json([
             'message' => 'Data karyawan berhasil diperbarui.',
-            'data' => $employee->fresh(),
+            'data' => $this->employeeData($employee->fresh()),
         ]);
     }
 
@@ -156,12 +167,12 @@ class EmployeeController extends Controller
             'unit' => ['nullable', 'string', 'max:100'],
             'nama_atasan_langsung' => ['nullable', 'string', 'max:150'],
             'atasan_tidak_langsung' => ['nullable', 'string', 'max:150'],
-            'status_kontrak' => ['nullable', 'string', 'max:50'],
+            'status_karyawan' => ['nullable', 'string', 'max:50'],
             'join_date' => ['nullable', 'date'],
-            'start_date' => ['nullable', 'date'],
-            'durasi_kontrak' => ['nullable', 'numeric'],
-            'end_date' => ['nullable', 'date'],
-            'total_masa_kerja' => ['nullable', 'string', 'max:50'],
+            'status_kontrak' => ['nullable', 'string', 'max:50', 'required_with:start_date,end_date,durasi_kontrak'],
+            'start_date' => ['nullable', 'date', 'required_with:end_date,status_kontrak,durasi_kontrak'],
+            'durasi_kontrak' => ['nullable', 'integer', 'min:0'],
+            'end_date' => ['nullable', 'date', 'after_or_equal:start_date', 'required_with:start_date,status_kontrak,durasi_kontrak'],
             'no_hp' => ['nullable', 'string', 'max:30'],
             'email' => ['nullable', 'email', 'max:150', $emailRule],
             'tanggal_lahir' => ['nullable', 'date'],
@@ -184,7 +195,6 @@ class EmployeeController extends Controller
             'kontak_darurat_nama' => ['nullable', 'string', 'max:150'],
             'kontak_darurat_hubungan' => ['nullable', 'string', 'max:50'],
             'kontak_darurat_no_hp' => ['nullable', 'string', 'max:30'],
-            'account_name' => ['nullable', 'string', 'max:150'],
             'bank' => ['nullable', 'string', 'max:100'],
             'no_rekening' => ['nullable', 'string', 'max:50'],
             'bpjs' => ['nullable', 'boolean'],
@@ -216,6 +226,65 @@ class EmployeeController extends Controller
         }
 
         return $payload;
+    }
+
+    private function profilePayload(array $payload): array
+    {
+        return Arr::except($payload, ['status_kontrak', 'start_date', 'durasi_kontrak', 'end_date']);
+    }
+
+    private function employeeData(Karyawan $employee): array
+    {
+        $contract = DB::table('t_kontrak_karyawan')
+            ->where('nik', $employee->nik)
+            ->orderByDesc('start_date')
+            ->orderByDesc('id')
+            ->first();
+
+        return [
+            ...$employee->toArray(),
+            'status_kontrak' => $contract?->status_kontrak,
+            'start_date' => $contract?->start_date,
+            'durasi_kontrak' => $contract?->durasi_bulan,
+            'end_date' => $contract?->end_date,
+        ];
+    }
+
+    private function saveContract(Karyawan $employee, array $payload): void
+    {
+        $fields = Arr::only($payload, ['status_kontrak', 'start_date', 'durasi_kontrak', 'end_date']);
+        if (! collect($fields)->contains(fn ($value) => filled($value))) {
+            return;
+        }
+
+        $contractPayload = [
+            'status_kontrak' => strtoupper((string) $fields['status_kontrak']),
+            'start_date' => $fields['start_date'],
+            'end_date' => $fields['end_date'],
+            'durasi_bulan' => $fields['durasi_kontrak'] ?? null,
+            'updated_at' => now(),
+        ];
+
+        $contract = DB::table('t_kontrak_karyawan')
+            ->where('nik', $employee->nik)
+            ->orderByDesc('start_date')
+            ->orderByDesc('id')
+            ->first();
+
+        if ($contract) {
+            DB::table('t_kontrak_karyawan')
+                ->where('id', $contract->id)
+                ->update($contractPayload);
+
+            return;
+        }
+
+        DB::table('t_kontrak_karyawan')->insert([
+            'nik' => $employee->nik,
+            'kontrak_ke' => 1,
+            ...$contractPayload,
+            'created_at' => now(),
+        ]);
     }
 
     private function syncExistingUser(Karyawan $employee, array $payload): void

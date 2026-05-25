@@ -16,6 +16,7 @@ class EmployeeApiTest extends TestCase
     {
         parent::setUp();
 
+        Schema::dropIfExists('t_kontrak_karyawan');
         Schema::dropIfExists('m_karyawan');
         Schema::dropIfExists('frontend_menu_user_access');
         Schema::dropIfExists('frontend_menus');
@@ -64,12 +65,8 @@ class EmployeeApiTest extends TestCase
             $table->string('unit')->nullable();
             $table->string('nama_atasan_langsung')->nullable();
             $table->string('atasan_tidak_langsung')->nullable();
-            $table->string('status_kontrak')->nullable();
+            $table->string('status_karyawan')->nullable();
             $table->date('join_date')->nullable();
-            $table->date('start_date')->nullable();
-            $table->decimal('durasi_kontrak')->nullable();
-            $table->date('end_date')->nullable();
-            $table->string('total_masa_kerja')->nullable();
             $table->string('no_hp')->nullable();
             $table->timestamp('phone_updated_at')->nullable();
             $table->string('email')->nullable();
@@ -93,11 +90,22 @@ class EmployeeApiTest extends TestCase
             $table->string('kontak_darurat_nama')->nullable();
             $table->string('kontak_darurat_hubungan')->nullable();
             $table->string('kontak_darurat_no_hp')->nullable();
-            $table->string('account_name')->nullable();
             $table->string('bank')->nullable();
             $table->string('no_rekening')->nullable();
             $table->boolean('bpjs')->default(false);
             $table->string('no_bpjs')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('t_kontrak_karyawan', function (Blueprint $table) {
+            $table->id();
+            $table->string('nik', 30);
+            $table->unsignedInteger('kontrak_ke');
+            $table->date('start_date');
+            $table->date('end_date');
+            $table->unsignedInteger('durasi_bulan')->nullable();
+            $table->string('status_kontrak');
+            $table->text('catatan')->nullable();
             $table->timestamps();
         });
 
@@ -161,6 +169,11 @@ class EmployeeApiTest extends TestCase
             'posisi_level' => 'Jr.',
             'posisi_title' => 'Staff',
             'divisi' => 'Business Partner',
+            'status_karyawan' => 'AKTIF',
+            'status_kontrak' => 'AKTIF',
+            'start_date' => '2026-05-01',
+            'end_date' => '2027-04-30',
+            'durasi_kontrak' => 12,
             'npwp' => true,
             'bpjs' => true,
         ])
@@ -171,18 +184,39 @@ class EmployeeApiTest extends TestCase
         $this->assertDatabaseHas('m_karyawan', [
             'nik' => 'EMP003',
             'nama_karyawan' => 'Siti Aminah',
+            'status_karyawan' => 'AKTIF',
             'bpjs' => true,
+        ]);
+        $this->assertDatabaseHas('t_kontrak_karyawan', [
+            'nik' => 'EMP003',
+            'status_kontrak' => 'AKTIF',
+            'start_date' => '2026-05-01',
+            'end_date' => '2027-04-30',
+            'durasi_bulan' => 12,
         ]);
 
         $this->patchJson('/api/employee/EMP003', [
             'nama_karyawan' => 'Siti A. Aminah',
             'departement' => 'People Operations',
+            'status_kontrak' => 'DIPERPANJANG',
+            'start_date' => '2026-05-01',
+            'end_date' => '2027-10-31',
+            'durasi_kontrak' => 18,
             'bpjs' => false,
         ])
             ->assertOk()
             ->assertJsonPath('data.nama_karyawan', 'Siti A. Aminah')
             ->assertJsonPath('data.departement', 'People Operations')
+            ->assertJsonPath('data.status_kontrak', 'DIPERPANJANG')
+            ->assertJsonPath('data.end_date', '2027-10-31')
             ->assertJsonPath('data.bpjs', false);
+
+        $this->assertDatabaseHas('t_kontrak_karyawan', [
+            'nik' => 'EMP003',
+            'status_kontrak' => 'DIPERPANJANG',
+            'end_date' => '2027-10-31',
+            'durasi_bulan' => 18,
+        ]);
 
         $this->deleteJson('/api/employee/EMP003')
             ->assertNoContent();
