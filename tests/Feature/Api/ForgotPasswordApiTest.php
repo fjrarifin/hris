@@ -30,6 +30,7 @@ class ForgotPasswordApiTest extends TestCase
             $table->string('email')->unique();
             $table->string('password');
             $table->boolean('must_change_password')->default(false);
+            $table->timestamp('password_changed_at')->nullable();
             $table->unsignedTinyInteger('level')->default(3);
             $table->rememberToken();
             $table->timestamps();
@@ -67,6 +68,7 @@ class ForgotPasswordApiTest extends TestCase
     public function test_user_can_request_six_digit_otp_valid_for_two_minutes(): void
     {
         $user = $this->employeeUser();
+        $user->update(['password_changed_at' => now()]);
 
         $this->mock(WhatsAppService::class, function (MockInterface $mock): void {
             $mock->shouldReceive('sendMessage')
@@ -88,6 +90,7 @@ class ForgotPasswordApiTest extends TestCase
     public function test_verified_otp_can_reset_password_and_revoke_existing_tokens(): void
     {
         $user = $this->employeeUser();
+        $user->update(['password_changed_at' => now()]);
         $user->createToken('portal-session');
         $otp = PasswordResetOtp::query()->create([
             'email' => $user->email,

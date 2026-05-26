@@ -38,8 +38,9 @@ return [
     'whatsapp' => [
         'url' => env('WHATSAPP_API_URL'),
         'device_id' => env('WHATSAPP_DEVICE_ID'),
+        'username' => env('WHATSAPP_API_USERNAME'),
+        'password' => env('WHATSAPP_API_PASSWORD'),
         'attendance_group_id' => env('WHATSAPP_ATTENDANCE_GROUP_ID', '120363426462821941@g.us'),
     ],
-
 
 ];
