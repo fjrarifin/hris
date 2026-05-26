@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\EmployeeController;
 use App\Http\Controllers\Api\ForgotPasswordController;
 use App\Http\Controllers\Api\HrApprovalController;
 use App\Http\Controllers\Api\HrAttendanceController;
+use App\Http\Controllers\Api\HrContractController;
 use App\Http\Controllers\Api\HrDashboardController;
 use App\Http\Controllers\Api\HrScheduleController;
 use App\Http\Controllers\Api\NavigationController;
@@ -70,6 +71,12 @@ Route::middleware('auth:sanctum')->group(function () {
 
         Route::prefix('hr')->middleware('level:2')->group(function () {
             Route::get('/dashboard', HrDashboardController::class);
+            Route::middleware('frontend.menu:hr-contracts')->group(function () {
+                Route::get('/contracts', [HrContractController::class, 'index']);
+                Route::get('/contracts/{nik}', [HrContractController::class, 'show']);
+                Route::post('/contracts/{nik}', [HrContractController::class, 'store']);
+                Route::put('/contracts/records/{contractId}', [HrContractController::class, 'update']);
+            });
             Route::get('/approvals/{type}', [HrApprovalController::class, 'index']);
             Route::post('/approvals/{type}/{id}', [HrApprovalController::class, 'decide']);
             Route::post('/approvals/{type}/{id}/cancel', [HrApprovalController::class, 'cancel']);
