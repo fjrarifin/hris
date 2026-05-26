@@ -68,7 +68,6 @@ class ForgotPasswordApiTest extends TestCase
     public function test_user_can_request_six_digit_otp_valid_for_two_minutes(): void
     {
         $user = $this->employeeUser();
-        $user->update(['password_changed_at' => now()]);
 
         $this->mock(WhatsAppService::class, function (MockInterface $mock): void {
             $mock->shouldReceive('sendMessage')
@@ -90,7 +89,6 @@ class ForgotPasswordApiTest extends TestCase
     public function test_verified_otp_can_reset_password_and_revoke_existing_tokens(): void
     {
         $user = $this->employeeUser();
-        $user->update(['password_changed_at' => now()]);
         $user->createToken('portal-session');
         $otp = PasswordResetOtp::query()->create([
             'email' => $user->email,
@@ -125,6 +123,46 @@ class ForgotPasswordApiTest extends TestCase
             'password' => 'Password456',
             'password_confirmation' => 'Password456',
         ])->assertUnprocessable();
+    }
+
+    public function test_recent_password_change_blocks_otp_request(): void
+    {
+        $user = $this->employeeUser();
+        $user->update(['password_changed_at' => now()]);
+
+        $this->mock(WhatsAppService::class, function (MockInterface $mock): void {
+            $mock->shouldNotReceive('sendMessage');
+        });
+
+        $this->postJson('/api/auth/forgot-password/request-otp', ['nik' => $user->username])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('nik');
+
+        $this->assertDatabaseCount('password_reset_otps', 0);
+    }
+
+    public function test_recent_password_change_blocks_reset_with_existing_otp(): void
+    {
+        $user = $this->employeeUser();
+        $user->createToken('portal-session');
+        $otp = PasswordResetOtp::query()->create([
+            'email' => $user->email,
+            'otp' => '104725',
+            'expired_at' => now()->addMinutes(2),
+        ]);
+        $user->update(['password_changed_at' => now()]);
+
+        $this->postJson('/api/auth/forgot-password/reset', [
+            'nik' => $user->username,
+            'otp' => '104725',
+            'password' => 'Password123',
+            'password_confirmation' => 'Password123',
+        ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('password');
+
+        $this->assertFalse($otp->fresh()->is_used);
+        $this->assertDatabaseCount('personal_access_tokens', 1);
     }
 
     public function test_reset_password_requires_letters_and_numbers(): void
