@@ -158,15 +158,15 @@ class EmployeeController extends Controller
                 ? ['prohibited']
                 : ['nullable', 'string', 'max:50'],
             'nama_karyawan' => [$requiredOnCreate, 'string', 'max:150'],
-            'jabatan' => ['nullable', 'string', 'max:100'],
+            'jabatan' => [$requiredOnCreate, 'string', 'max:100'],
             'posisi' => ['nullable', 'string', 'max:100'],
             'posisi_level' => ['nullable', Rule::in($this->positionLevels())],
             'posisi_title' => ['nullable', Rule::in($this->positionTitles())],
             'divisi' => ['nullable', Rule::in($this->divisionOptions())],
             'departement' => ['nullable', 'string', 'max:100'],
             'unit' => ['nullable', 'string', 'max:100'],
-            'nama_atasan_langsung' => ['nullable', 'string', 'max:150'],
-            'atasan_tidak_langsung' => ['nullable', 'string', 'max:150'],
+            'nama_atasan_langsung' => ['nullable', 'string', 'max:150', 'exists:m_karyawan,nama_karyawan'],
+            'atasan_tidak_langsung' => ['nullable', 'string', 'max:150', 'exists:m_karyawan,nama_karyawan'],
             'status_karyawan' => ['nullable', 'string', 'max:50'],
             'join_date' => ['nullable', 'date'],
             'status_kontrak' => ['nullable', 'string', 'max:50', 'required_with:start_date,end_date,durasi_kontrak'],
@@ -235,18 +235,38 @@ class EmployeeController extends Controller
 
     private function employeeData(Karyawan $employee): array
     {
-        $contract = DB::table('t_kontrak_karyawan')
+        $contracts = DB::table('t_kontrak_karyawan')
             ->where('nik', $employee->nik)
             ->orderByDesc('start_date')
             ->orderByDesc('id')
-            ->first();
+            ->get();
+        $today = now()->toDateString();
+        $activeContract = $contracts->first(
+            fn (object $contract): bool => ! in_array(
+                strtoupper((string) $contract->status_kontrak),
+                ['SELESAI', 'HABIS', 'EXPIRED', 'NONAKTIF'],
+                true
+            )
+                && $contract->start_date <= $today
+                && $contract->end_date >= $today
+        );
+        $formContract = $activeContract ?? $contracts->first();
 
         return [
             ...$employee->toArray(),
-            'status_kontrak' => $contract?->status_kontrak,
-            'start_date' => $contract?->start_date,
-            'durasi_kontrak' => $contract?->durasi_bulan,
-            'end_date' => $contract?->end_date,
+            'status_kontrak' => $formContract?->status_kontrak,
+            'start_date' => $formContract?->start_date,
+            'durasi_kontrak' => $formContract?->durasi_bulan,
+            'end_date' => $formContract?->end_date,
+            'active_contract_id' => $activeContract?->id,
+            'contracts' => $contracts->map(fn (object $contract) => [
+                'id' => $contract->id,
+                'contract_number' => $contract->kontrak_ke,
+                'start_date' => $contract->start_date,
+                'end_date' => $contract->end_date,
+                'duration_months' => $contract->durasi_bulan,
+                'status' => $contract->status_kontrak,
+            ])->values(),
         ];
     }
 

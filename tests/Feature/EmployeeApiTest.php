@@ -158,14 +158,21 @@ class EmployeeApiTest extends TestCase
 
         $this->getJson('/api/employee/EMP002')
             ->assertOk()
-            ->assertJsonPath('data.departement', 'IT');
+            ->assertJsonPath('data.departement', 'IT')
+            ->assertJsonCount(0, 'data.contracts');
     }
 
     public function test_it_creates_updates_and_deletes_an_employee(): void
     {
+        Karyawan::create([
+            'nik' => 'MGR001',
+            'nama_karyawan' => 'Manager HR',
+        ]);
+
         $this->postJson('/api/employee', [
             'nik' => 'EMP003',
             'nama_karyawan' => 'Siti Aminah',
+            'jabatan' => 'HR Staff',
             'posisi_level' => 'Jr.',
             'posisi_title' => 'Staff',
             'divisi' => 'Business Partner',
@@ -174,6 +181,7 @@ class EmployeeApiTest extends TestCase
             'start_date' => '2026-05-01',
             'end_date' => '2027-04-30',
             'durasi_kontrak' => 12,
+            'nama_atasan_langsung' => 'Manager HR',
             'npwp' => true,
             'bpjs' => true,
         ])
@@ -185,6 +193,7 @@ class EmployeeApiTest extends TestCase
             'nik' => 'EMP003',
             'nama_karyawan' => 'Siti Aminah',
             'status_karyawan' => 'AKTIF',
+            'nama_atasan_langsung' => 'Manager HR',
             'bpjs' => true,
         ]);
         $this->assertDatabaseHas('t_kontrak_karyawan', [
@@ -209,6 +218,7 @@ class EmployeeApiTest extends TestCase
             ->assertJsonPath('data.departement', 'People Operations')
             ->assertJsonPath('data.status_kontrak', 'DIPERPANJANG')
             ->assertJsonPath('data.end_date', '2027-10-31')
+            ->assertJsonPath('data.contracts.0.duration_months', 18)
             ->assertJsonPath('data.bpjs', false);
 
         $this->assertDatabaseHas('t_kontrak_karyawan', [
