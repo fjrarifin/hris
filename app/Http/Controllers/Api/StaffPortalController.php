@@ -25,6 +25,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class StaffPortalController extends Controller
 {
@@ -81,6 +82,17 @@ class StaffPortalController extends Controller
                 ...$this->photoChangeAvailability($user),
             ],
             'employee' => $employee,
+        ]);
+    }
+
+    public function profilePhoto(string $filename): StreamedResponse
+    {
+        $path = 'profile-photos/'.$filename;
+
+        abort_unless(Storage::disk('public')->exists($path), 404);
+
+        return Storage::disk('public')->response($path, $filename, [
+            'Cache-Control' => 'public, max-age=86400',
         ]);
     }
 
@@ -671,7 +683,7 @@ class StaffPortalController extends Controller
     private function publicFileUrl(?string $path): ?string
     {
         return $path
-            ? asset('storage/'.ltrim($path, '/'))
+            ? route('profile-photos.show', ['filename' => basename($path)])
             : null;
     }
 

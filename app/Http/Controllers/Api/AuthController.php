@@ -120,7 +120,7 @@ class AuthController extends Controller
     private function publicFileUrl(?string $path): ?string
     {
         return $path
-            ? asset('storage/'.ltrim($path, '/'))
+            ? route('profile-photos.show', ['filename' => basename($path)])
             : null;
     }
 

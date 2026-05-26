@@ -23,6 +23,10 @@ Route::post('/attendance/webhook', [AttendanceWebhookController::class, 'handle'
 
 Route::get('/attendance/pull', [AttendanceController::class, 'pull']);
 
+Route::get('/profile-photos/{filename}', [StaffPortalController::class, 'profilePhoto'])
+    ->where('filename', '[A-Za-z0-9_-]+\.(?:jpg|jpeg|png)')
+    ->name('profile-photos.show');
+
 Route::prefix('fingerspot')->group(function () {
     Route::post('/get-attlog', [FingerspotController::class, 'getAttlog']);
     Route::post('/get-userinfo', [FingerspotController::class, 'getUserinfo']);
