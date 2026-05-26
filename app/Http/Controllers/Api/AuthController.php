@@ -39,13 +39,13 @@ class AuthController extends Controller
 
         return response()->json([
             'token' => $token,
-            ...$this->sessionPayload($user, $request),
+            ...$this->sessionPayload($user),
         ]);
     }
 
     public function me(Request $request): JsonResponse
     {
-        return response()->json($this->sessionPayload($request->user(), $request));
+        return response()->json($this->sessionPayload($request->user()));
     }
 
     public function changePassword(Request $request): JsonResponse
@@ -84,7 +84,7 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => 'Password berhasil diperbarui.',
-            ...$this->sessionPayload($user, $request),
+            ...$this->sessionPayload($user),
         ]);
     }
 
@@ -97,7 +97,7 @@ class AuthController extends Controller
         ]);
     }
 
-    private function sessionPayload(User $user, Request $request): array
+    private function sessionPayload(User $user): array
     {
         return [
             'user' => [
@@ -108,7 +108,7 @@ class AuthController extends Controller
                 'level' => (int) $user->level,
                 'level_label' => $this->navigation->levelLabel($user),
                 'photo' => $user->photo,
-                'photo_url' => $this->publicFileUrl($request, $user->photo),
+                'photo_url' => $this->publicFileUrl($user->photo),
                 'must_change_password' => (bool) $user->must_change_password,
                 ...$this->passwordChangeAvailability($user),
             ],
@@ -117,10 +117,10 @@ class AuthController extends Controller
         ];
     }
 
-    private function publicFileUrl(Request $request, ?string $path): ?string
+    private function publicFileUrl(?string $path): ?string
     {
         return $path
-            ? rtrim($request->getSchemeAndHttpHost(), '/').'/storage/'.ltrim($path, '/')
+            ? asset('storage/'.ltrim($path, '/'))
             : null;
     }
 

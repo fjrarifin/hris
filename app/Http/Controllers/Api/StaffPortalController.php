@@ -51,7 +51,7 @@ class StaffPortalController extends Controller
             : 0;
 
         return response()->json([
-            'employee' => $this->employeeSummary($request, $employee, $user),
+            'employee' => $this->employeeSummary($employee, $user),
             'summary' => [
                 'working_days' => $this->workingDaysSinceJoining($employee, $today),
                 'attendance_days' => $attendanceDays,
@@ -77,7 +77,7 @@ class StaffPortalController extends Controller
                 'name' => $user->name,
                 'username' => $user->username,
                 'email' => $user->email,
-                'photo_url' => $this->publicFileUrl($request, $user->photo),
+                'photo_url' => $this->publicFileUrl($user->photo),
                 ...$this->photoChangeAvailability($user),
             ],
             'employee' => $employee,
@@ -116,7 +116,7 @@ class StaffPortalController extends Controller
 
         return response()->json([
             'message' => 'Foto profil berhasil diperbarui.',
-            'photo_url' => $this->publicFileUrl($request, $path),
+            'photo_url' => $this->publicFileUrl($path),
             ...$this->photoChangeAvailability($user),
         ]);
     }
@@ -656,7 +656,7 @@ class StaffPortalController extends Controller
         return Karyawan::query()->where('nik', $user->username)->firstOrFail();
     }
 
-    private function employeeSummary(Request $request, Karyawan $employee, User $user): array
+    private function employeeSummary(Karyawan $employee, User $user): array
     {
         return [
             'nik' => $employee->nik,
@@ -664,14 +664,14 @@ class StaffPortalController extends Controller
             'position' => $employee->jabatan ?: $employee->posisi,
             'department' => $employee->departement ?: $employee->divisi,
             'join_date' => $employee->join_date?->toDateString(),
-            'photo_url' => $this->publicFileUrl($request, $user->photo),
+            'photo_url' => $this->publicFileUrl($user->photo),
         ];
     }
 
-    private function publicFileUrl(Request $request, ?string $path): ?string
+    private function publicFileUrl(?string $path): ?string
     {
         return $path
-            ? rtrim($request->getSchemeAndHttpHost(), '/').'/storage/'.ltrim($path, '/')
+            ? asset('storage/'.ltrim($path, '/'))
             : null;
     }
 
