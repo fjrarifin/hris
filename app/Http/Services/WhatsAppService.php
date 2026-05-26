@@ -76,6 +76,10 @@ class WhatsAppService
 
         $phone = preg_replace('/[^0-9]/', '', $phone);
 
+        if (str_starts_with($phone, '6208')) {
+            return '62'.substr($phone, 3);
+        }
+
         if (str_starts_with($phone, '08')) {
             return '62'.substr($phone, 1);
         }

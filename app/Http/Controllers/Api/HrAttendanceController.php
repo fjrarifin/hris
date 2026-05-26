@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Exports\HrAttendanceExport;
 use App\Http\Controllers\Controller;
+use App\Models\AttendanceCorrection;
 use App\Models\EmployeePermission;
 use App\Models\FingerspotAttendanceLog;
 use App\Models\Karyawan;
@@ -203,6 +204,7 @@ class HrAttendanceController extends Controller
                 ];
             })
             ->keyBy(fn (array $record) => $this->recordKey($record['nik'], $record['date']));
+        $this->applyCorrections($attendanceDays, $start, $lastDate, $selectedNiks);
 
         $approvedAbsences = $this->approvedAbsenceDays($start, $lastDate, $selectedNiks);
         $approvedOvertimes = $this->approvedOvertimeDays($start, $lastDate, $selectedNiks, $attendanceDays);
@@ -331,6 +333,37 @@ class HrAttendanceController extends Controller
             });
 
         return $absences;
+    }
+
+    private function applyCorrections(
+        Collection $attendanceDays,
+        Carbon $start,
+        Carbon $end,
+        Collection $selectedNiks
+    ): void {
+        AttendanceCorrection::query()
+            ->whereIn('nik', $selectedNiks)
+            ->whereBetween('attendance_date', [$start->toDateString(), $end->toDateString()])
+            ->get()
+            ->each(function (AttendanceCorrection $correction) use ($attendanceDays): void {
+                $date = $correction->attendance_date->toDateString();
+                $key = $this->recordKey($correction->nik, $date);
+                $attendance = $attendanceDays->get($key, [
+                    'nik' => $correction->nik,
+                    'date' => $date,
+                    'scan_in' => null,
+                    'scan_out' => null,
+                    'overtime_scan_in' => null,
+                    'overtime_scan_out' => null,
+                ]);
+
+                $attendance['scan_in'] = $correction->corrected_scan_in ?: $attendance['scan_in'];
+                $attendance['scan_out'] = $correction->corrected_scan_out ?: $attendance['scan_out'];
+                $attendance['is_corrected'] = true;
+                $attendance['has_missing_attendance_form'] = $correction->has_missing_attendance_form;
+                $attendance['correction_notes'] = $correction->notes;
+                $attendanceDays->put($key, $attendance);
+            });
     }
 
     private function approvedOvertimeDays(

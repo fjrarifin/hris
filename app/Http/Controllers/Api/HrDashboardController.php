@@ -9,6 +9,7 @@ use App\Models\Karyawan;
 use App\Models\LeaveRequest;
 use App\Models\OvertimeRequest;
 use App\Models\PublicHolidayRequest;
+use App\Services\IncompleteAttendanceWhatsAppReport;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Collection;
@@ -16,7 +17,10 @@ use Illuminate\Support\Facades\DB;
 
 class HrDashboardController extends Controller
 {
-    public function __construct(private readonly HrAttendanceController $hrAttendanceController) {}
+    public function __construct(
+        private readonly HrAttendanceController $hrAttendanceController,
+        private readonly IncompleteAttendanceWhatsAppReport $incompleteAttendanceReport
+    ) {}
 
     public function __invoke(): JsonResponse
     {
@@ -123,26 +127,23 @@ class HrDashboardController extends Controller
             ->whereIn('nik', $scheduledNiks)
             ->orderBy('nama_karyawan')
             ->get();
-        $logsByPin = $this->logsByPin($date);
         $linkedEmployees = $scheduledEmployees->filter(fn (Karyawan $employee) => filled($employee->pin));
 
-        $records = $linkedEmployees
-            ->map(function (Karyawan $employee) use ($logsByPin) {
-                $logs = $logsByPin->get((string) $employee->pin, collect());
-                $scans = $this->scanSummary($logs);
-
-                if ((bool) $scans['scan_in'] === (bool) $scans['scan_out']) {
-                    return null;
-                }
-
+        $records = $this->incompleteAttendanceReport
+            ->recordsForDate($date)
+            ->map(function (array $record): array {
                 return [
-                    ...$this->employeeRow($employee),
-                    ...$scans,
-                    'missing_scan_in' => ! $scans['scan_in'],
-                    'missing_scan_out' => ! $scans['scan_out'],
+                    'nik' => $record['nik'],
+                    'name' => $record['name'],
+                    'position' => $record['position'],
+                    'department' => $record['department'],
+                    'scan_in' => $record['scan_in'],
+                    'scan_out' => $record['scan_out'],
+                    'missing_scan_in' => ! $record['scan_in'],
+                    'missing_scan_out' => ! $record['scan_out'],
+                    'whatsapp_notification_status' => 'Sudah diberikan notif WhatsApp',
                 ];
             })
-            ->filter()
             ->values();
 
         return [

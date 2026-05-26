@@ -4,6 +4,7 @@ namespace Tests\Feature\Api;
 
 use App\Exports\HrAttendanceExport;
 use App\Http\Controllers\Api\HrAttendanceController;
+use App\Models\AttendanceCorrection;
 use App\Models\EmployeePermission;
 use App\Models\FingerspotAttendanceLog;
 use App\Models\FrontendMenu;
@@ -29,6 +30,7 @@ class HrAttendancePivotApiTest extends TestCase
 
         foreach ([
             'public_holiday_requests',
+            'attendance_corrections',
             'employee_permissions',
             'overtime_requests',
             'public_holidays',
@@ -157,6 +159,25 @@ class HrAttendancePivotApiTest extends TestCase
             ->assertJsonPath('summary.national_holiday_alpha', 1);
     }
 
+    public function test_it_applies_hr_correction_to_missing_scan_duration(): void
+    {
+        $this->employee('EMP001', 'Ayu', 'PIN-A', '2026-01-01');
+        $this->log('PIN-A', '2026-05-25 08:00:00', '0');
+
+        AttendanceCorrection::query()->create([
+            'nik' => 'EMP001',
+            'attendance_date' => '2026-05-25',
+            'corrected_scan_out' => '17:00:00',
+            'has_missing_attendance_form' => true,
+        ]);
+
+        $this->getJson('/api/hr/attendance?start_date=2026-05-25&end_date=2026-05-25')
+            ->assertOk()
+            ->assertJsonPath('records.0.days.2026-05-25.status', 'M')
+            ->assertJsonPath('records.0.days.2026-05-25.scan_out', '17:00:00')
+            ->assertJsonPath('records.0.days.2026-05-25.duration_minutes', 540);
+    }
+
     public function test_export_headings_follow_the_pivot_dates(): void
     {
         $controller = app(HrAttendanceController::class);
@@ -230,6 +251,18 @@ class HrAttendancePivotApiTest extends TestCase
             $table->string('pin');
             $table->dateTime('scan_date');
             $table->string('status_scan')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('attendance_corrections', function (Blueprint $table): void {
+            $table->id();
+            $table->string('nik');
+            $table->date('attendance_date');
+            $table->time('corrected_scan_in')->nullable();
+            $table->time('corrected_scan_out')->nullable();
+            $table->boolean('has_missing_attendance_form')->nullable();
+            $table->text('notes')->nullable();
+            $table->unsignedBigInteger('corrected_by')->nullable();
             $table->timestamps();
         });
 

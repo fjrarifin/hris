@@ -31,6 +31,7 @@ class HrDashboardApiTest extends TestCase
             'public_holiday_requests',
             'leave_requests',
             'fingerspot_attendance_logs',
+            'attendance_corrections',
             'employee_daily_schedules',
             'attendance_schedule_categories',
             'm_karyawan',
@@ -138,6 +139,7 @@ class HrDashboardApiTest extends TestCase
             ->assertJsonPath('yesterday_incomplete_attendance.unlinked_pin_count', 1)
             ->assertJsonCount(2, 'yesterday_incomplete_attendance.records')
             ->assertJsonPath('yesterday_incomplete_attendance.records.0.missing_scan_out', true)
+            ->assertJsonPath('yesterday_incomplete_attendance.records.0.whatsapp_notification_status', 'Sudah diberikan notif WhatsApp')
             ->assertJsonPath('yesterday_incomplete_attendance.records.1.missing_scan_in', true)
             ->assertJsonPath('summary.expiring_contracts', 1)
             ->assertJsonPath('expiring_contracts.records.0.nik', 'EMP001');
@@ -174,6 +176,18 @@ class HrDashboardApiTest extends TestCase
             $table->string('pin');
             $table->dateTime('scan_date');
             $table->string('status_scan')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('attendance_corrections', function (Blueprint $table): void {
+            $table->id();
+            $table->string('nik');
+            $table->date('attendance_date');
+            $table->time('corrected_scan_in')->nullable();
+            $table->time('corrected_scan_out')->nullable();
+            $table->boolean('has_missing_attendance_form')->nullable();
+            $table->text('notes')->nullable();
+            $table->unsignedBigInteger('corrected_by')->nullable();
             $table->timestamps();
         });
 

@@ -12,3 +12,13 @@ Schedule::command('fingerspot:sync-attendance')
     ->dailyAt('23:00')
     ->withoutOverlapping()
     ->runInBackground();
+
+Schedule::command('attendance:send-incomplete-report')
+    ->dailyAt('07:00')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+Schedule::command('attendance:send-employee-warnings')
+    ->dailyAt('07:30')
+    ->withoutOverlapping()
+    ->runInBackground();

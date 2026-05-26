@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\EmployeeController;
 use App\Http\Controllers\Api\ForgotPasswordController;
 use App\Http\Controllers\Api\HrApprovalController;
 use App\Http\Controllers\Api\HrAttendanceController;
+use App\Http\Controllers\Api\HrAttendanceCorrectionController;
 use App\Http\Controllers\Api\HrContractController;
 use App\Http\Controllers\Api\HrDashboardController;
 use App\Http\Controllers\Api\HrScheduleController;
@@ -71,6 +72,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
         Route::prefix('hr')->middleware('level:2')->group(function () {
             Route::get('/dashboard', HrDashboardController::class);
+            Route::middleware('frontend.menu:hr-attendance-corrections')->group(function () {
+                Route::get('/attendance-corrections', [HrAttendanceCorrectionController::class, 'index']);
+                Route::put('/attendance-corrections/{nik}', [HrAttendanceCorrectionController::class, 'store']);
+            });
             Route::middleware('frontend.menu:hr-contracts')->group(function () {
                 Route::get('/contracts', [HrContractController::class, 'index']);
                 Route::get('/contracts/{nik}', [HrContractController::class, 'show']);
