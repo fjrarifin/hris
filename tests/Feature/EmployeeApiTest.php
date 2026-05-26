@@ -28,6 +28,7 @@ class EmployeeApiTest extends TestCase
             $table->string('name');
             $table->string('email')->unique();
             $table->string('password');
+            $table->string('photo')->nullable();
             $table->unsignedTinyInteger('level')->default(2);
             $table->timestamps();
         });
@@ -77,6 +78,7 @@ class EmployeeApiTest extends TestCase
             $table->text('alamat')->nullable();
             $table->boolean('npwp')->default(false);
             $table->string('no_npwp')->nullable();
+            $table->string('status_pajak')->nullable();
             $table->string('status_pernikahan')->nullable();
             $table->string('agama')->nullable();
             $table->string('kewarganegaraan')->nullable();
@@ -85,6 +87,9 @@ class EmployeeApiTest extends TestCase
             $table->string('jurusan')->nullable();
             $table->string('nama_pasangan')->nullable();
             $table->unsignedSmallInteger('jumlah_anak')->nullable();
+            $table->string('nama_anak_1')->nullable();
+            $table->string('nama_anak_2')->nullable();
+            $table->string('nama_anak_3')->nullable();
             $table->string('nama_ayah')->nullable();
             $table->string('nama_ibu')->nullable();
             $table->string('kontak_darurat_nama')->nullable();
@@ -101,10 +106,12 @@ class EmployeeApiTest extends TestCase
             $table->id();
             $table->string('nik', 30);
             $table->unsignedInteger('kontrak_ke');
+            $table->string('jenis_kontrak')->nullable();
             $table->date('start_date');
             $table->date('end_date');
             $table->unsignedInteger('durasi_bulan')->nullable();
             $table->string('status_kontrak');
+            $table->text('keterangan')->nullable();
             $table->text('catatan')->nullable();
             $table->timestamps();
         });
@@ -142,6 +149,15 @@ class EmployeeApiTest extends TestCase
             'departement' => 'IT',
         ]);
 
+        User::create([
+            'username' => 'EMP002',
+            'name' => 'Fajar Wijaya',
+            'email' => 'fajar@example.test',
+            'password' => 'password',
+            'photo' => 'profile-photos/fajar.jpg',
+            'level' => 3,
+        ]);
+
         $this->getJson('/api/employee?q=Fajar')
             ->assertOk()
             ->assertJsonCount(1, 'data')
@@ -154,11 +170,13 @@ class EmployeeApiTest extends TestCase
             ->assertJsonPath('data.0.nik', 'EMP001')
             ->assertJsonPath('data.0.name', 'Budi Santoso')
             ->assertJsonPath('data.0.position', 'HR Staff')
-            ->assertJsonPath('data.0.department', 'HRD');
+            ->assertJsonPath('data.0.department', 'HRD')
+            ->assertJsonPath('data.1.photo_url', route('profile-photos.show', ['filename' => 'fajar.jpg']));
 
         $this->getJson('/api/employee/EMP002')
             ->assertOk()
             ->assertJsonPath('data.departement', 'IT')
+            ->assertJsonPath('data.photo_url', route('profile-photos.show', ['filename' => 'fajar.jpg']))
             ->assertJsonCount(0, 'data.contracts');
     }
 
@@ -176,11 +194,13 @@ class EmployeeApiTest extends TestCase
             'posisi_level' => 'Jr.',
             'posisi_title' => 'Staff',
             'divisi' => 'Business Partner',
-            'status_karyawan' => 'AKTIF',
+            'jenis_kontrak' => 'PKWT',
             'status_kontrak' => 'AKTIF',
             'start_date' => '2026-05-01',
             'end_date' => '2027-04-30',
-            'durasi_kontrak' => 12,
+            'keterangan_kontrak' => 'Kontrak awal',
+            'status_pajak' => 'K/1',
+            'nama_anak_1' => 'Anak Pertama',
             'nama_atasan_langsung' => 'Manager HR',
             'npwp' => true,
             'bpjs' => true,
@@ -193,12 +213,16 @@ class EmployeeApiTest extends TestCase
             'nik' => 'EMP003',
             'nama_karyawan' => 'Siti Aminah',
             'status_karyawan' => 'AKTIF',
+            'status_pajak' => 'K/1',
+            'status_pernikahan' => 'Menikah',
+            'nama_anak_1' => 'Anak Pertama',
             'nama_atasan_langsung' => 'Manager HR',
             'bpjs' => true,
         ]);
         $this->assertDatabaseHas('t_kontrak_karyawan', [
             'nik' => 'EMP003',
             'status_kontrak' => 'AKTIF',
+            'jenis_kontrak' => 'PKWT',
             'start_date' => '2026-05-01',
             'end_date' => '2027-04-30',
             'durasi_bulan' => 12,
@@ -207,23 +231,26 @@ class EmployeeApiTest extends TestCase
         $this->patchJson('/api/employee/EMP003', [
             'nama_karyawan' => 'Siti A. Aminah',
             'departement' => 'People Operations',
-            'status_kontrak' => 'DIPERPANJANG',
+            'jenis_kontrak' => 'PKWTT',
+            'status_kontrak' => 'NONAKTIF',
             'start_date' => '2026-05-01',
             'end_date' => '2027-10-31',
-            'durasi_kontrak' => 18,
+            'keterangan_kontrak' => 'Diakhiri',
             'bpjs' => false,
         ])
             ->assertOk()
             ->assertJsonPath('data.nama_karyawan', 'Siti A. Aminah')
             ->assertJsonPath('data.departement', 'People Operations')
-            ->assertJsonPath('data.status_kontrak', 'DIPERPANJANG')
+            ->assertJsonPath('data.status_kontrak', 'NONAKTIF')
+            ->assertJsonPath('data.status_karyawan', 'NONAKTIF')
             ->assertJsonPath('data.end_date', '2027-10-31')
             ->assertJsonPath('data.contracts.0.duration_months', 18)
             ->assertJsonPath('data.bpjs', false);
 
         $this->assertDatabaseHas('t_kontrak_karyawan', [
             'nik' => 'EMP003',
-            'status_kontrak' => 'DIPERPANJANG',
+            'status_kontrak' => 'NONAKTIF',
+            'jenis_kontrak' => 'PKWTT',
             'end_date' => '2027-10-31',
             'durasi_bulan' => 18,
         ]);

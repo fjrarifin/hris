@@ -113,6 +113,7 @@ class HrDashboardApiTest extends TestCase
         DB::table('t_kontrak_karyawan')->insert([
             'nik' => 'EMP001',
             'kontrak_ke' => 2,
+            'start_date' => '2026-01-01',
             'end_date' => '2026-06-30',
             'status_kontrak' => 'AKTIF',
         ]);
@@ -120,13 +121,15 @@ class HrDashboardApiTest extends TestCase
         $this->getJson('/api/hr/dashboard')
             ->assertOk()
             ->assertJsonPath('summary.total_employees', 5)
-            ->assertJsonPath('summary.active_employees', 5)
+            ->assertJsonPath('summary.active_employees', 1)
             ->assertJsonPath('summary.attendance_today', 2)
             ->assertJsonPath('summary.scan_pins_today', 3)
             ->assertJsonPath('attendance.mapped_employee_count', 2)
             ->assertJsonPath('attendance.unmapped_pin_count', 1)
             ->assertJsonPath('attendance.by_department.0.total', 1)
             ->assertJsonCount(1, 'attendance.managers_present')
+            ->assertJsonPath('attendance.managers_present.0.scan_in', '08:00:00')
+            ->assertJsonPath('attendance.managers_present.0.scan_out', '17:00:00')
             ->assertJsonCount(1, 'attendance.assistant_managers_present')
             ->assertJsonPath('summary.leave_today', 1)
             ->assertJsonPath('summary.public_holiday_today', 1)
@@ -228,6 +231,7 @@ class HrDashboardApiTest extends TestCase
             $table->id();
             $table->string('nik');
             $table->unsignedInteger('kontrak_ke');
+            $table->date('start_date')->nullable();
             $table->date('end_date');
             $table->string('status_kontrak');
         });

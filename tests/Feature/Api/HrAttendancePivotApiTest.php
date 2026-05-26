@@ -140,7 +140,7 @@ class HrAttendancePivotApiTest extends TestCase
             ->assertJsonPath('records.0.days.2026-05-29.status', 'M')
             ->assertJsonPath('records.0.total_period_days', 6)
             ->assertJsonPath('records.0.total_attendance', 4)
-            ->assertJsonPath('records.0.total_work_duration_minutes', 1110)
+            ->assertJsonPath('records.0.total_work_duration_minutes', 2070)
             ->assertJsonPath('records.0.total_overtime_minutes', 120)
             ->assertJsonPath('records.0.total_ph', 1)
             ->assertJsonPath('records.0.total_leave', 1)
@@ -151,7 +151,7 @@ class HrAttendancePivotApiTest extends TestCase
             ->assertJsonPath('records.1.total_alpha', 6)
             ->assertJsonPath('records.1.total_national_holiday_alpha', 1)
             ->assertJsonPath('summary.total_attendance', 4)
-            ->assertJsonPath('summary.total_work_duration_minutes', 1110)
+            ->assertJsonPath('summary.total_work_duration_minutes', 2070)
             ->assertJsonPath('summary.total_overtime_minutes', 120)
             ->assertJsonPath('summary.national_holiday_attendance', 1)
             ->assertJsonPath('summary.national_holiday_alpha', 1);

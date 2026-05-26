@@ -11,6 +11,7 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class HrContractController extends Controller
 {
@@ -100,6 +101,7 @@ class HrContractController extends Controller
     public function store(Request $request, string $nik): JsonResponse
     {
         $employee = Karyawan::query()->where('nik', $nik)->firstOrFail();
+        $this->ensureNoActiveContract($employee->nik);
         $validated = $this->validatedContract($request);
 
         $id = DB::table('t_kontrak_karyawan')->insertGetId([
@@ -109,6 +111,7 @@ class HrContractController extends Controller
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+        $this->syncEmployeeStatus($employee->nik);
 
         return response()->json([
             'message' => 'Kontrak baru berhasil ditambahkan.',
@@ -121,10 +124,16 @@ class HrContractController extends Controller
         $contract = DB::table('t_kontrak_karyawan')->where('id', $contractId)->first();
         abort_unless($contract, 404);
 
+        $validated = $this->validatedContract($request);
+        if ($validated['status_kontrak'] === 'AKTIF') {
+            $this->ensureNoActiveContract((string) $contract->nik, $contractId);
+        }
+
         DB::table('t_kontrak_karyawan')->where('id', $contractId)->update([
-            ...$this->validatedContract($request),
+            ...$validated,
             'updated_at' => now(),
         ]);
+        $this->syncEmployeeStatus((string) $contract->nik);
 
         return response()->json([
             'message' => 'Kontrak berhasil diperbarui.',
@@ -145,13 +154,13 @@ class HrContractController extends Controller
             ->get(['nik', 'nama_karyawan', 'jabatan', 'posisi', 'departement', 'divisi', 'unit', 'status_karyawan'])
             ->map(function (Karyawan $employee) use ($contracts, $today): array {
                 $history = $contracts->get($employee->nik, collect());
-                $current = $history->first(fn (object $contract) => $this->isActive($contract, $today))
-                    ?? $history->first();
+                $active = $history->first(fn (object $contract) => $this->isActive($contract, $today));
+                $current = $active ?? $history->first();
                 $contract = $current ? $this->serializeContract($current, $today) : null;
 
                 return [
                     ...$this->employeeRow($employee),
-                    'employee_status' => $employee->status_karyawan ?: '-',
+                    'employee_status' => $active ? 'AKTIF' : 'NONAKTIF',
                     'contracts_count' => $history->count(),
                     'contract' => $contract,
                     'contract_state' => $contract['state'] ?? 'no_contract',
@@ -172,14 +181,18 @@ class HrContractController extends Controller
     private function serializeContract(object $contract, Carbon $today): array
     {
         $endDate = $contract->end_date ? Carbon::parse($contract->end_date)->startOfDay() : null;
+        $durationMonths = $this->durationMonths($contract->start_date, $contract->end_date);
 
         return [
             'id' => $contract->id,
             'contract_number' => $contract->kontrak_ke,
+            'contract_type' => $contract->jenis_kontrak ?? 'PKWT',
             'start_date' => $contract->start_date,
             'end_date' => $contract->end_date,
-            'duration_months' => $contract->durasi_bulan,
+            'duration_months' => $durationMonths,
+            'duration_label' => $this->durationLabel($durationMonths),
             'status' => $contract->status_kontrak,
+            'description' => $contract->keterangan ?? null,
             'state' => $this->contractState($contract, $today),
             'remaining_days' => $endDate && $endDate->gte($today)
                 ? (int) $today->diffInDays($endDate)
@@ -228,15 +241,80 @@ class HrContractController extends Controller
     private function validatedContract(Request $request): array
     {
         $validated = $request->validate([
-            'status_kontrak' => ['required', Rule::in(['AKTIF', 'DIPERPANJANG', 'SELESAI', 'HABIS', 'NONAKTIF'])],
+            'jenis_kontrak' => ['required', Rule::in(['PKWT', 'PKWTT'])],
+            'status_kontrak' => ['required', Rule::in(['AKTIF', 'NONAKTIF'])],
             'start_date' => ['required', 'date'],
             'end_date' => ['required', 'date', 'after_or_equal:start_date'],
-            'durasi_bulan' => ['nullable', 'integer', 'min:0'],
+            'keterangan' => ['nullable', 'string', 'max:1000'],
         ]);
 
         return [
             ...$validated,
+            'jenis_kontrak' => strtoupper($validated['jenis_kontrak']),
             'status_kontrak' => strtoupper($validated['status_kontrak']),
+            'durasi_bulan' => $this->durationMonths($validated['start_date'], $validated['end_date']),
         ];
+    }
+
+    private function ensureNoActiveContract(string $nik, ?int $exceptId = null): void
+    {
+        $hasActiveContract = DB::table('t_kontrak_karyawan')
+            ->where('nik', $nik)
+            ->where('status_kontrak', 'AKTIF')
+            ->when($exceptId !== null, fn ($query) => $query->where('id', '!=', $exceptId))
+            ->exists();
+
+        if (! $hasActiveContract) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'status_kontrak' => [
+                'Kontrak yang masih AKTIF harus diubah menjadi NONAKTIF sebelum menambahkan atau mengaktifkan kontrak baru.',
+            ],
+        ]);
+    }
+
+    private function syncEmployeeStatus(string $nik): void
+    {
+        $today = now()->startOfDay();
+        $active = DB::table('t_kontrak_karyawan')
+            ->where('nik', $nik)
+            ->get()
+            ->contains(fn (object $contract) => $this->isActive($contract, $today));
+
+        Karyawan::query()->where('nik', $nik)->update([
+            'status_karyawan' => $active ? 'AKTIF' : 'NONAKTIF',
+        ]);
+    }
+
+    private function durationMonths(?string $startDate, ?string $endDate): ?int
+    {
+        if (! $startDate || ! $endDate) {
+            return null;
+        }
+
+        return (int) round(Carbon::parse($startDate)->diffInMonths(Carbon::parse($endDate)->addDay()));
+    }
+
+    private function durationLabel(?int $months): string
+    {
+        if (! $months) {
+            return '-';
+        }
+
+        $years = intdiv($months, 12);
+        $remainingMonths = $months % 12;
+        $parts = [];
+
+        if ($years) {
+            $parts[] = $years.' tahun';
+        }
+
+        if ($remainingMonths) {
+            $parts[] = $remainingMonths.' bulan';
+        }
+
+        return implode(' ', $parts);
     }
 }

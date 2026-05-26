@@ -17,12 +17,19 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class HrAttendanceController extends Controller
 {
+    private const MINIMUM_MONTHLY_WORK_MINUTES = 192 * 60;
+
+    private const IDEAL_MONTHLY_ATTENDANCE_DAYS = 25;
+
+    private const APPROVED_PAID_ABSENCE_MINUTES = 8 * 60;
+
     public function options(): JsonResponse
     {
         $employees = Karyawan::query()
@@ -66,6 +73,7 @@ class HrAttendanceController extends Controller
             'filters' => $report['filters'],
             'dates' => $report['dates'],
             'summary' => $report['summary'],
+            'targets' => $this->monthlyTargets(),
             'records' => $report['records']->forPage($page, $perPage)->values(),
             'pagination' => [
                 'current_page' => $page,
@@ -96,6 +104,58 @@ class HrAttendanceController extends Controller
         $fileName = 'Rekap_Absensi_HRD_'.$suffix.'_'.$report['filters']['start_date'].'_'.$report['filters']['end_date'].'.xlsx';
 
         return Excel::download(new HrAttendanceExport($report['records'], $report['dates'], $withDailyBreakdown), $fileName);
+    }
+
+    public function monthlyMonitoring(Carbon $asOfDate): array
+    {
+        if ($asOfDate->day < 26) {
+            return [
+                'visible' => false,
+                'as_of_date' => $asOfDate->toDateString(),
+                'records' => [],
+                ...$this->monthlyTargets(),
+            ];
+        }
+
+        $report = $this->report([
+            'start_date' => $asOfDate->copy()->startOfMonth()->toDateString(),
+            'end_date' => $asOfDate->toDateString(),
+        ]);
+        $activeNiks = DB::table('t_kontrak_karyawan')
+            ->where('status_kontrak', 'AKTIF')
+            ->whereDate('start_date', '<=', $asOfDate)
+            ->whereDate('end_date', '>=', $asOfDate)
+            ->pluck('nik');
+
+        $records = $report['records']
+            ->whereIn('nik', $activeNiks)
+            ->map(function (array $record): array {
+                $attendanceShortage = max(self::IDEAL_MONTHLY_ATTENDANCE_DAYS - $record['total_attendance'], 0);
+                $minutesShortage = max(self::MINIMUM_MONTHLY_WORK_MINUTES - $record['total_work_duration_minutes'], 0);
+
+                return [
+                    'nik' => $record['nik'],
+                    'name' => $record['name'],
+                    'department' => $record['department'],
+                    'total_attendance' => $record['total_attendance'],
+                    'total_work_duration' => $record['total_work_duration'],
+                    'attendance_shortage' => $attendanceShortage,
+                    'work_duration_shortage_minutes' => $minutesShortage,
+                    'work_duration_shortage' => $this->workDurationLabel($minutesShortage),
+                ];
+            })
+            ->filter(fn (array $record) => $record['attendance_shortage'] > 0 || $record['work_duration_shortage_minutes'] > 0)
+            ->values()
+            ->all();
+
+        return [
+            'visible' => true,
+            'as_of_date' => $asOfDate->toDateString(),
+            'period_start' => $report['filters']['start_date'],
+            'period_end' => $report['filters']['end_date'],
+            'records' => $records,
+            ...$this->monthlyTargets(),
+        ];
     }
 
     private function report(array $validated): array
@@ -414,12 +474,17 @@ class HrAttendanceController extends Controller
                 : $absence['label'].' disetujui HRD.';
         }
 
+        $durationMinutes = $this->workDurationMinutes($scanIn, $scanOut);
+        if (! $hasScan && in_array($status, ['PH', 'C'], true)) {
+            $durationMinutes = self::APPROVED_PAID_ABSENCE_MINUTES;
+        }
+
         return [
             'date' => $date,
             'status' => $status,
             'scan_in' => $scanIn,
             'scan_out' => $scanOut,
-            'duration_minutes' => $this->workDurationMinutes($scanIn, $scanOut),
+            'duration_minutes' => $durationMinutes,
             'overtime_minutes' => $overtimeMinutes,
             'note' => $note,
             'is_present' => $hasScan,
@@ -484,5 +549,15 @@ class HrAttendanceController extends Controller
     private function workDurationLabel(int $minutes): string
     {
         return intdiv($minutes, 60).' jam '.($minutes % 60).' menit';
+    }
+
+    private function monthlyTargets(): array
+    {
+        return [
+            'ideal_attendance_days' => self::IDEAL_MONTHLY_ATTENDANCE_DAYS,
+            'minimum_work_duration_minutes' => self::MINIMUM_MONTHLY_WORK_MINUTES,
+            'minimum_work_duration' => $this->workDurationLabel(self::MINIMUM_MONTHLY_WORK_MINUTES),
+            'approved_ph_leave_daily_minutes' => self::APPROVED_PAID_ABSENCE_MINUTES,
+        ];
     }
 }

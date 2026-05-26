@@ -16,6 +16,8 @@ use Illuminate\Support\Facades\DB;
 
 class HrDashboardController extends Controller
 {
+    public function __construct(private readonly HrAttendanceController $hrAttendanceController) {}
+
     public function __invoke(): JsonResponse
     {
         $today = now()->startOfDay();
@@ -31,7 +33,7 @@ class HrDashboardController extends Controller
             'as_of_date' => $today->toDateString(),
             'summary' => [
                 'total_employees' => Karyawan::query()->count(),
-                'active_employees' => Karyawan::query()->where('status_karyawan', 'AKTIF')->count(),
+                'active_employees' => $this->activeEmployees($today),
                 'attendance_today' => $attendance['mapped_employee_count'],
                 'scan_pins_today' => $attendance['unique_pin_count'],
                 'leave_today' => $leaveToday->count(),
@@ -48,6 +50,7 @@ class HrDashboardController extends Controller
                 'through_date' => $today->copy()->addMonthsNoOverflow(2)->toDateString(),
                 'records' => $expiringContracts,
             ],
+            'monthly_attendance_monitoring' => $this->hrAttendanceController->monthlyMonitoring($today),
         ]);
     }
 
@@ -91,6 +94,16 @@ class HrDashboardController extends Controller
                 ->where('position_title', 'Asst. Manager')
                 ->values(),
         ];
+    }
+
+    private function activeEmployees(Carbon $today): int
+    {
+        return DB::table('t_kontrak_karyawan')
+            ->where('status_kontrak', 'AKTIF')
+            ->whereDate('start_date', '<=', $today)
+            ->whereDate('end_date', '>=', $today)
+            ->distinct('nik')
+            ->count('nik');
     }
 
     private function incompleteAttendanceForDate(Carbon $date): array
