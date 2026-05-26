@@ -191,6 +191,8 @@ class EmployeeApiTest extends TestCase
             'nik' => 'EMP003',
             'nama_karyawan' => 'Siti Aminah',
             'jabatan' => 'HR Staff',
+            'join_date' => '2025-12-25',
+            'tanggal_lahir' => '1995-11-19',
             'posisi_level' => 'Jr.',
             'posisi_title' => 'Staff',
             'divisi' => 'Business Partner',
@@ -207,7 +209,9 @@ class EmployeeApiTest extends TestCase
         ])
             ->assertCreated()
             ->assertJsonPath('data.nik', 'EMP003')
-            ->assertJsonPath('data.posisi', 'Jr. Staff');
+            ->assertJsonPath('data.posisi', 'Jr. Staff')
+            ->assertJsonPath('data.join_date', '2025-12-25')
+            ->assertJsonPath('data.tanggal_lahir', '1995-11-19');
 
         $this->assertDatabaseHas('m_karyawan', [
             'nik' => 'EMP003',
@@ -231,6 +235,8 @@ class EmployeeApiTest extends TestCase
         $this->patchJson('/api/employee/EMP003', [
             'nama_karyawan' => 'Siti A. Aminah',
             'departement' => 'People Operations',
+            'join_date' => '2025-12-25',
+            'tanggal_lahir' => '1995-11-19',
             'jenis_kontrak' => 'PKWTT',
             'status_kontrak' => 'NONAKTIF',
             'start_date' => '2026-05-01',
@@ -245,8 +251,15 @@ class EmployeeApiTest extends TestCase
             ->assertJsonPath('data.status_karyawan', 'NONAKTIF')
             ->assertJsonPath('data.end_date', '2027-10-31')
             ->assertJsonPath('data.contracts.0.duration_months', 18)
+            ->assertJsonPath('data.join_date', '2025-12-25')
+            ->assertJsonPath('data.tanggal_lahir', '1995-11-19')
             ->assertJsonPath('data.bpjs', false);
 
+        $this->assertDatabaseHas('m_karyawan', [
+            'nik' => 'EMP003',
+            'join_date' => '2025-12-25',
+            'tanggal_lahir' => '1995-11-19',
+        ]);
         $this->assertDatabaseHas('t_kontrak_karyawan', [
             'nik' => 'EMP003',
             'status_kontrak' => 'NONAKTIF',

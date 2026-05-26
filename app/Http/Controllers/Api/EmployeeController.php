@@ -282,6 +282,8 @@ class EmployeeController extends Controller
             ...$employee->toArray(),
             'status_karyawan' => $activeContract ? 'AKTIF' : 'NONAKTIF',
             'photo_url' => $photoUrl,
+            'join_date' => $employee->join_date?->toDateString(),
+            'tanggal_lahir' => $employee->tanggal_lahir?->toDateString(),
             'jenis_kontrak' => $formContract?->jenis_kontrak,
             'status_kontrak' => $formContract?->status_kontrak,
             'start_date' => $formContract?->start_date,
