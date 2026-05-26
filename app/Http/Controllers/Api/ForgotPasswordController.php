@@ -16,6 +16,8 @@ use Throwable;
 
 class ForgotPasswordController extends Controller
 {
+    private const PASSWORD_CHANGE_INTERVAL_DAYS = 30;
+
     public function __construct(private readonly WhatsAppService $whatsAppService) {}
 
     public function requestOtp(Request $request): JsonResponse
@@ -25,6 +27,7 @@ class ForgotPasswordController extends Controller
         ]);
 
         $user = $this->userForNik($validated['nik']);
+        $this->ensurePasswordCanBeChanged($user, 'nik');
         $phone = trim((string) $user->karyawan?->no_hp);
 
         if ($phone === '') {
@@ -104,6 +107,9 @@ class ForgotPasswordController extends Controller
         $user = $this->userForNik($validated['nik']);
 
         DB::transaction(function () use ($user, $validated): void {
+            $user = User::query()->lockForUpdate()->findOrFail($user->id);
+            $this->ensurePasswordCanBeChanged($user, 'password');
+
             $passwordResetOtp = PasswordResetOtp::query()
                 ->where('email', $user->email)
                 ->where('otp', $validated['otp'])
@@ -121,6 +127,7 @@ class ForgotPasswordController extends Controller
             $user->update([
                 'password' => Hash::make($validated['password']),
                 'must_change_password' => false,
+                'password_changed_at' => now(),
             ]);
 
             $user->tokens()->delete();
@@ -158,6 +165,25 @@ class ForgotPasswordController extends Controller
             ->first();
 
         return $passwordResetOtp?->isValid() ?? false;
+    }
+
+    private function ensurePasswordCanBeChanged(User $user, string $field): void
+    {
+        if ($user->must_change_password || ! $user->password_changed_at) {
+            return;
+        }
+
+        $availableAt = $user->password_changed_at->copy()->addDays(self::PASSWORD_CHANGE_INTERVAL_DAYS);
+
+        if (now()->greaterThanOrEqualTo($availableAt)) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            $field => [
+                'Password hanya dapat diganti 1 kali dalam 30 hari. Anda dapat mengganti kembali pada '.$availableAt->format('d/m/Y H:i').' WIB.',
+            ],
+        ]);
     }
 
     private function otpMessage(string $name, string $otp): string

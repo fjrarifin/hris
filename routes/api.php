@@ -86,6 +86,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::prefix('staff')->middleware('level:3')->group(function () {
             Route::get('/dashboard', [StaffPortalController::class, 'dashboard']);
             Route::get('/profile', [StaffPortalController::class, 'profile']);
+            Route::post('/profile/photo', [StaffPortalController::class, 'updateProfilePhoto']);
 
             Route::middleware('frontend.menu:staff-attendance')->group(function () {
                 Route::get('/attendance', [StaffPortalController::class, 'attendance']);

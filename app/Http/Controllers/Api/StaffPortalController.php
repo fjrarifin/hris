@@ -19,6 +19,7 @@ use App\Notifications\RequestStatusNotification;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -27,6 +28,8 @@ use Illuminate\Validation\ValidationException;
 
 class StaffPortalController extends Controller
 {
+    private const PROFILE_PHOTO_CHANGE_INTERVAL_DAYS = 30;
+
     public function __construct(private readonly ApprovalNotificationService $approvalNotification) {}
 
     public function dashboard(Request $request): JsonResponse
@@ -75,8 +78,73 @@ class StaffPortalController extends Controller
                 'username' => $user->username,
                 'email' => $user->email,
                 'photo_url' => $this->publicFileUrl($request, $user->photo),
+                ...$this->photoChangeAvailability($user),
             ],
             'employee' => $employee,
+        ]);
+    }
+
+    public function updateProfilePhoto(Request $request): JsonResponse
+    {
+        $this->ensurePhotoCanBeChanged($request->user());
+
+        $request->validate([
+            'photo' => ['required', 'image', 'mimes:jpg,jpeg,png', 'max:1024'],
+        ], [
+            'photo.max' => 'Ukuran foto profil maksimal 1 MB.',
+            'photo.mimes' => 'Foto profil harus berformat PNG, JPG, atau JPEG.',
+        ]);
+
+        [$user, $oldPhoto, $path] = DB::transaction(function () use ($request): array {
+            $user = User::query()->lockForUpdate()->findOrFail($request->user()->id);
+            $this->ensurePhotoCanBeChanged($user);
+
+            $oldPhoto = $user->photo;
+            $path = $request->file('photo')->store('profile-photos', 'public');
+
+            $user->update([
+                'photo' => $path,
+                'photo_changed_at' => now(),
+            ]);
+
+            return [$user, $oldPhoto, $path];
+        });
+
+        if ($oldPhoto && $oldPhoto !== $path) {
+            Storage::disk('public')->delete($oldPhoto);
+        }
+
+        return response()->json([
+            'message' => 'Foto profil berhasil diperbarui.',
+            'photo_url' => $this->publicFileUrl($request, $path),
+            ...$this->photoChangeAvailability($user),
+        ]);
+    }
+
+    private function photoChangeAvailability(User $user): array
+    {
+        $availableAt = $user->photo_changed_at?->copy()->addDays(self::PROFILE_PHOTO_CHANGE_INTERVAL_DAYS);
+
+        return [
+            'photo_changed_at' => $user->photo_changed_at?->toIso8601String(),
+            'photo_change_available_at' => $availableAt?->toIso8601String(),
+            'photo_change_available_label' => $availableAt?->format('d/m/Y H:i').' WIB',
+            'can_change_photo' => ! $availableAt || now()->greaterThanOrEqualTo($availableAt),
+        ];
+    }
+
+    private function ensurePhotoCanBeChanged(User $user): void
+    {
+        $availability = $this->photoChangeAvailability($user);
+
+        if ($availability['can_change_photo']) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'photo' => [
+                'Foto profil hanya dapat diganti 1 kali dalam 30 hari. Anda dapat mengganti kembali pada '.$availability['photo_change_available_label'].'.',
+            ],
         ]);
     }
 

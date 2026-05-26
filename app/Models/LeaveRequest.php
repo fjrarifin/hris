@@ -33,7 +33,7 @@ class LeaveRequest extends Model
 
     public const LEAVE_TYPES = [
         'cuti_tahunan' => 'Cuti Tahunan',
-        'lainnya' => 'Cuti Lainnya',
+        'lainnya' => 'Cuti Normatif',
     ];
 
     public static function whatsappTemplates(): array

@@ -7,11 +7,14 @@ use App\Models\User;
 use App\Support\FrontendNavigation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
+    private const PASSWORD_CHANGE_INTERVAL_DAYS = 30;
+
     public function __construct(private readonly FrontendNavigation $navigation) {}
 
     public function login(Request $request): JsonResponse
@@ -36,13 +39,13 @@ class AuthController extends Controller
 
         return response()->json([
             'token' => $token,
-            ...$this->sessionPayload($user),
+            ...$this->sessionPayload($user, $request),
         ]);
     }
 
     public function me(Request $request): JsonResponse
     {
-        return response()->json($this->sessionPayload($request->user()));
+        return response()->json($this->sessionPayload($request->user(), $request));
     }
 
     public function changePassword(Request $request): JsonResponse
@@ -52,20 +55,36 @@ class AuthController extends Controller
             'password' => ['required', 'string', 'min:8', 'confirmed'],
         ]);
 
-        if (! Hash::check($validated['current_password'], $request->user()->password)) {
-            throw ValidationException::withMessages([
-                'current_password' => ['Password saat ini tidak sesuai.'],
-            ]);
-        }
+        $user = DB::transaction(function () use ($request, $validated): User {
+            $user = User::query()->lockForUpdate()->findOrFail($request->user()->id);
+            $availability = $this->passwordChangeAvailability($user);
 
-        $request->user()->update([
-            'password' => Hash::make($validated['password']),
-            'must_change_password' => false,
-        ]);
+            if (! $availability['can_change_password']) {
+                throw ValidationException::withMessages([
+                    'password' => [
+                        'Password hanya dapat diganti 1 kali dalam 30 hari. Anda dapat mengganti kembali pada '.$availability['password_change_available_label'].'.',
+                    ],
+                ]);
+            }
+
+            if (! Hash::check($validated['current_password'], $user->password)) {
+                throw ValidationException::withMessages([
+                    'current_password' => ['Password saat ini tidak sesuai.'],
+                ]);
+            }
+
+            $user->update([
+                'password' => Hash::make($validated['password']),
+                'must_change_password' => false,
+                'password_changed_at' => now(),
+            ]);
+
+            return $user->fresh();
+        });
 
         return response()->json([
             'message' => 'Password berhasil diperbarui.',
-            ...$this->sessionPayload($request->user()->fresh()),
+            ...$this->sessionPayload($user, $request),
         ]);
     }
 
@@ -78,7 +97,7 @@ class AuthController extends Controller
         ]);
     }
 
-    private function sessionPayload(User $user): array
+    private function sessionPayload(User $user, Request $request): array
     {
         return [
             'user' => [
@@ -89,10 +108,33 @@ class AuthController extends Controller
                 'level' => (int) $user->level,
                 'level_label' => $this->navigation->levelLabel($user),
                 'photo' => $user->photo,
+                'photo_url' => $this->publicFileUrl($request, $user->photo),
                 'must_change_password' => (bool) $user->must_change_password,
+                ...$this->passwordChangeAvailability($user),
             ],
             'dashboard_path' => $this->navigation->dashboardPath($user),
             'menus' => $this->navigation->menusFor($user),
+        ];
+    }
+
+    private function publicFileUrl(Request $request, ?string $path): ?string
+    {
+        return $path
+            ? rtrim($request->getSchemeAndHttpHost(), '/').'/storage/'.ltrim($path, '/')
+            : null;
+    }
+
+    private function passwordChangeAvailability(User $user): array
+    {
+        $availableAt = $user->password_changed_at?->copy()->addDays(self::PASSWORD_CHANGE_INTERVAL_DAYS);
+
+        return [
+            'password_changed_at' => $user->password_changed_at?->toIso8601String(),
+            'password_change_available_at' => $availableAt?->toIso8601String(),
+            'password_change_available_label' => $availableAt?->format('d/m/Y H:i').' WIB',
+            'can_change_password' => (bool) $user->must_change_password
+                || ! $availableAt
+                || now()->greaterThanOrEqualTo($availableAt),
         ];
     }
 }
