@@ -8,6 +8,7 @@ use App\Models\EmployeePermission;
 use App\Models\FingerspotAttendanceLog;
 use App\Models\Karyawan;
 use App\Models\LeaveRequest;
+use App\Models\OvertimeRequest;
 use App\Models\PublicHoliday;
 use App\Models\PublicHolidayRequest;
 use Carbon\Carbon;
@@ -86,12 +87,15 @@ class HrAttendanceController extends Controller
             'departments.*' => ['string', 'max:100'],
             'employee_niks' => ['nullable', 'array'],
             'employee_niks.*' => ['string', 'max:30', 'exists:m_karyawan,nik'],
+            'format' => ['nullable', 'in:detail,summary'],
         ]);
 
         $report = $this->report($validated);
-        $fileName = 'Rekap_Absensi_HRD_'.$report['filters']['start_date'].'_'.$report['filters']['end_date'].'.xlsx';
+        $withDailyBreakdown = ($validated['format'] ?? 'detail') === 'detail';
+        $suffix = $withDailyBreakdown ? 'Detail' : 'Ringkas';
+        $fileName = 'Rekap_Absensi_HRD_'.$suffix.'_'.$report['filters']['start_date'].'_'.$report['filters']['end_date'].'.xlsx';
 
-        return Excel::download(new HrAttendanceExport($report['records'], $report['dates']), $fileName);
+        return Excel::download(new HrAttendanceExport($report['records'], $report['dates'], $withDailyBreakdown), $fileName);
     }
 
     private function report(array $validated): array
@@ -141,12 +145,14 @@ class HrAttendanceController extends Controller
             ->keyBy(fn (array $record) => $this->recordKey($record['nik'], $record['date']));
 
         $approvedAbsences = $this->approvedAbsenceDays($start, $lastDate, $selectedNiks);
+        $approvedOvertimes = $this->approvedOvertimeDays($start, $lastDate, $selectedNiks, $attendanceDays);
         $records = $employees
-            ->map(function (Karyawan $employee) use ($dates, $attendanceDays, $approvedAbsences, $holidays): array {
+            ->map(function (Karyawan $employee) use ($dates, $attendanceDays, $approvedAbsences, $approvedOvertimes, $holidays): array {
                 $days = $dates->mapWithKeys(function (string $date) use (
                     $employee,
                     $attendanceDays,
                     $approvedAbsences,
+                    $approvedOvertimes,
                     $holidays
                 ): array {
                     $key = $this->recordKey($employee->nik, $date);
@@ -156,6 +162,7 @@ class HrAttendanceController extends Controller
                             $date,
                             $attendanceDays->get($key),
                             $approvedAbsences->get($key),
+                            (int) $approvedOvertimes->get($key, 0),
                             $holidays->get($date)
                         ),
                     ];
@@ -175,8 +182,10 @@ class HrAttendanceController extends Controller
             'dates' => $dates,
             'summary' => [
                 'total_employees' => $records->count(),
+                'period_days' => $dates->count(),
                 'total_attendance' => $records->sum('total_attendance'),
                 'total_work_duration_minutes' => $records->sum('total_work_duration_minutes'),
+                'total_overtime_minutes' => $records->sum('total_overtime_minutes'),
                 'total_present' => $records->sum('total_present'),
                 'total_alpha' => $records->sum('total_alpha'),
                 'leave_days' => $records->sum('total_leave'),
@@ -184,6 +193,7 @@ class HrAttendanceController extends Controller
                 'sick_days' => $records->sum('total_sick'),
                 'permission_days' => $records->sum('total_permission'),
                 'national_holiday_attendance' => $records->sum('total_national_holiday_attendance'),
+                'national_holiday_alpha' => $records->sum('total_national_holiday_alpha'),
                 'national_holiday_dates' => $holidays->count(),
                 'approved_absence_conflicts' => $records->sum('approved_absence_conflicts'),
             ],
@@ -263,6 +273,46 @@ class HrAttendanceController extends Controller
         return $absences;
     }
 
+    private function approvedOvertimeDays(
+        Carbon $start,
+        Carbon $end,
+        Collection $selectedNiks,
+        Collection $attendanceDays
+    ): Collection {
+        $overtimeDays = collect();
+
+        OvertimeRequest::query()
+            ->with('user.karyawan')
+            ->where('status', 'approved')
+            ->whereNotNull('hr_approved_at')
+            ->whereBetween('date', [$start->toDateString(), $end->toDateString()])
+            ->get()
+            ->each(function (OvertimeRequest $request) use ($overtimeDays, $selectedNiks, $attendanceDays): void {
+                $employee = $request->user?->karyawan;
+                if (! $employee || ! $selectedNiks->contains($employee->nik)) {
+                    return;
+                }
+
+                $key = $this->recordKey($employee->nik, $request->date->toDateString());
+                $attendance = $attendanceDays->get($key);
+                if (! $attendance || ! $attendance['overtime_scan_in'] || ! $attendance['overtime_scan_out']) {
+                    return;
+                }
+
+                $scanOut = Carbon::createFromFormat('H:i:s', $attendance['overtime_scan_out']);
+                $approvedEnd = Carbon::parse($request->end_time);
+                if ($scanOut->lt($approvedEnd)) {
+                    return;
+                }
+
+                $approvedStart = Carbon::parse($request->start_time);
+                $minutes = (int) $approvedStart->diffInMinutes($approvedEnd);
+                $overtimeDays->put($key, (int) $overtimeDays->get($key, 0) + $minutes);
+            });
+
+        return $overtimeDays;
+    }
+
     private function recordKey(string $nik, string $date): string
     {
         return $nik.'|'.$date;
@@ -322,9 +372,18 @@ class HrAttendanceController extends Controller
             $scanOut = $logs->count() > 1 ? $logs->last() : null;
         }
 
+        $overtimeScanIn = $logs->first(
+            fn (FingerspotAttendanceLog $log) => in_array((string) $log->status_scan, ['0', '4'], true)
+        ) ?? $logs->first();
+        $overtimeScanOut = $logs->reverse()->first(
+            fn (FingerspotAttendanceLog $log) => in_array((string) $log->status_scan, ['1', '5'], true)
+        ) ?? ($logs->count() > 1 ? $logs->last() : null);
+
         return [
             'scan_in' => $scanIn?->scan_date?->format('H:i:s'),
             'scan_out' => $scanOut?->scan_date?->format('H:i:s'),
+            'overtime_scan_in' => $overtimeScanIn?->scan_date?->format('H:i:s'),
+            'overtime_scan_out' => $overtimeScanOut?->scan_date?->format('H:i:s'),
         ];
     }
 
@@ -332,6 +391,7 @@ class HrAttendanceController extends Controller
         string $date,
         ?array $attendance,
         ?array $absence,
+        int $overtimeMinutes,
         ?PublicHoliday $holiday
     ): array {
         $scanIn = $attendance['scan_in'] ?? null;
@@ -360,6 +420,7 @@ class HrAttendanceController extends Controller
             'scan_in' => $scanIn,
             'scan_out' => $scanOut,
             'duration_minutes' => $this->workDurationMinutes($scanIn, $scanOut),
+            'overtime_minutes' => $overtimeMinutes,
             'note' => $note,
             'is_present' => $hasScan,
             'counts_as_attendance' => in_array($status, ['M', 'PH', 'C'], true),
@@ -375,6 +436,7 @@ class HrAttendanceController extends Controller
     private function pivotEmployee(Karyawan $employee, Collection $days): array
     {
         $workDuration = $days->sum('duration_minutes');
+        $overtimeDuration = $days->sum('overtime_minutes');
 
         return [
             'nik' => $employee->nik,
@@ -383,9 +445,12 @@ class HrAttendanceController extends Controller
             'department' => $employee->departement ?: ($employee->divisi ?: '-'),
             'unit' => $employee->unit ?: '-',
             'days' => $days,
+            'total_period_days' => $days->count(),
             'total_attendance' => $days->where('counts_as_attendance', true)->count(),
             'total_work_duration_minutes' => $workDuration,
             'total_work_duration' => $this->workDurationLabel($workDuration),
+            'total_overtime_minutes' => $overtimeDuration,
+            'total_overtime' => $this->workDurationLabel($overtimeDuration),
             'total_present' => $days->where('status', 'M')->count(),
             'total_alpha' => $days->where('status', 'A')->count(),
             'total_ph' => $days->where('status', 'PH')->count(),
@@ -394,6 +459,10 @@ class HrAttendanceController extends Controller
             'total_permission' => $days->where('status', 'I')->count(),
             'total_national_holiday_attendance' => $days
                 ->where('is_present', true)
+                ->where('is_national_holiday', true)
+                ->count(),
+            'total_national_holiday_alpha' => $days
+                ->where('is_present', false)
                 ->where('is_national_holiday', true)
                 ->count(),
             'approved_absence_conflicts' => $days->where('has_approved_absence_conflict', true)->count(),

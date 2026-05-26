@@ -19,6 +19,7 @@ use App\Notifications\RequestStatusNotification;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
@@ -309,6 +310,7 @@ class StaffPortalController extends Controller
     public function publicHolidays(Request $request): JsonResponse
     {
         $user = $request->user();
+        $eligibleHolidays = $this->eligiblePublicHolidays($user);
         $approvedIds = PublicHolidayRequest::query()
             ->where('user_id', $user->id)
             ->whereNotNull('manager_approved_at')
@@ -317,13 +319,7 @@ class StaffPortalController extends Controller
 
         return response()->json([
             'balance' => $this->publicHolidayBalance($user),
-            'holidays' => PublicHoliday::query()
-                ->where('is_active', true)
-                ->whereDate('holiday_date', '<', now())
-                ->whereDate('holiday_date', '>', now()->subDays(90))
-                ->whereNotIn('id', $approvedIds)
-                ->orderByDesc('holiday_date')
-                ->get(),
+            'holidays' => $eligibleHolidays->whereNotIn('id', $approvedIds)->values(),
             'requests' => PublicHolidayRequest::query()
                 ->with('holiday')
                 ->where('user_id', $user->id)
@@ -343,6 +339,12 @@ class StaffPortalController extends Controller
         $holiday = PublicHoliday::findOrFail($data['public_holiday_id']);
         $claimDate = Carbon::parse($data['claim_date'])->startOfDay();
         $expiredAt = $holiday->holiday_date->copy()->addDays(90);
+
+        if (! $this->eligiblePublicHolidays($user)->contains('id', $holiday->id)) {
+            throw ValidationException::withMessages([
+                'public_holiday_id' => 'PH hanya tersedia dari hari libur nasional yang Anda hadiri dan masih berlaku.',
+            ]);
+        }
 
         if ($claimDate->lt(now()->startOfDay())) {
             throw ValidationException::withMessages(['claim_date' => 'Tanggal pengambilan tidak boleh sebelum hari ini.']);
@@ -546,6 +548,12 @@ class StaffPortalController extends Controller
         abort_unless($model->status === 'pending' && ! $model->manager_approved_at, 422, 'Pengajuan sudah diproses.');
 
         $approved = $data['decision'] === 'approved';
+        if ($type === 'ph' && $approved && ! $this->hasWorkedOnPublicHoliday($model->user, $model->holiday)) {
+            throw ValidationException::withMessages([
+                'decision' => 'PH tidak dapat disetujui karena karyawan tidak memiliki scan pada hari libur nasional tersebut.',
+            ]);
+        }
+
         $model->update([
             'status' => $approved ? 'approved' : 'rejected',
             'manager_approved_at' => now(),
@@ -729,12 +737,46 @@ class StaffPortalController extends Controller
             ->where('status', 'approved')
             ->pluck('public_holiday_id');
 
+        return $this->eligiblePublicHolidays($user)
+            ->whereNotIn('id', $approvedIds)
+            ->count();
+    }
+
+    private function eligiblePublicHolidays(User $user): Collection
+    {
+        $employee = $this->employeeFor($user);
+        if (! $employee->pin) {
+            return collect();
+        }
+
+        $attendedDates = FingerspotAttendanceLog::query()
+            ->where('pin', $employee->pin)
+            ->whereBetween('scan_date', [now()->subDays(90)->startOfDay(), now()->startOfDay()])
+            ->get(['scan_date'])
+            ->pluck('scan_date')
+            ->map(fn (Carbon $date) => $date->toDateString())
+            ->unique();
+
         return PublicHoliday::query()
             ->where('is_active', true)
             ->whereDate('holiday_date', '<', now())
             ->whereDate('holiday_date', '>', now()->subDays(90))
-            ->whereNotIn('id', $approvedIds)
-            ->count();
+            ->orderByDesc('holiday_date')
+            ->get()
+            ->filter(fn (PublicHoliday $holiday) => $attendedDates->contains($holiday->holiday_date->toDateString()))
+            ->values();
+    }
+
+    private function hasWorkedOnPublicHoliday(User $user, PublicHoliday $holiday): bool
+    {
+        $employee = $this->employeeFor($user);
+
+        return $holiday->is_active
+            && $employee->pin
+            && FingerspotAttendanceLog::query()
+                ->where('pin', $employee->pin)
+                ->whereDate('scan_date', $holiday->holiday_date)
+                ->exists();
     }
 
     private function subordinateNiks(User $user)

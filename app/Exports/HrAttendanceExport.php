@@ -13,7 +13,8 @@ class HrAttendanceExport implements FromCollection, ShouldAutoSize, WithHeadings
 {
     public function __construct(
         private readonly Collection $records,
-        private readonly Collection $dates
+        private readonly Collection $dates,
+        private readonly bool $withDailyBreakdown = true
     ) {}
 
     public function collection(): Collection
@@ -29,8 +30,13 @@ class HrAttendanceExport implements FromCollection, ShouldAutoSize, WithHeadings
             'Jabatan',
             'Departemen',
             'Unit',
-            ...$this->dates->map(fn (string $date) => Carbon::parse($date)->format('d/m/Y'))->all(),
+            ...($this->withDailyBreakdown
+                ? $this->dates->map(fn (string $date) => Carbon::parse($date)->format('d/m/Y'))->all()
+                : []),
+            'Total Hari Periode',
+            'Total Kehadiran',
             'Total Durasi Jam Kerja',
+            'Total Lembur',
             'Total M',
             'Total A',
             'Total PH',
@@ -38,6 +44,7 @@ class HrAttendanceExport implements FromCollection, ShouldAutoSize, WithHeadings
             'Total S',
             'Total I',
             'Total M Hari Libur Nasional',
+            'Total A Hari Libur Nasional',
         ];
     }
 
@@ -49,8 +56,13 @@ class HrAttendanceExport implements FromCollection, ShouldAutoSize, WithHeadings
             $record['position'],
             $record['department'],
             $record['unit'],
-            ...$this->dates->map(fn (string $date) => $this->dayLabel($record['days'][$date]))->all(),
+            ...($this->withDailyBreakdown
+                ? $this->dates->map(fn (string $date) => $this->dayLabel($record['days'][$date]))->all()
+                : []),
+            $record['total_period_days'],
+            $record['total_attendance'],
             $record['total_work_duration'],
+            $record['total_overtime'],
             $record['total_present'],
             $record['total_alpha'],
             $record['total_ph'],
@@ -58,6 +70,7 @@ class HrAttendanceExport implements FromCollection, ShouldAutoSize, WithHeadings
             $record['total_sick'],
             $record['total_permission'],
             $record['total_national_holiday_attendance'],
+            $record['total_national_holiday_alpha'],
         ];
     }
 

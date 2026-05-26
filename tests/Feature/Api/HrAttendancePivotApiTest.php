@@ -9,6 +9,7 @@ use App\Models\FingerspotAttendanceLog;
 use App\Models\FrontendMenu;
 use App\Models\Karyawan;
 use App\Models\LeaveRequest;
+use App\Models\OvertimeRequest;
 use App\Models\PublicHoliday;
 use App\Models\PublicHolidayRequest;
 use App\Models\User;
@@ -29,6 +30,7 @@ class HrAttendancePivotApiTest extends TestCase
         foreach ([
             'public_holiday_requests',
             'employee_permissions',
+            'overtime_requests',
             'public_holidays',
             'leave_requests',
             'fingerspot_attendance_logs',
@@ -66,19 +68,20 @@ class HrAttendancePivotApiTest extends TestCase
         $staff = $this->employee('EMP001', 'Ayu', 'PIN-A', '2026-01-01');
         $this->employee('EMP002', 'Budi', null, '2026-05-26');
 
-        PublicHoliday::query()->create([
+        $holiday = PublicHoliday::query()->create([
             'name' => 'Hari Libur Uji',
-            'holiday_date' => '2026-05-25',
+            'holiday_date' => '2026-05-24',
             'year' => 2026,
             'is_active' => true,
         ]);
 
-        $this->log('PIN-A', '2026-05-25 08:00:00', '0');
-        $this->log('PIN-A', '2026-05-25 17:30:35', '1');
+        $this->log('PIN-A', '2026-05-24 08:00:00', '0');
+        $this->log('PIN-A', '2026-05-24 17:30:35', '1');
 
         PublicHolidayRequest::query()->create([
             'user_id' => $staff->id,
-            'claim_date' => '2026-05-24',
+            'public_holiday_id' => $holiday->id,
+            'claim_date' => '2026-05-25',
             'status' => 'approved',
             'hr_approved_at' => now(),
         ]);
@@ -108,30 +111,50 @@ class HrAttendancePivotApiTest extends TestCase
             'hr_approved_at' => now(),
         ]);
 
-        $response = $this->getJson('/api/hr/attendance?start_date=2026-05-24&end_date=2026-05-28');
+        $this->log('PIN-A', '2026-05-29 08:00:00', '0');
+        $this->log('PIN-A', '2026-05-29 17:00:00', '1');
+        $this->log('PIN-A', '2026-05-29 20:00:00', '5');
+
+        OvertimeRequest::query()->create([
+            'user_id' => $staff->id,
+            'date' => '2026-05-29',
+            'start_time' => '18:00:00',
+            'end_time' => '20:00:00',
+            'reason' => 'Tutup buku',
+            'status' => 'approved',
+            'hr_approved_at' => now(),
+        ]);
+
+        $response = $this->getJson('/api/hr/attendance?start_date=2026-05-24&end_date=2026-05-29');
 
         $response
             ->assertOk()
             ->assertJsonPath('dates.0', '2026-05-24')
-            ->assertJsonPath('dates.4', '2026-05-28')
+            ->assertJsonPath('dates.5', '2026-05-29')
             ->assertJsonPath('records.0.nik', 'EMP001')
-            ->assertJsonPath('records.0.days.2026-05-24.status', 'PH')
-            ->assertJsonPath('records.0.days.2026-05-25.status', 'M')
-            ->assertJsonPath('records.0.days.2026-05-26.status', 'Cuti')
+            ->assertJsonPath('records.0.days.2026-05-24.status', 'M')
+            ->assertJsonPath('records.0.days.2026-05-25.status', 'PH')
+            ->assertJsonPath('records.0.days.2026-05-26.status', 'C')
             ->assertJsonPath('records.0.days.2026-05-27.status', 'S')
             ->assertJsonPath('records.0.days.2026-05-28.status', 'I')
-            ->assertJsonPath('records.0.total_attendance', 3)
-            ->assertJsonPath('records.0.total_work_duration_minutes', 570)
+            ->assertJsonPath('records.0.days.2026-05-29.status', 'M')
+            ->assertJsonPath('records.0.total_period_days', 6)
+            ->assertJsonPath('records.0.total_attendance', 4)
+            ->assertJsonPath('records.0.total_work_duration_minutes', 1110)
+            ->assertJsonPath('records.0.total_overtime_minutes', 120)
             ->assertJsonPath('records.0.total_ph', 1)
             ->assertJsonPath('records.0.total_leave', 1)
             ->assertJsonPath('records.0.total_sick', 1)
             ->assertJsonPath('records.0.total_permission', 1)
             ->assertJsonPath('records.0.total_national_holiday_attendance', 1)
             ->assertJsonPath('records.1.days.2026-05-26.status', 'A')
-            ->assertJsonPath('records.1.total_alpha', 5)
-            ->assertJsonPath('summary.total_attendance', 3)
-            ->assertJsonPath('summary.total_work_duration_minutes', 570)
-            ->assertJsonPath('summary.national_holiday_attendance', 1);
+            ->assertJsonPath('records.1.total_alpha', 6)
+            ->assertJsonPath('records.1.total_national_holiday_alpha', 1)
+            ->assertJsonPath('summary.total_attendance', 4)
+            ->assertJsonPath('summary.total_work_duration_minutes', 1110)
+            ->assertJsonPath('summary.total_overtime_minutes', 120)
+            ->assertJsonPath('summary.national_holiday_attendance', 1)
+            ->assertJsonPath('summary.national_holiday_alpha', 1);
     }
 
     public function test_export_headings_follow_the_pivot_dates(): void
@@ -148,7 +171,12 @@ class HrAttendancePivotApiTest extends TestCase
 
         $this->assertContains('24/05/2026', $headings);
         $this->assertContains('26/05/2026', $headings);
-        $this->assertSame('Total M Hari Libur Nasional', end($headings));
+        $this->assertSame('Total A Hari Libur Nasional', end($headings));
+
+        $summaryHeadings = (new HrAttendanceExport($report['records'], $report['dates'], false))->headings();
+
+        $this->assertNotContains('24/05/2026', $summaryHeadings);
+        $this->assertContains('Total Lembur', $summaryHeadings);
     }
 
     private function createTables(): void
@@ -240,6 +268,18 @@ class HrAttendancePivotApiTest extends TestCase
             $table->unsignedBigInteger('user_id');
             $table->string('type');
             $table->date('date');
+            $table->string('status');
+            $table->timestamp('hr_approved_at')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('overtime_requests', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('user_id');
+            $table->date('date');
+            $table->time('start_time');
+            $table->time('end_time');
+            $table->text('reason');
             $table->string('status');
             $table->timestamp('hr_approved_at')->nullable();
             $table->timestamps();
