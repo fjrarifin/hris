@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Exports\HrAttendanceExport;
 use App\Http\Controllers\Controller;
+use App\Models\EmployeePermission;
 use App\Models\FingerspotAttendanceLog;
 use App\Models\Karyawan;
 use App\Models\LeaveRequest;
+use App\Models\PublicHoliday;
 use App\Models\PublicHolidayRequest;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
@@ -61,6 +63,7 @@ class HrAttendanceController extends Controller
 
         return response()->json([
             'filters' => $report['filters'],
+            'dates' => $report['dates'],
             'summary' => $report['summary'],
             'records' => $report['records']->forPage($page, $perPage)->values(),
             'pagination' => [
@@ -88,7 +91,7 @@ class HrAttendanceController extends Controller
         $report = $this->report($validated);
         $fileName = 'Rekap_Absensi_HRD_'.$report['filters']['start_date'].'_'.$report['filters']['end_date'].'.xlsx';
 
-        return Excel::download(new HrAttendanceExport($report['records']), $fileName);
+        return Excel::download(new HrAttendanceExport($report['records'], $report['dates']), $fileName);
     }
 
     private function report(array $validated): array
@@ -105,15 +108,22 @@ class HrAttendanceController extends Controller
 
         $departments = array_values(array_unique($validated['departments'] ?? []));
         $employeeNiks = array_values(array_unique($validated['employee_niks'] ?? []));
-        $selectedNiks = $this->selectedNiks($departments, $employeeNiks);
-        $selectedPins = $selectedNiks === null
-            ? null
-            : Karyawan::query()->whereIn('nik', $selectedNiks)->whereNotNull('pin')->pluck('pin');
+        $employees = $this->selectedEmployees($departments, $employeeNiks);
+        $selectedNiks = $employees->pluck('nik');
+        $selectedPins = $employees->pluck('pin')->filter()->values();
+        $dates = collect(CarbonPeriod::create($start, $lastDate))
+            ->map(fn (Carbon $date) => $date->toDateString())
+            ->values();
+        $holidays = PublicHoliday::query()
+            ->where('is_active', true)
+            ->whereBetween('holiday_date', [$start->toDateString(), $lastDate->toDateString()])
+            ->get()
+            ->keyBy(fn (PublicHoliday $holiday) => $holiday->holiday_date->toDateString());
 
-        $records = FingerspotAttendanceLog::query()
+        $attendanceDays = FingerspotAttendanceLog::query()
             ->with('karyawan')
             ->whereBetween('scan_date', [$start, $end])
-            ->when($selectedPins !== null, fn (Builder $query) => $query->whereIn('pin', $selectedPins))
+            ->whereIn('pin', $selectedPins)
             ->orderBy('scan_date')
             ->get()
             ->filter(fn (FingerspotAttendanceLog $log) => $log->karyawan !== null)
@@ -123,34 +133,37 @@ class HrAttendanceController extends Controller
                 $scans = $this->scanSummary($logs);
 
                 return [
-                    'date' => $logs->first()->scan_date->toDateString(),
                     'nik' => $employee->nik,
-                    'name' => $employee->nama_karyawan,
-                    'position' => $employee->jabatan ?: ($employee->posisi ?: '-'),
-                    'department' => $employee->departement ?: ($employee->divisi ?: '-'),
-                    'unit' => $employee->unit ?: '-',
+                    'date' => $logs->first()->scan_date->toDateString(),
                     ...$scans,
-                    'is_complete' => $scans['scan_in'] !== null && $scans['scan_out'] !== null,
-                    'requires_scan' => true,
-                    'attendance_type' => 'Hadir',
-                    'note' => null,
-                    'approval_type' => null,
-                    'approval_id' => null,
-                    'has_approved_absence_conflict' => false,
                 ];
             })
             ->keyBy(fn (array $record) => $this->recordKey($record['nik'], $record['date']));
 
-        $records = $this->mergeApprovedAbsences($records, $start, $lastDate, $selectedNiks)
-            ->values()
-            ->sortByDesc('date')
-            ->values();
+        $approvedAbsences = $this->approvedAbsenceDays($start, $lastDate, $selectedNiks);
+        $records = $employees
+            ->map(function (Karyawan $employee) use ($dates, $attendanceDays, $approvedAbsences, $holidays): array {
+                $days = $dates->mapWithKeys(function (string $date) use (
+                    $employee,
+                    $attendanceDays,
+                    $approvedAbsences,
+                    $holidays
+                ): array {
+                    $key = $this->recordKey($employee->nik, $date);
 
-        $attendanceTotals = $records->countBy('nik');
-        $records = $records->map(fn (array $record) => [
-            ...$record,
-            'attendance_total' => $attendanceTotals[$record['nik']],
-        ]);
+                    return [
+                        $date => $this->pivotDay(
+                            $date,
+                            $attendanceDays->get($key),
+                            $approvedAbsences->get($key),
+                            $holidays->get($date)
+                        ),
+                    ];
+                });
+
+                return $this->pivotEmployee($employee, $days);
+            })
+            ->values();
 
         return [
             'filters' => [
@@ -159,25 +172,32 @@ class HrAttendanceController extends Controller
                 'departments' => $departments,
                 'employee_niks' => $employeeNiks,
             ],
+            'dates' => $dates,
             'summary' => [
-                'total_employees' => $records->pluck('nik')->unique()->count(),
-                'total_attendance' => $records->count(),
-                'missing_scan_in' => $records->where('requires_scan', true)->whereNull('scan_in')->count(),
-                'missing_scan_out' => $records->where('requires_scan', true)->whereNull('scan_out')->count(),
-                'leave_days' => $records->where('attendance_type', 'Cuti')->count(),
-                'public_holiday_days' => $records->where('attendance_type', 'PH')->count(),
-                'approved_absence_conflicts' => $records->where('has_approved_absence_conflict', true)->count(),
+                'total_employees' => $records->count(),
+                'total_attendance' => $records->sum('total_attendance'),
+                'total_work_duration_minutes' => $records->sum('total_work_duration_minutes'),
+                'total_present' => $records->sum('total_present'),
+                'total_alpha' => $records->sum('total_alpha'),
+                'leave_days' => $records->sum('total_leave'),
+                'public_holiday_days' => $records->sum('total_ph'),
+                'sick_days' => $records->sum('total_sick'),
+                'permission_days' => $records->sum('total_permission'),
+                'national_holiday_attendance' => $records->sum('total_national_holiday_attendance'),
+                'national_holiday_dates' => $holidays->count(),
+                'approved_absence_conflicts' => $records->sum('approved_absence_conflicts'),
             ],
             'records' => $records,
         ];
     }
 
-    private function mergeApprovedAbsences(
-        Collection $records,
+    private function approvedAbsenceDays(
         Carbon $start,
         Carbon $end,
-        ?Collection $selectedNiks
+        Collection $selectedNiks
     ): Collection {
+        $absences = collect();
+
         LeaveRequest::query()
             ->with('user.karyawan')
             ->where('status', 'approved')
@@ -185,16 +205,21 @@ class HrAttendanceController extends Controller
             ->whereDate('start_date', '<=', $end)
             ->whereDate('end_date', '>=', $start)
             ->get()
-            ->each(function (LeaveRequest $request) use ($records, $start, $end, $selectedNiks): void {
+            ->each(function (LeaveRequest $request) use ($absences, $start, $end, $selectedNiks): void {
                 $employee = $request->user?->karyawan;
-                if (! $employee || ($selectedNiks !== null && ! $selectedNiks->contains($employee->nik))) {
+                if (! $employee || ! $selectedNiks->contains($employee->nik)) {
                     return;
                 }
 
                 $periodStart = Carbon::parse($request->start_date)->max($start);
                 $periodEnd = Carbon::parse($request->end_date)->min($end);
                 foreach (CarbonPeriod::create($periodStart, $periodEnd) as $date) {
-                    $this->mergeApprovedDay($records, $employee, $date, 'Cuti', 'leave', $request->id);
+                    $absences->put($this->recordKey($employee->nik, $date->toDateString()), [
+                        'code' => 'C',
+                        'label' => 'Cuti',
+                        'approval_type' => 'leave',
+                        'approval_id' => $request->id,
+                    ]);
                 }
             });
 
@@ -204,56 +229,38 @@ class HrAttendanceController extends Controller
             ->whereNotNull('hr_approved_at')
             ->whereBetween('claim_date', [$start->toDateString(), $end->toDateString()])
             ->get()
-            ->each(function (PublicHolidayRequest $request) use ($records, $selectedNiks): void {
+            ->each(function (PublicHolidayRequest $request) use ($absences, $selectedNiks): void {
                 $employee = $request->user?->karyawan;
-                if ($employee && ($selectedNiks === null || $selectedNiks->contains($employee->nik))) {
-                    $this->mergeApprovedDay($records, $employee, $request->claim_date, 'PH', 'ph', $request->id);
+                if ($employee && $selectedNiks->contains($employee->nik)) {
+                    $absences->put($this->recordKey($employee->nik, $request->claim_date->toDateString()), [
+                        'code' => 'PH',
+                        'label' => 'Public Holiday',
+                        'approval_type' => 'ph',
+                        'approval_id' => $request->id,
+                    ]);
                 }
             });
 
-        return $records;
-    }
+        EmployeePermission::query()
+            ->with('user.karyawan')
+            ->where('status', 'approved')
+            ->whereNotNull('hr_approved_at')
+            ->whereBetween('date', [$start->toDateString(), $end->toDateString()])
+            ->get()
+            ->each(function (EmployeePermission $request) use ($absences, $selectedNiks): void {
+                $employee = $request->user?->karyawan;
+                if ($employee && $selectedNiks->contains($employee->nik)) {
+                    $sick = $request->type === 'sakit';
+                    $absences->put($this->recordKey($employee->nik, $request->date->toDateString()), [
+                        'code' => $sick ? 'S' : 'I',
+                        'label' => $sick ? 'Sakit' : 'Izin',
+                        'approval_type' => 'permission',
+                        'approval_id' => $request->id,
+                    ]);
+                }
+            });
 
-    private function mergeApprovedDay(
-        Collection $records,
-        object $employee,
-        mixed $date,
-        string $label,
-        string $approvalType,
-        int $approvalId
-    ): void {
-        $day = Carbon::parse($date)->toDateString();
-        $key = $this->recordKey($employee->nik, $day);
-        $existing = $records->get($key);
-
-        if ($existing) {
-            $existing['attendance_type'] = $label;
-            $existing['note'] = "{$label} telah disetujui HRD, tetapi karyawan memiliki scan absensi. Tinjau pembatalan.";
-            $existing['approval_type'] = $approvalType;
-            $existing['approval_id'] = $approvalId;
-            $existing['has_approved_absence_conflict'] = true;
-            $records->put($key, $existing);
-
-            return;
-        }
-
-        $records->put($key, [
-            'date' => $day,
-            'nik' => $employee->nik,
-            'name' => $employee->nama_karyawan,
-            'position' => $employee->jabatan ?: ($employee->posisi ?: '-'),
-            'department' => $employee->departement ?: ($employee->divisi ?: '-'),
-            'unit' => $employee->unit ?: '-',
-            'scan_in' => null,
-            'scan_out' => null,
-            'is_complete' => true,
-            'requires_scan' => false,
-            'attendance_type' => $label,
-            'note' => "{$label} disetujui HRD.",
-            'approval_type' => $approvalType,
-            'approval_id' => $approvalId,
-            'has_approved_absence_conflict' => false,
-        ]);
+        return $absences;
     }
 
     private function recordKey(string $nik, string $date): string
@@ -261,16 +268,13 @@ class HrAttendanceController extends Controller
         return $nik.'|'.$date;
     }
 
-    private function selectedNiks(array $departments, array $employeeNiks): ?Collection
+    private function selectedEmployees(array $departments, array $employeeNiks): Collection
     {
-        if ($departments === [] && $employeeNiks === []) {
-            return null;
-        }
-
         return Karyawan::query()
             ->when($departments !== [], fn (Builder $query) => $this->filterDepartments($query, $departments))
             ->when($employeeNiks !== [], fn (Builder $query) => $query->whereIn('nik', $employeeNiks))
-            ->pluck('nik');
+            ->orderBy('nama_karyawan')
+            ->get();
     }
 
     private function filterDepartments(Builder $query, array $departments): Builder
@@ -322,5 +326,94 @@ class HrAttendanceController extends Controller
             'scan_in' => $scanIn?->scan_date?->format('H:i:s'),
             'scan_out' => $scanOut?->scan_date?->format('H:i:s'),
         ];
+    }
+
+    private function pivotDay(
+        string $date,
+        ?array $attendance,
+        ?array $absence,
+        ?PublicHoliday $holiday
+    ): array {
+        $scanIn = $attendance['scan_in'] ?? null;
+        $scanOut = $attendance['scan_out'] ?? null;
+        $hasScan = $attendance !== null;
+        $isHoliday = $holiday !== null;
+        $status = 'A';
+        $note = null;
+        $hasConflict = false;
+
+        if ($hasScan) {
+            $status = 'M';
+        }
+
+        if ($absence) {
+            $status = $hasScan ? 'M' : $absence['code'];
+            $hasConflict = $hasScan;
+            $note = $hasScan
+                ? $absence['label'].' telah disetujui HRD, tetapi karyawan memiliki scan absensi.'
+                : $absence['label'].' disetujui HRD.';
+        }
+
+        return [
+            'date' => $date,
+            'status' => $status,
+            'scan_in' => $scanIn,
+            'scan_out' => $scanOut,
+            'duration_minutes' => $this->workDurationMinutes($scanIn, $scanOut),
+            'note' => $note,
+            'is_present' => $hasScan,
+            'counts_as_attendance' => in_array($status, ['M', 'PH', 'C'], true),
+            'is_national_holiday' => $isHoliday,
+            'holiday_name' => $holiday?->name,
+            'approval_type' => $absence['approval_type'] ?? null,
+            'approval_id' => $absence['approval_id'] ?? null,
+            'approval_label' => $absence['label'] ?? null,
+            'has_approved_absence_conflict' => $hasConflict,
+        ];
+    }
+
+    private function pivotEmployee(Karyawan $employee, Collection $days): array
+    {
+        $workDuration = $days->sum('duration_minutes');
+
+        return [
+            'nik' => $employee->nik,
+            'name' => $employee->nama_karyawan,
+            'position' => $employee->jabatan ?: ($employee->posisi ?: '-'),
+            'department' => $employee->departement ?: ($employee->divisi ?: '-'),
+            'unit' => $employee->unit ?: '-',
+            'days' => $days,
+            'total_attendance' => $days->where('counts_as_attendance', true)->count(),
+            'total_work_duration_minutes' => $workDuration,
+            'total_work_duration' => $this->workDurationLabel($workDuration),
+            'total_present' => $days->where('status', 'M')->count(),
+            'total_alpha' => $days->where('status', 'A')->count(),
+            'total_ph' => $days->where('status', 'PH')->count(),
+            'total_leave' => $days->where('status', 'C')->count(),
+            'total_sick' => $days->where('status', 'S')->count(),
+            'total_permission' => $days->where('status', 'I')->count(),
+            'total_national_holiday_attendance' => $days
+                ->where('is_present', true)
+                ->where('is_national_holiday', true)
+                ->count(),
+            'approved_absence_conflicts' => $days->where('has_approved_absence_conflict', true)->count(),
+        ];
+    }
+
+    private function workDurationMinutes(?string $scanIn, ?string $scanOut): int
+    {
+        if (! $scanIn || ! $scanOut) {
+            return 0;
+        }
+
+        $start = Carbon::createFromFormat('H:i:s', $scanIn);
+        $end = Carbon::createFromFormat('H:i:s', $scanOut);
+
+        return $end->gt($start) ? (int) floor($start->diffInSeconds($end) / 60) : 0;
+    }
+
+    private function workDurationLabel(int $minutes): string
+    {
+        return intdiv($minutes, 60).' jam '.($minutes % 60).' menit';
     }
 }
