@@ -10,10 +10,13 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class AuthController extends Controller
 {
     private const PASSWORD_CHANGE_INTERVAL_DAYS = 30;
+
+    private const PORTAL_TOKEN_NAME = 'hris-fe';
 
     public function __construct(private readonly FrontendNavigation $navigation) {}
 
@@ -24,22 +27,54 @@ class AuthController extends Controller
             'password' => ['required', 'string'],
         ]);
 
-        $user = User::query()
-            ->where('username', trim($credentials['username']))
-            ->first();
+        $result = DB::transaction(function () use ($credentials, $request): array {
+            $user = User::query()
+                ->where('username', trim($credentials['username']))
+                ->lockForUpdate()
+                ->first();
 
-        if (! $user || ! Hash::check($credentials['password'], $user->password)) {
-            throw ValidationException::withMessages([
-                'username' => ['Username atau password salah.'],
-            ]);
+            if (! $user || ! Hash::check($credentials['password'], $user->password)) {
+                throw ValidationException::withMessages([
+                    'username' => ['Username atau password salah.'],
+                ]);
+            }
+
+            $activeToken = $user->tokens()
+                ->where(fn ($query) => $query->whereNull('expires_at')->orWhere('expires_at', '>', now()))
+                ->orderByDesc('last_used_at')
+                ->orderByDesc('created_at')
+                ->first();
+
+            if ($activeToken) {
+                return [
+                    'active_session' => $this->serializeActiveSession($activeToken),
+                ];
+            }
+
+            $token = $user->createToken(self::PORTAL_TOKEN_NAME);
+            $token->accessToken->forceFill([
+                'device_name' => $this->deviceName($request->userAgent()),
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+            ])->save();
+
+            return [
+                'user' => $user,
+                'token' => $token->plainTextToken,
+            ];
+        });
+
+        if (isset($result['active_session'])) {
+            return response()->json([
+                'code' => 'ACTIVE_SESSION_EXISTS',
+                'message' => 'Akun ini sedang login pada perangkat lain.',
+                'active_session' => $result['active_session'],
+            ], 409);
         }
 
-        $user->tokens()->where('name', 'hris-fe')->delete();
-        $token = $user->createToken('hris-fe')->plainTextToken;
-
         return response()->json([
-            'token' => $token,
-            ...$this->sessionPayload($user),
+            'token' => $result['token'],
+            ...$this->sessionPayload($result['user']),
         ]);
     }
 
@@ -136,5 +171,61 @@ class AuthController extends Controller
                 || ! $availableAt
                 || now()->greaterThanOrEqualTo($availableAt),
         ];
+    }
+
+    private function serializeActiveSession(PersonalAccessToken $token): array
+    {
+        return [
+            'device_name' => $token->device_name ?: 'Perangkat tidak teridentifikasi',
+            'network_address' => $this->maskedIp($token->ip_address),
+            'signed_in_at' => $token->created_at?->toIso8601String(),
+            'last_active_at' => ($token->last_used_at ?? $token->created_at)?->toIso8601String(),
+        ];
+    }
+
+    private function deviceName(?string $userAgent): string
+    {
+        $userAgent ??= '';
+
+        $platform = match (true) {
+            preg_match('/Android/i', $userAgent) === 1 => 'Android',
+            preg_match('/iPhone|iPad/i', $userAgent) === 1 => 'iPhone/iPad',
+            preg_match('/Windows/i', $userAgent) === 1 => 'Windows',
+            preg_match('/Macintosh|Mac OS X/i', $userAgent) === 1 => 'macOS',
+            preg_match('/Linux/i', $userAgent) === 1 => 'Linux',
+            default => 'perangkat tidak dikenal',
+        };
+
+        $browser = match (true) {
+            preg_match('/Edg\//i', $userAgent) === 1 => 'Microsoft Edge',
+            preg_match('/OPR\/|Opera/i', $userAgent) === 1 => 'Opera',
+            preg_match('/Firefox\//i', $userAgent) === 1 => 'Firefox',
+            preg_match('/Chrome\//i', $userAgent) === 1 => 'Chrome',
+            preg_match('/Safari\//i', $userAgent) === 1 => 'Safari',
+            default => 'Browser tidak dikenal',
+        };
+
+        return "{$browser} di {$platform}";
+    }
+
+    private function maskedIp(?string $ipAddress): ?string
+    {
+        if (! $ipAddress) {
+            return null;
+        }
+
+        if (filter_var($ipAddress, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            $segments = explode('.', $ipAddress);
+
+            return $segments[0].'.'.$segments[1].'.x.x';
+        }
+
+        if (filter_var($ipAddress, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+            $segments = explode(':', $ipAddress);
+
+            return implode(':', array_slice($segments, 0, 3)).':****';
+        }
+
+        return null;
     }
 }

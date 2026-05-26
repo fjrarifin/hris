@@ -1,0 +1,129 @@
+<?php
+
+namespace Tests\Feature\Api;
+
+use App\Models\FrontendMenu;
+use App\Models\User;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
+use Tests\TestCase;
+
+class SingleDeviceLoginApiTest extends TestCase
+{
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        foreach (['personal_access_tokens', 'frontend_menu_user_access', 'frontend_menus', 'users'] as $table) {
+            Schema::dropIfExists($table);
+        }
+
+        Schema::create('users', function (Blueprint $table): void {
+            $table->id();
+            $table->string('username')->unique();
+            $table->string('name');
+            $table->string('email')->unique();
+            $table->string('password');
+            $table->string('photo')->nullable();
+            $table->timestamp('password_changed_at')->nullable();
+            $table->boolean('must_change_password')->default(false);
+            $table->unsignedTinyInteger('level')->default(3);
+            $table->timestamps();
+        });
+
+        Schema::create('frontend_menus', function (Blueprint $table): void {
+            $table->id();
+            $table->string('key')->unique();
+            $table->string('label');
+            $table->string('path');
+            $table->string('icon')->nullable();
+            $table->string('allowed_levels')->nullable();
+            $table->unsignedInteger('sort_order')->default(0);
+            $table->boolean('is_active')->default(true);
+            $table->timestamps();
+        });
+
+        Schema::create('frontend_menu_user_access', function (Blueprint $table): void {
+            $table->id();
+            $table->foreignId('frontend_menu_id');
+            $table->foreignId('user_id');
+            $table->boolean('is_allowed');
+            $table->timestamps();
+        });
+
+        Schema::create('personal_access_tokens', function (Blueprint $table): void {
+            $table->id();
+            $table->morphs('tokenable');
+            $table->text('name');
+            $table->string('device_name')->nullable();
+            $table->string('ip_address', 45)->nullable();
+            $table->text('user_agent')->nullable();
+            $table->string('token', 64)->unique();
+            $table->text('abilities')->nullable();
+            $table->timestamp('last_used_at')->nullable();
+            $table->timestamp('expires_at')->nullable();
+            $table->timestamps();
+        });
+
+        FrontendMenu::query()->create([
+            'key' => 'dashboard',
+            'label' => 'Dashboard',
+            'path' => '/dashboard',
+            'allowed_levels' => '3',
+            'is_active' => true,
+        ]);
+
+        User::query()->create([
+            'username' => 'EMP001',
+            'name' => 'Satu Perangkat',
+            'email' => 'employee@example.test',
+            'password' => Hash::make('password'),
+            'level' => 3,
+            'must_change_password' => false,
+        ]);
+    }
+
+    public function test_an_active_session_blocks_a_second_device_until_logout(): void
+    {
+        $firstLogin = $this->withServerVariables(['REMOTE_ADDR' => '10.20.30.40'])
+            ->withHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 Chrome/137.0 Safari/537.36')
+            ->postJson('/api/auth/login', [
+                'username' => 'EMP001',
+                'password' => 'password',
+            ])
+            ->assertOk()
+            ->json();
+
+        $this->assertDatabaseHas('personal_access_tokens', [
+            'device_name' => 'Chrome di Windows',
+            'ip_address' => '10.20.30.40',
+        ]);
+
+        $this->withHeader('User-Agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1')
+            ->postJson('/api/auth/login', [
+                'username' => 'EMP001',
+                'password' => 'password',
+            ])
+            ->assertStatus(409)
+            ->assertJsonPath('code', 'ACTIVE_SESSION_EXISTS')
+            ->assertJsonPath('active_session.device_name', 'Chrome di Windows')
+            ->assertJsonPath('active_session.network_address', '10.20.x.x');
+
+        $this->assertDatabaseCount('personal_access_tokens', 1);
+
+        $this->withToken($firstLogin['token'])->postJson('/api/auth/logout')->assertOk();
+
+        $this->withHeader('User-Agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1')
+            ->postJson('/api/auth/login', [
+                'username' => 'EMP001',
+                'password' => 'password',
+            ])
+            ->assertOk();
+
+        $this->assertDatabaseCount('personal_access_tokens', 1);
+        $this->assertDatabaseHas('personal_access_tokens', [
+            'device_name' => 'Safari di iPhone/iPad',
+        ]);
+    }
+}
