@@ -33,6 +33,8 @@ class StaffPortalController extends Controller
 {
     private const PROFILE_PHOTO_CHANGE_INTERVAL_DAYS = 30;
 
+    private const PUBLIC_HOLIDAY_ATTENDANCE_REQUIRED_FROM = '2026-05-27';
+
     public function __construct(private readonly ApprovalNotificationService $approvalNotification) {}
 
     public function dashboard(Request $request): JsonResponse
@@ -347,7 +349,7 @@ class StaffPortalController extends Controller
 
         if (! $this->eligiblePublicHolidays($user)->contains('id', $holiday->id)) {
             throw ValidationException::withMessages([
-                'public_holiday_id' => 'PH hanya tersedia dari hari libur nasional yang Anda hadiri dan masih berlaku.',
+                'public_holiday_id' => 'PH tidak tersedia atau kehadiran pada hari libur nasional tersebut belum tercatat.',
             ]);
         }
 
@@ -717,17 +719,15 @@ class StaffPortalController extends Controller
     private function eligiblePublicHolidays(User $user): Collection
     {
         $employee = $this->employeeFor($user);
-        if (! $employee->pin) {
-            return collect();
-        }
-
-        $attendedDates = FingerspotAttendanceLog::query()
-            ->where('pin', $employee->pin)
-            ->whereBetween('scan_date', [now()->subDays(90)->startOfDay(), now()->startOfDay()])
-            ->get(['scan_date'])
-            ->pluck('scan_date')
-            ->map(fn (Carbon $date) => $date->toDateString())
-            ->unique();
+        $attendedDates = $employee->pin
+            ? FingerspotAttendanceLog::query()
+                ->where('pin', $employee->pin)
+                ->whereBetween('scan_date', [now()->subDays(90)->startOfDay(), now()->startOfDay()])
+                ->get(['scan_date'])
+                ->pluck('scan_date')
+                ->map(fn (Carbon $date) => $date->toDateString())
+                ->unique()
+            : collect();
 
         return PublicHoliday::query()
             ->where('is_active', true)
@@ -735,8 +735,14 @@ class StaffPortalController extends Controller
             ->whereDate('holiday_date', '>', now()->subDays(90))
             ->orderByDesc('holiday_date')
             ->get()
-            ->filter(fn (PublicHoliday $holiday) => $attendedDates->contains($holiday->holiday_date->toDateString()))
+            ->filter(fn (PublicHoliday $holiday) => ! $this->requiresAttendanceForPublicHoliday($holiday)
+                || $attendedDates->contains($holiday->holiday_date->toDateString()))
             ->values();
+    }
+
+    private function requiresAttendanceForPublicHoliday(PublicHoliday $holiday): bool
+    {
+        return $holiday->holiday_date->gte(Carbon::parse(self::PUBLIC_HOLIDAY_ATTENDANCE_REQUIRED_FROM));
     }
 
     private function hasWorkedOnPublicHoliday(User $user, PublicHoliday $holiday): bool
@@ -744,11 +750,12 @@ class StaffPortalController extends Controller
         $employee = $this->employeeFor($user);
 
         return $holiday->is_active
-            && $employee->pin
-            && FingerspotAttendanceLog::query()
-                ->where('pin', $employee->pin)
-                ->whereDate('scan_date', $holiday->holiday_date)
-                ->exists();
+            && (! $this->requiresAttendanceForPublicHoliday($holiday)
+                || ($employee->pin
+                    && FingerspotAttendanceLog::query()
+                        ->where('pin', $employee->pin)
+                        ->whereDate('scan_date', $holiday->holiday_date)
+                        ->exists()));
     }
 
     private function subordinateNiks(User $user)
