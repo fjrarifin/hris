@@ -3,6 +3,7 @@
 namespace Tests\Feature\Api;
 
 use App\Models\FrontendMenu;
+use App\Models\Karyawan;
 use App\Models\User;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Hash;
@@ -15,7 +16,7 @@ class SingleDeviceLoginApiTest extends TestCase
     {
         parent::setUp();
 
-        foreach (['personal_access_tokens', 'frontend_menu_user_access', 'frontend_menus', 'users'] as $table) {
+        foreach (['personal_access_tokens', 'frontend_menu_user_access', 'frontend_menus', 'users', 'm_karyawan'] as $table) {
             Schema::dropIfExists($table);
         }
 
@@ -63,6 +64,13 @@ class SingleDeviceLoginApiTest extends TestCase
             $table->text('abilities')->nullable();
             $table->timestamp('last_used_at')->nullable();
             $table->timestamp('expires_at')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('m_karyawan', function (Blueprint $table): void {
+            $table->string('nik')->primary();
+            $table->string('nama_karyawan');
+            $table->string('email')->nullable();
             $table->timestamps();
         });
 
@@ -125,5 +133,44 @@ class SingleDeviceLoginApiTest extends TestCase
         $this->assertDatabaseHas('personal_access_tokens', [
             'device_name' => 'Safari di iPhone/iPad',
         ]);
+    }
+
+    public function test_employee_without_user_can_login_with_default_password_and_must_change_it(): void
+    {
+        Karyawan::query()->create([
+            'nik' => 'EMP002',
+            'nama_karyawan' => 'Login Pertama',
+            'email' => 'first.login@example.test',
+        ]);
+
+        $this->postJson('/api/auth/login', [
+            'username' => 'EMP002',
+            'password' => 'salah',
+        ])->assertUnprocessable();
+
+        $this->assertDatabaseMissing('users', ['username' => 'EMP002']);
+
+        $login = $this->postJson('/api/auth/login', [
+            'username' => 'EMP002',
+            'password' => '12345678',
+        ])
+            ->assertOk()
+            ->assertJsonPath('user.must_change_password', true)
+            ->json();
+
+        $this->assertDatabaseHas('users', [
+            'username' => 'EMP002',
+            'level' => 3,
+            'must_change_password' => true,
+        ]);
+
+        $this->withToken($login['token'])
+            ->postJson('/api/auth/change-password', [
+                'current_password' => '12345678',
+                'password' => 'PasswordBaru123',
+                'password_confirmation' => 'PasswordBaru123',
+            ])
+            ->assertOk()
+            ->assertJsonPath('user.must_change_password', false);
     }
 }

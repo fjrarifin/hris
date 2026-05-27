@@ -35,7 +35,7 @@ class KaryawanController extends Controller
     {
         return view('hr.karyawan.form', [
             'mode' => 'create',
-            'data' => new Karyawan(),
+            'data' => new Karyawan,
             'kontrak' => collect(),
             'kontrakBerjalan' => collect(),
             'kontrakSelesai' => collect(),
@@ -366,17 +366,17 @@ class KaryawanController extends Controller
             return $karyawan->user;
         }
 
-        $email = $karyawan->email ?: $karyawan->nik . '@hris.local';
+        $email = $karyawan->email ?: $karyawan->nik.'@hris.local';
 
         if (User::where('email', $email)->exists()) {
-            $email = $karyawan->nik . '@hris.local';
+            $email = $karyawan->nik.'@hris.local';
         }
 
         return User::create([
             'username' => $karyawan->nik,
             'name' => $karyawan->nama_karyawan,
             'email' => $email,
-            'password' => Hash::make('password'),
+            'password' => Hash::make('12345678'),
             'level' => 3,
             'must_change_password' => true,
         ]);
@@ -390,7 +390,7 @@ class KaryawanController extends Controller
         $request->merge([
             'posisi_level' => $level ?: null,
             'posisi_title' => $title ?: null,
-            'posisi' => trim($level . ' ' . $title) ?: null,
+            'posisi' => trim($level.' '.$title) ?: null,
         ]);
     }
 

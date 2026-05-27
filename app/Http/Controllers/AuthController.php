@@ -3,14 +3,16 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Notifications\IncompleteProfileNotification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use App\Notifications\IncompleteProfileNotification;
 
 class AuthController extends Controller
 {
+    private const DEFAULT_FIRST_LOGIN_PASSWORD = '12345678';
+
     public function showLogin()
     {
         return view('auth.login');
@@ -35,9 +37,9 @@ class AuthController extends Controller
 
         if ($user) {
 
-            if (!Auth::attempt(['username' => $nik, 'password' => $password])) {
+            if (! Auth::attempt(['username' => $nik, 'password' => $password])) {
                 return back()->withErrors([
-                    'username' => 'NIK atau password salah'
+                    'username' => 'NIK atau password salah',
                 ]);
             }
 
@@ -63,9 +65,9 @@ class AuthController extends Controller
             ->where('nik', $nik)
             ->first();
 
-        if (!$karyawan) {
+        if (! $karyawan) {
             return back()->withErrors([
-                'username' => 'NIK tidak terdaftar'
+                'username' => 'NIK tidak terdaftar',
             ]);
         }
 
@@ -74,9 +76,9 @@ class AuthController extends Controller
         | 3️⃣ PASSWORD DEFAULT LOGIN PERTAMA
         |--------------------------------------------------------------------------
         */
-        if ($password !== 'password') {
+        if ($password !== self::DEFAULT_FIRST_LOGIN_PASSWORD) {
             return back()->withErrors([
-                'password' => 'Password default login pertama adalah: password'
+                'password' => 'Password default login pertama adalah: '.self::DEFAULT_FIRST_LOGIN_PASSWORD,
             ]);
         }
 
@@ -88,8 +90,8 @@ class AuthController extends Controller
         $newUser = User::create([
             'username' => $karyawan->nik,
             'name' => $karyawan->nama_karyawan,
-            'email' => $karyawan->nik . '@hris.local',
-            'password' => Hash::make('password'),
+            'email' => $karyawan->nik.'@hris.local',
+            'password' => Hash::make(self::DEFAULT_FIRST_LOGIN_PASSWORD),
             'level' => 3, // STAFF
             'must_change_password' => true,
         ]);
@@ -119,8 +121,8 @@ class AuthController extends Controller
                 ->where('type', IncompleteProfileNotification::class)
                 ->exists();
 
-            if (!$alreadyNotified) {
-                $user->notify(new IncompleteProfileNotification());
+            if (! $alreadyNotified) {
+                $user->notify(new IncompleteProfileNotification);
             }
         }
     }

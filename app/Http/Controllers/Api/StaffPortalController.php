@@ -978,7 +978,7 @@ class StaffPortalController extends Controller
             'username' => $employee->nik,
             'name' => $employee->nama_karyawan,
             'email' => $email,
-            'password' => Hash::make('password'),
+            'password' => Hash::make('12345678'),
             'level' => 3,
             'must_change_password' => true,
         ]);

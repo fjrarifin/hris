@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Karyawan;
 use App\Models\User;
 use App\Support\FrontendNavigation;
 use Illuminate\Http\JsonResponse;
@@ -14,6 +15,8 @@ use Laravel\Sanctum\PersonalAccessToken;
 
 class AuthController extends Controller
 {
+    private const DEFAULT_FIRST_LOGIN_PASSWORD = '12345678';
+
     private const PASSWORD_CHANGE_INTERVAL_DAYS = 30;
 
     private const PORTAL_TOKEN_NAME = 'hris-fe';
@@ -32,6 +35,10 @@ class AuthController extends Controller
                 ->where('username', trim($credentials['username']))
                 ->lockForUpdate()
                 ->first();
+
+            if (! $user) {
+                $user = $this->provisionEmployeeAccount($credentials);
+            }
 
             if (! $user || ! Hash::check($credentials['password'], $user->password)) {
                 throw ValidationException::withMessages([
@@ -157,6 +164,36 @@ class AuthController extends Controller
         return $path
             ? route('profile-photos.show', ['filename' => basename($path)])
             : null;
+    }
+
+    private function provisionEmployeeAccount(array $credentials): ?User
+    {
+        if (! hash_equals(self::DEFAULT_FIRST_LOGIN_PASSWORD, $credentials['password'])) {
+            return null;
+        }
+
+        $employee = Karyawan::query()
+            ->where('nik', trim($credentials['username']))
+            ->lockForUpdate()
+            ->first();
+
+        if (! $employee) {
+            return null;
+        }
+
+        $email = $employee->email ?: $employee->nik.'@hris.local';
+        if (User::query()->where('email', $email)->exists()) {
+            $email = $employee->nik.'@hris.local';
+        }
+
+        return User::query()->create([
+            'username' => $employee->nik,
+            'name' => $employee->nama_karyawan,
+            'email' => $email,
+            'password' => Hash::make(self::DEFAULT_FIRST_LOGIN_PASSWORD),
+            'level' => 3,
+            'must_change_password' => true,
+        ]);
     }
 
     private function passwordChangeAvailability(User $user): array
