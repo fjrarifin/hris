@@ -41,6 +41,7 @@ return [
         'username' => env('WHATSAPP_API_USERNAME'),
         'password' => env('WHATSAPP_API_PASSWORD'),
         'attendance_group_id' => env('WHATSAPP_ATTENDANCE_GROUP_ID', '120363426462821941@g.us'),
+        'attendance_warning_override_nik' => env('WHATSAPP_ATTENDANCE_WARNING_OVERRIDE_NIK', 'HPP25120147'),
     ],
 
 ];

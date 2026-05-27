@@ -30,13 +30,22 @@ class SendIncompleteAttendanceEmployeeWarnings extends Command
             $notifications = $report->employeeMessagesForDate($date, (bool) $this->option('test'));
 
             foreach ($notifications as $notification) {
-                $this->line('Tujuan: '.$notification['name'].' / '.$notification['phone']);
+                $target = $notification['is_redirected']
+                    ? sprintf(
+                        'Dialihkan ke %s (%s) / %s',
+                        $notification['recipient_name'],
+                        $notification['recipient_nik'],
+                        $notification['phone']
+                    )
+                    : $notification['name'].' / '.$notification['phone'];
+
+                $this->line('Tujuan: '.$target);
                 $this->line($notification['message']);
                 $this->newLine();
             }
 
             $this->info(sprintf(
-                'Preview selesai. %d peringatan memiliki nomor HP, tidak ada WhatsApp yang dikirim.',
+                'Preview selesai. %d pesan siap dikirim, tidak ada WhatsApp yang dikirim.',
                 $notifications->count()
             ));
 
@@ -52,7 +61,7 @@ class SendIncompleteAttendanceEmployeeWarnings extends Command
         }
 
         $this->info(sprintf(
-            'Peringatan absensi %s berhasil dikirim ke %d karyawan. Dilewati tanpa nomor HP: %d.',
+            'Peringatan absensi %s berhasil dikirim (%d pesan). Dilewati tanpa nomor HP: %d.',
             $date->format('d/m/Y'),
             $result['sent_count'],
             $result['skipped_count']

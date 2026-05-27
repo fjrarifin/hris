@@ -166,12 +166,17 @@ class IncompleteAttendanceWhatsAppReport
 
     public function employeeMessagesForDate(Carbon $date, bool $test = false): Collection
     {
+        $overrideRecipient = $this->employeeWarningOverrideRecipient();
+
         return $this->recordsForDate($date)
-            ->filter(fn (array $record): bool => $record['phone'] !== '')
+            ->filter(fn (array $record): bool => $overrideRecipient !== null || $record['phone'] !== '')
             ->map(fn (array $record): array => [
                 'nik' => $record['nik'],
                 'name' => $record['name'],
-                'phone' => $record['phone'],
+                'phone' => $overrideRecipient['phone'] ?? $record['phone'],
+                'recipient_nik' => $overrideRecipient['nik'] ?? $record['nik'],
+                'recipient_name' => $overrideRecipient['name'] ?? $record['name'],
+                'is_redirected' => $overrideRecipient !== null,
                 'message' => $this->employeeWarningMessage($record, $date, $test),
             ])
             ->values();
@@ -205,6 +210,31 @@ class IncompleteAttendanceWhatsAppReport
             'skipped_count' => $this->recordsForDate($date)->count() - $notifications->count(),
             'notifications' => $notifications,
             'reason' => $ok ? null : 'Pengiriman WhatsApp pribadi gagal.',
+        ];
+    }
+
+    private function employeeWarningOverrideRecipient(): ?array
+    {
+        $nik = trim((string) config('services.whatsapp.attendance_warning_override_nik'));
+
+        if ($nik === '') {
+            return null;
+        }
+
+        $employee = Karyawan::query()
+            ->where('nik', $nik)
+            ->first(['nik', 'nama_karyawan', 'no_hp']);
+
+        if (! $employee || trim((string) $employee->no_hp) === '') {
+            throw new \RuntimeException(
+                'Nomor WhatsApp tujuan pengujian notifikasi absensi belum ditemukan untuk NIK '.$nik.'.'
+            );
+        }
+
+        return [
+            'nik' => $employee->nik,
+            'name' => $employee->nama_karyawan,
+            'phone' => trim((string) $employee->no_hp),
         ];
     }
 

@@ -80,6 +80,7 @@ class IncompleteAttendanceWhatsAppReportTest extends TestCase
         config()->set('services.whatsapp.url', 'http://whatsapp.test');
         config()->set('services.whatsapp.device_id', 'device-id');
         config()->set('services.whatsapp.attendance_group_id', 'attendance-group');
+        config()->set('services.whatsapp.attendance_warning_override_nik', null);
     }
 
     public function test_it_sends_scheduled_employees_with_incomplete_scans_to_attendance_group(): void
@@ -173,6 +174,43 @@ class IncompleteAttendanceWhatsAppReportTest extends TestCase
         $this->assertSame(1, $result['sent_count']);
         $this->assertSame(1, $result['skipped_count']);
         $this->assertSame($employee->no_hp, $result['notifications']->first()['phone']);
+    }
+
+    public function test_it_can_redirect_all_personal_warnings_to_one_employee_for_testing(): void
+    {
+        $this->employee('EMP001', 'Ayu Pertiwi', 'PIN-1', 'Staff Finance', 'Finance');
+        $this->employee('EMP002', 'Budi Setiawan', 'PIN-2', 'Staff', 'Sales');
+        $recipient = $this->employee(
+            'HPP25120147',
+            'Penerima Test',
+            'PIN-TEST',
+            'Staff',
+            'IT',
+            '081234567890'
+        );
+
+        $this->log('PIN-1', '2026-05-25 08:07:00', '0');
+        $this->log('PIN-2', '2026-05-25 17:12:00', '1');
+        config()->set('services.whatsapp.attendance_warning_override_nik', $recipient->nik);
+
+        $this->mock(WhatsAppService::class, function ($mock) use ($recipient): void {
+            $mock->shouldReceive('sendMessage')
+                ->twice()
+                ->with($recipient->no_hp, Mockery::type('string'))
+                ->andReturn(true);
+        });
+
+        $result = app(IncompleteAttendanceWhatsAppReport::class)
+            ->sendEmployeeWarningsForDate(Carbon::parse('2026-05-25'));
+
+        $this->assertTrue($result['ok']);
+        $this->assertSame(2, $result['sent_count']);
+        $this->assertSame(0, $result['skipped_count']);
+        $this->assertTrue($result['notifications']->every(
+            fn (array $notification): bool => $notification['is_redirected']
+                && $notification['recipient_nik'] === $recipient->nik
+                && $notification['phone'] === $recipient->no_hp
+        ));
     }
 
     private function employee(
