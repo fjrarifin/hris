@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\HrDashboardController;
 use App\Http\Controllers\Api\HrScheduleController;
 use App\Http\Controllers\Api\NavigationController;
 use App\Http\Controllers\Api\StaffPortalController;
+use App\Http\Controllers\Api\StaffTeamScheduleController;
 use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\AttendanceWebhookController;
 use App\Http\Controllers\FingerspotController;
@@ -135,6 +136,13 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::get('/overtime', [StaffPortalController::class, 'overtime']);
                 Route::post('/overtime', [StaffPortalController::class, 'storeOvertime']);
                 Route::delete('/overtime/{overtimeRequest}', [StaffPortalController::class, 'destroyOvertime']);
+            });
+
+            Route::prefix('team-schedules')->middleware('frontend.menu:staff-team-schedules')->group(function () {
+                Route::get('/', [StaffTeamScheduleController::class, 'index']);
+                Route::post('/upload', [StaffTeamScheduleController::class, 'upload']);
+                Route::get('/employees/{nik}', [StaffTeamScheduleController::class, 'employee']);
+                Route::put('/employees/{nik}', [StaffTeamScheduleController::class, 'store']);
             });
         });
     });

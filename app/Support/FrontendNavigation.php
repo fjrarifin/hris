@@ -85,6 +85,10 @@ class FrontendNavigation
             return false;
         }
 
+        if ($menu->key === 'staff-team-schedules' && ! $this->isSupervisor($user)) {
+            return false;
+        }
+
         $override = $menu->userAccess->first();
 
         if ($override) {
@@ -106,6 +110,22 @@ class FrontendNavigation
         return $employee
             ? \App\Models\Karyawan::query()->where('nama_atasan_langsung', $employee->nama_karyawan)->exists()
             : false;
+    }
+
+    private function isSupervisor(User $user): bool
+    {
+        $employee = $user->karyawan;
+        if (! $employee) {
+            return false;
+        }
+
+        $role = strtolower(implode(' ', array_filter([
+            $employee->jabatan,
+            $employee->posisi,
+            $employee->posisi_title,
+        ])));
+
+        return str_contains($role, 'supervisor') || preg_match('/\bspv\b/i', $role) === 1;
     }
 
     private function serializeMenu(FrontendMenu $menu, User $user): array

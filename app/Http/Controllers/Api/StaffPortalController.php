@@ -17,6 +17,7 @@ use App\Notifications\LeaveStatusNotification;
 use App\Notifications\PublicHolidayStatusNotification;
 use App\Notifications\RequestStatusNotification;
 use Carbon\Carbon;
+use Carbon\CarbonPeriod;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -40,6 +41,7 @@ class StaffPortalController extends Controller
         $employee = $this->employeeFor($user);
         $today = now()->startOfDay();
         [$periodStart, $periodEnd] = $this->attendancePeriod($today);
+        $hasSubordinates = $this->hasDirectSubordinates($user);
 
         $attendanceDays = $employee->pin
             ? FingerspotAttendanceLog::query()
@@ -64,7 +66,10 @@ class StaffPortalController extends Controller
                 'start' => $periodStart->toDateString(),
                 'end' => $periodEnd->toDateString(),
             ],
-            'has_subordinates' => $this->hasDirectSubordinates($user),
+            'has_subordinates' => $hasSubordinates,
+            'subordinates_today' => $this->subordinatesToday($user, $today),
+            'weekly_attendance' => $this->weeklyAttendance($employee, $today),
+            'pending_subordinate_approvals' => $hasSubordinates ? $this->pendingApprovalsFor($user) : collect(),
         ]);
     }
 
@@ -494,40 +499,7 @@ class StaffPortalController extends Controller
 
     public function approvals(Request $request): JsonResponse
     {
-        $subordinateUserIds = $this->subordinateUserIds($request->user());
-
-        $requests = LeaveRequest::query()
-            ->with('user.karyawan')
-            ->whereIn('user_id', $subordinateUserIds)
-            ->whereNull('manager_approved_at')
-            ->where('status', 'pending')
-            ->latest()
-            ->get()
-            ->map(fn (LeaveRequest $item) => $this->serializeApproval('leave', $item))
-            ->concat(
-                PublicHolidayRequest::query()
-                    ->with(['user.karyawan', 'holiday'])
-                    ->whereIn('user_id', $subordinateUserIds)
-                    ->whereNull('manager_approved_at')
-                    ->where('status', 'pending')
-                    ->latest()
-                    ->get()
-                    ->map(fn (PublicHolidayRequest $item) => $this->serializeApproval('ph', $item))
-            )
-            ->concat(
-                EmployeePermission::query()
-                    ->with('user.karyawan')
-                    ->whereIn('user_id', $subordinateUserIds)
-                    ->whereNull('manager_approved_at')
-                    ->where('status', 'pending')
-                    ->latest()
-                    ->get()
-                    ->map(fn (EmployeePermission $item) => $this->serializeApproval('permission', $item))
-            )
-            ->sortByDesc('created_at')
-            ->values();
-
-        return response()->json(['requests' => $requests]);
+        return response()->json(['requests' => $this->pendingApprovalsFor($request->user())]);
     }
 
     public function decideApproval(Request $request, string $type, int $id): JsonResponse
@@ -788,6 +760,121 @@ class StaffPortalController extends Controller
             : collect();
     }
 
+    private function subordinatesToday(User $user, Carbon $date): Collection
+    {
+        $subordinates = Karyawan::query()
+            ->whereIn('nik', $this->subordinateNiks($user))
+            ->orderBy('nama_karyawan')
+            ->get(['nik', 'pin', 'nama_karyawan', 'jabatan', 'posisi', 'departement', 'divisi', 'unit']);
+        $logsByPin = FingerspotAttendanceLog::query()
+            ->whereIn('pin', $subordinates->pluck('pin')->filter())
+            ->whereDate('scan_date', $date)
+            ->orderBy('scan_date')
+            ->get(['pin', 'scan_date', 'status_scan'])
+            ->groupBy(fn (FingerspotAttendanceLog $log) => (string) $log->pin);
+
+        return $subordinates->map(function (Karyawan $employee) use ($logsByPin): array {
+            $scans = $this->dailyScanSummary($logsByPin->get((string) $employee->pin, collect()));
+            $attendanceStatus = match (true) {
+                $scans['scan_in'] && $scans['scan_out'] => 'checked_out',
+                $scans['scan_in'] => 'present',
+                $scans['scan_out'] => 'missing_in',
+                default => 'absent',
+            };
+
+            return [
+                'nik' => $employee->nik,
+                'name' => $employee->nama_karyawan,
+                'position' => $employee->jabatan ?: ($employee->posisi ?: '-'),
+                'department' => $employee->departement ?: ($employee->divisi ?: '-'),
+                'unit' => $employee->unit ?: '-',
+                'scan_in' => $scans['scan_in'],
+                'scan_out' => $scans['scan_out'],
+                'attendance_status' => $attendanceStatus,
+            ];
+        })->values();
+    }
+
+    private function dailyScanSummary(Collection $logs): array
+    {
+        $hasStatusCodes = $logs->contains(
+            fn (FingerspotAttendanceLog $log) => in_array((string) $log->status_scan, ['0', '1'], true)
+        );
+
+        if ($hasStatusCodes) {
+            $scanIn = $logs->first(
+                fn (FingerspotAttendanceLog $log) => (string) $log->status_scan === '0'
+            );
+            $scanOut = $logs->reverse()->first(
+                fn (FingerspotAttendanceLog $log) => (string) $log->status_scan === '1'
+            );
+        } else {
+            $scanIn = $logs->first();
+            $scanOut = $logs->count() > 1 ? $logs->last() : null;
+        }
+
+        return [
+            'scan_in' => $scanIn?->scan_date?->format('H:i:s'),
+            'scan_out' => $scanOut?->scan_date?->format('H:i:s'),
+        ];
+    }
+
+    private function weeklyAttendance(Karyawan $employee, Carbon $today): array
+    {
+        $start = $today->copy()->startOfWeek(Carbon::MONDAY);
+        $end = $today->copy()->endOfWeek(Carbon::SUNDAY);
+        $logsByDate = $employee->pin
+            ? FingerspotAttendanceLog::query()
+                ->where('pin', $employee->pin)
+                ->whereBetween('scan_date', [$start, $today->copy()->endOfDay()])
+                ->orderBy('scan_date')
+                ->get(['scan_date', 'status_scan'])
+                ->groupBy(fn (FingerspotAttendanceLog $log) => $log->scan_date->toDateString())
+            : collect();
+
+        $days = collect(CarbonPeriod::create($start, $end))->map(function (Carbon $date) use ($today, $logsByDate): array {
+            $scans = $this->dailyScanSummary($logsByDate->get($date->toDateString(), collect()));
+            $durationMinutes = $scans['scan_in'] && $scans['scan_out']
+                ? (int) max(0, Carbon::createFromFormat('H:i:s', $scans['scan_in'])->diffInMinutes(
+                    Carbon::createFromFormat('H:i:s', $scans['scan_out']),
+                    false
+                ))
+                : 0;
+            $status = $date->gt($today)
+                ? 'future'
+                : match (true) {
+                    $scans['scan_in'] && $scans['scan_out'] => 'checked_out',
+                    $scans['scan_in'] => 'present',
+                    $scans['scan_out'] => 'missing_in',
+                    default => 'absent',
+                };
+
+            return [
+                'date' => $date->toDateString(),
+                'scan_in' => $scans['scan_in'],
+                'scan_out' => $scans['scan_out'],
+                'status' => $status,
+                'duration_minutes' => $durationMinutes,
+                'duration' => $this->durationLabel($durationMinutes),
+            ];
+        });
+
+        $totalMinutes = $days->sum('duration_minutes');
+
+        return [
+            'start_date' => $start->toDateString(),
+            'end_date' => $end->toDateString(),
+            'total_duration_minutes' => $totalMinutes,
+            'total_duration' => $this->durationLabel($totalMinutes),
+            'days' => $days->values(),
+        ];
+    }
+
+    private function durationLabel(int $minutes): string
+    {
+        return intdiv($minutes, 60).' jam '.($minutes % 60).' menit';
+    }
+
     private function subordinateUserIds(User $user)
     {
         return User::query()->whereIn('username', $this->subordinateNiks($user))->pluck('id');
@@ -796,6 +883,42 @@ class StaffPortalController extends Controller
     private function hasDirectSubordinates(User $user): bool
     {
         return $this->subordinateNiks($user)->isNotEmpty();
+    }
+
+    private function pendingApprovalsFor(User $user): Collection
+    {
+        $subordinateUserIds = $this->subordinateUserIds($user);
+
+        return LeaveRequest::query()
+            ->with('user.karyawan')
+            ->whereIn('user_id', $subordinateUserIds)
+            ->whereNull('manager_approved_at')
+            ->where('status', 'pending')
+            ->latest()
+            ->get()
+            ->map(fn (LeaveRequest $item) => $this->serializeApproval('leave', $item))
+            ->concat(
+                PublicHolidayRequest::query()
+                    ->with(['user.karyawan', 'holiday'])
+                    ->whereIn('user_id', $subordinateUserIds)
+                    ->whereNull('manager_approved_at')
+                    ->where('status', 'pending')
+                    ->latest()
+                    ->get()
+                    ->map(fn (PublicHolidayRequest $item) => $this->serializeApproval('ph', $item))
+            )
+            ->concat(
+                EmployeePermission::query()
+                    ->with('user.karyawan')
+                    ->whereIn('user_id', $subordinateUserIds)
+                    ->whereNull('manager_approved_at')
+                    ->where('status', 'pending')
+                    ->latest()
+                    ->get()
+                    ->map(fn (EmployeePermission $item) => $this->serializeApproval('permission', $item))
+            )
+            ->sortByDesc('created_at')
+            ->values();
     }
 
     private function isDirectSubordinateRequest(User $manager, object $approvalRequest): bool
