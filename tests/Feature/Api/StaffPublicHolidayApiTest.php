@@ -55,6 +55,7 @@ class StaffPublicHolidayApiTest extends TestCase
             $table->string('nik')->unique();
             $table->string('nama_karyawan');
             $table->string('nama_atasan_langsung')->nullable();
+            $table->string('posisi_title')->nullable();
             $table->timestamps();
         });
 
@@ -225,6 +226,35 @@ class StaffPublicHolidayApiTest extends TestCase
         ]);
     }
 
+    public function test_manager_ph_submission_goes_directly_to_hr(): void
+    {
+        $manager = $this->createEmployeeUser('MGR002', 'Manager Operasional', 'PIN-M2', 'Manager');
+        $holiday = $this->createHoliday('Hari Buruh', '2026-05-01');
+        Sanctum::actingAs($manager);
+
+        $this->mock(ApprovalNotificationService::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('notifyHrGroups')
+                ->once()
+                ->with(\Mockery::type(PublicHolidayRequest::class), 'PH');
+            $mock->shouldNotReceive('notifyManager');
+        });
+
+        $this->postJson('/api/staff/public-holiday', [
+            'public_holiday_id' => $holiday->id,
+            'claim_date' => '2026-06-03',
+        ])->assertCreated();
+
+        $this->assertDatabaseHas('public_holiday_requests', [
+            'user_id' => $manager->id,
+            'status' => 'pending',
+            'approval_token' => null,
+        ]);
+
+        $this->assertNotNull(
+            PublicHolidayRequest::query()->where('user_id', $manager->id)->value('manager_approved_at')
+        );
+    }
+
     private function createMenu(string $key, string $path): void
     {
         FrontendMenu::query()->create([
@@ -236,7 +266,7 @@ class StaffPublicHolidayApiTest extends TestCase
         ]);
     }
 
-    private function createEmployeeUser(string $nik, string $name, string $pin): User
+    private function createEmployeeUser(string $nik, string $name, string $pin, ?string $positionTitle = null): User
     {
         $user = User::query()->create([
             'username' => $nik,
@@ -251,6 +281,7 @@ class StaffPublicHolidayApiTest extends TestCase
             'nik' => $nik,
             'pin' => $pin,
             'nama_karyawan' => $name,
+            'posisi_title' => $positionTitle,
         ]);
 
         return $user;

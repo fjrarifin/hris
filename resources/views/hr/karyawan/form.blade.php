@@ -508,6 +508,19 @@
 										<option value="P" @selected(old('jenis_kelamin', $data->jenis_kelamin) === 'P')>Perempuan</option>
 									</select>
 								</div>
+
+								<div>
+									<label class="font-bold text-gray-600">Golongan Darah</label>
+									<select name="golongan_darah"
+										class="mt-1 w-full rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
+										<option value="">- Pilih -</option>
+										@foreach (['A', 'B', 'AB', 'O'] as $bloodType)
+											<option value="{{ $bloodType }}" @selected(old('golongan_darah', $data->golongan_darah) === $bloodType)>
+												{{ $bloodType }}
+											</option>
+										@endforeach
+									</select>
+								</div>
 							</div>
 
 							<h4 class="subheading mb-3 mt-5 font-extrabold text-gray-900">
@@ -848,7 +861,7 @@
 		<div class="modal fade" id="addKontrakModal" tabindex="-1" aria-hidden="true">
 			<div class="modal-dialog modal-dialog-centered">
 				<div class="modal-content rounded-3xl">
-					<form method="POST" action="{{ route('hr.karyawan.kontrak.store', $data->nik) }}">
+					<form method="POST" action="{{ route('hr.karyawan.kontrak.store', $data->nik) }}" enctype="multipart/form-data">
 						@csrf
 
 						<div class="modal-header">
@@ -896,6 +909,11 @@
 							<div class="form-group mb-0">
 								<label class="font-bold text-gray-600">Catatan</label>
 								<textarea name="catatan" rows="3" class="form-control rounded-lg">{{ old('catatan') }}</textarea>
+							</div>
+
+							<div class="form-group mt-3 mb-0">
+								<label class="font-bold text-gray-600">Dokumen Kontrak (PDF, maksimal 2 MB)</label>
+								<input type="file" name="document" accept=".pdf,application/pdf" class="form-control rounded-lg" required>
 							</div>
 						</div>
 

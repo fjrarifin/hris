@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Maatwebsite\Excel\Facades\Excel;
 use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class StaffTeamScheduleController extends Controller
 {
@@ -30,6 +31,7 @@ class StaffTeamScheduleController extends Controller
             ->select('karyawan_nik', DB::raw('count(*) as total'))
             ->groupBy('karyawan_nik')
             ->pluck('total', 'karyawan_nik');
+        $totalPeriodDays = $start->diffInDays($end) + 1;
 
         return response()->json([
             'filters' => $this->serializedPeriod($start, $end),
@@ -46,7 +48,8 @@ class StaffTeamScheduleController extends Controller
                 'unit' => $employee->unit ?: '-',
                 'relationship' => $employee->nama_atasan_langsung === $supervisor->nama_karyawan
                     ? 'Bawahan langsung'
-                    : 'Bawahan 2 level',
+                    : 'Bawahan tidak langsung',
+                'total_period_days' => $totalPeriodDays,
                 'scheduled_days' => (int) ($counts[$employee->nik] ?? 0),
             ])->values(),
             'categories' => $this->categories(),
@@ -76,6 +79,16 @@ class StaffTeamScheduleController extends Controller
             ]),
             'categories' => $this->categories(),
         ]);
+    }
+
+    public function template(Request $request): StreamedResponse
+    {
+        [$start, $end] = $this->period($request);
+        $supervisor = $this->supervisorFor($request);
+        $employees = $this->manageableEmployees($supervisor);
+        $filename = 'Template_Jadwal_Tim_'.$start->format('Ymd').'_'.$end->format('Ymd').'.csv';
+
+        return $this->templateResponse($employees, $start, $end, $filename);
     }
 
     public function store(Request $request, string $nik): JsonResponse
@@ -140,7 +153,15 @@ class StaffTeamScheduleController extends Controller
         [$start, $end] = $this->period($request);
         $supervisor = $this->supervisorFor($request);
         $request->validate([
-            'file' => ['required', 'file', 'mimes:xlsx,xls,csv'],
+            'file' => [
+                'required',
+                'file',
+                function (string $attribute, mixed $file, \Closure $fail): void {
+                    if (! in_array(strtolower($file->getClientOriginalExtension()), ['xlsx', 'xls', 'csv'], true)) {
+                        $fail('File jadwal harus berformat XLSX, XLS, atau CSV.');
+                    }
+                },
+            ],
         ]);
         $employeeNiks = $this->manageableEmployees($supervisor)->pluck('nik')->flip();
         $rows = collect(Excel::toArray(new RawRowsImport, $request->file('file'))[0] ?? []);
@@ -191,7 +212,7 @@ class StaffTeamScheduleController extends Controller
     {
         $employee = Karyawan::query()->where('nik', $request->user()->username)->firstOrFail();
 
-        abort_unless($this->isSupervisor($employee), 403, 'Menu Jadwal Tim hanya dapat digunakan oleh Supervisor.');
+        abort_unless($this->manageableEmployees($employee)->isNotEmpty(), 403, 'Menu Jadwal Tim hanya dapat digunakan oleh atasan yang memiliki bawahan.');
 
         return $employee;
     }
@@ -200,7 +221,7 @@ class StaffTeamScheduleController extends Controller
     {
         $employee = $this->manageableEmployees($supervisor)->firstWhere('nik', $nik);
 
-        abort_unless($employee, 403, 'Jadwal hanya dapat diatur untuk bawahan Supervisor.');
+        abort_unless($employee, 403, 'Jadwal hanya dapat diatur untuk bawahan Anda.');
 
         return $employee;
     }
@@ -226,36 +247,7 @@ class StaffTeamScheduleController extends Controller
                 'nama_atasan_langsung',
                 'atasan_tidak_langsung',
             ])
-            ->filter(fn (Karyawan $employee) => $this->isManageableRole($employee))
             ->values();
-    }
-
-    private function isSupervisor(Karyawan $employee): bool
-    {
-        $role = strtolower(implode(' ', array_filter([
-            $employee->jabatan,
-            $employee->posisi,
-            $employee->posisi_title,
-        ])));
-
-        return str_contains($role, 'supervisor') || preg_match('/\bspv\b/i', $role) === 1;
-    }
-
-    private function isManageableRole(Karyawan $employee): bool
-    {
-        $role = strtolower(implode(' ', array_filter([
-            $employee->jabatan,
-            $employee->posisi,
-            $employee->posisi_title,
-        ])));
-
-        foreach (['leader', 'staff', 'operator', 'cashier', 'kasir'] as $allowedRole) {
-            if (str_contains($role, $allowedRole)) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private function period(Request $request): array
@@ -292,6 +284,32 @@ class StaffTeamScheduleController extends Controller
     private function categoryMap(): Collection
     {
         return $this->categories()->keyBy('code');
+    }
+
+    private function templateResponse(Collection $employees, Carbon $start, Carbon $end, string $filename): StreamedResponse
+    {
+        $dates = collect(CarbonPeriod::create($start, $end))
+            ->map(fn (Carbon $date) => $date->toDateString());
+        $schedules = EmployeeDailySchedule::query()
+            ->whereIn('karyawan_nik', $employees->pluck('nik'))
+            ->whereBetween('schedule_date', [$start, $end])
+            ->get(['karyawan_nik', 'schedule_date', 'schedule_code'])
+            ->keyBy(fn (EmployeeDailySchedule $schedule) => $schedule->karyawan_nik.'|'.$schedule->schedule_date->toDateString());
+
+        return response()->streamDownload(function () use ($employees, $dates, $schedules): void {
+            $file = fopen('php://output', 'w');
+            fputcsv($file, ['NIK', 'Nama Karyawan', ...$dates->all()]);
+
+            foreach ($employees as $employee) {
+                $row = [$employee->nik, $employee->nama_karyawan];
+                foreach ($dates as $date) {
+                    $row[] = $schedules->get($employee->nik.'|'.$date)?->schedule_code ?? '';
+                }
+                fputcsv($file, $row);
+            }
+
+            fclose($file);
+        }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
     }
 
     private function dateColumns(Collection $header, Carbon $start, Carbon $end): array

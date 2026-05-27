@@ -35,6 +35,7 @@ class IncompleteAttendanceWhatsAppReportTest extends TestCase
             $table->string('departement')->nullable();
             $table->string('divisi')->nullable();
             $table->string('no_hp')->nullable();
+            $table->string('nama_atasan_langsung')->nullable();
             $table->timestamps();
         });
 
@@ -211,6 +212,36 @@ class IncompleteAttendanceWhatsAppReportTest extends TestCase
                 && $notification['recipient_nik'] === $recipient->nik
                 && $notification['phone'] === $recipient->no_hp
         ));
+    }
+
+    public function test_it_sends_one_summary_warning_to_direct_supervisor(): void
+    {
+        $supervisor = $this->employee('SPV001', 'Supervisor Satu', 'PIN-S', 'Supervisor', 'Finance', '081111111111');
+        $first = $this->employee('EMP001', 'Ayu Pertiwi', 'PIN-1', 'Staff', 'Finance');
+        $second = $this->employee('EMP002', 'Budi Setiawan', 'PIN-2', 'Staff', 'Finance');
+        $first->update(['nama_atasan_langsung' => $supervisor->nama_karyawan]);
+        $second->update(['nama_atasan_langsung' => $supervisor->nama_karyawan]);
+        $this->log('PIN-1', '2026-05-25 08:07:00', '0');
+        $this->log('PIN-2', '2026-05-25 17:12:00', '1');
+
+        $this->mock(WhatsAppService::class, function ($mock) use ($supervisor): void {
+            $mock->shouldReceive('sendMessage')
+                ->once()
+                ->with(
+                    $supervisor->no_hp,
+                    Mockery::on(fn (string $message): bool => str_contains($message, 'KONFIRMASI ABSENSI BAWAHAN')
+                        && str_contains($message, 'Ayu Pertiwi')
+                        && str_contains($message, 'Budi Setiawan')
+                        && str_contains($message, 'HRD paling lambat hari ini'))
+                )
+                ->andReturn(true);
+        });
+
+        $result = app(IncompleteAttendanceWhatsAppReport::class)
+            ->sendSupervisorWarningsForDate(Carbon::parse('2026-05-25'));
+
+        $this->assertTrue($result['ok']);
+        $this->assertSame(1, $result['sent_count']);
     }
 
     private function employee(

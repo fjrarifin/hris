@@ -51,6 +51,18 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Idle Expiration Minutes
+    |--------------------------------------------------------------------------
+    |
+    | Portal bearer tokens are invalidated when they are not used within this
+    | period. Unlike "expiration", activity extends this idle window.
+    |
+    */
+
+    'idle_expiration' => (int) env('SANCTUM_IDLE_EXPIRATION', 30),
+
+    /*
+    |--------------------------------------------------------------------------
     | Token Prefix
     |--------------------------------------------------------------------------
     |

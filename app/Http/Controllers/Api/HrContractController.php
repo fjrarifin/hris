@@ -10,8 +10,10 @@ use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class HrContractController extends Controller
 {
@@ -21,7 +23,7 @@ class HrContractController extends Controller
     {
         $validated = $request->validate([
             'q' => ['nullable', 'string', 'max:100'],
-            'status' => ['nullable', Rule::in(['all', 'active', 'expiring_this_month', 'expiring_next_month', 'expired', 'no_contract'])],
+            'status' => ['nullable', Rule::in(['all', 'active', 'expiring_two_months', 'expiring_this_month', 'expiring_next_month', 'expired', 'no_contract'])],
             'page' => ['nullable', 'integer', 'min:1'],
         ]);
 
@@ -45,7 +47,13 @@ class HrContractController extends Controller
                     ['active', 'expiring_this_month', 'expiring_next_month'],
                     true
                 )),
-                fn (Collection $items) => $status !== 'all' ? $items->where('contract_state', $status) : $items
+                fn (Collection $items) => match ($status) {
+                    'expiring_two_months' => $items->filter(
+                        fn (array $item) => $this->isExpiringWithinTwoMonths($item['contract'], $today)
+                    ),
+                    'all' => $items,
+                    default => $items->where('contract_state', $status),
+                }
             )
             ->values();
 
@@ -102,15 +110,23 @@ class HrContractController extends Controller
     {
         $employee = Karyawan::query()->where('nik', $nik)->firstOrFail();
         $this->ensureNoActiveContract($employee->nik);
-        $validated = $this->validatedContract($request);
+        $validated = $this->validatedContract($request, true);
+        $document = $request->file('document')->store('contract-documents', 'local');
 
-        $id = DB::table('t_kontrak_karyawan')->insertGetId([
-            'nik' => $employee->nik,
-            'kontrak_ke' => ((int) DB::table('t_kontrak_karyawan')->where('nik', $employee->nik)->max('kontrak_ke')) + 1,
-            ...$validated,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        try {
+            $id = DB::table('t_kontrak_karyawan')->insertGetId([
+                'nik' => $employee->nik,
+                'kontrak_ke' => ((int) DB::table('t_kontrak_karyawan')->where('nik', $employee->nik)->max('kontrak_ke')) + 1,
+                ...$validated,
+                'document' => $document,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        } catch (Throwable $exception) {
+            Storage::disk('local')->delete($document);
+
+            throw $exception;
+        }
         $this->syncEmployeeStatus($employee->nik);
 
         return response()->json([
@@ -139,6 +155,23 @@ class HrContractController extends Controller
             'message' => 'Kontrak berhasil diperbarui.',
             'data' => $this->serializeContract(DB::table('t_kontrak_karyawan')->find($contractId), now()->startOfDay()),
         ]);
+    }
+
+    public function previewPdf(int $contractId): JsonResponse
+    {
+        $contract = DB::table('t_kontrak_karyawan')->where('id', $contractId)->first();
+        abort_unless($contract && $contract->document, 404);
+
+        $disk = Storage::disk('local')->exists($contract->document) ? 'local' : 'public';
+        abort_unless(Storage::disk($disk)->exists($contract->document), 404);
+
+        $filename = 'Kontrak-'.$contract->nik.'-'.$contract->kontrak_ke.'.pdf';
+
+        return response()->json([
+            'filename' => $filename,
+            'mime_type' => 'application/pdf',
+            'content_base64' => base64_encode(Storage::disk($disk)->get($contract->document)),
+        ])->header('Cache-Control', 'private, no-store');
     }
 
     private function employeeContractRows(Carbon $today): Collection
@@ -193,6 +226,7 @@ class HrContractController extends Controller
             'duration_label' => $this->durationLabel($durationMonths),
             'status' => $contract->status_kontrak,
             'description' => $contract->keterangan ?? null,
+            'has_document' => filled($contract->document),
             'state' => $this->contractState($contract, $today),
             'remaining_days' => $endDate && $endDate->gte($today)
                 ? (int) $today->diffInDays($endDate)
@@ -227,6 +261,17 @@ class HrContractController extends Controller
             && (! $contract->end_date || Carbon::parse($contract->end_date)->gte($today));
     }
 
+    private function isExpiringWithinTwoMonths(?array $contract, Carbon $today): bool
+    {
+        if (! $contract
+            || ! $contract['end_date']
+            || in_array(strtoupper((string) $contract['status']), self::CLOSED_STATUSES, true)) {
+            return false;
+        }
+
+        return Carbon::parse($contract['end_date'])->between($today, $today->copy()->addMonthsNoOverflow(2));
+    }
+
     private function employeeRow(Karyawan $employee): array
     {
         return [
@@ -238,7 +283,7 @@ class HrContractController extends Controller
         ];
     }
 
-    private function validatedContract(Request $request): array
+    private function validatedContract(Request $request, bool $documentRequired = false): array
     {
         $validated = $request->validate([
             'jenis_kontrak' => ['required', Rule::in(['PKWT', 'PKWTT'])],
@@ -246,10 +291,11 @@ class HrContractController extends Controller
             'start_date' => ['required', 'date'],
             'end_date' => ['required', 'date', 'after_or_equal:start_date'],
             'keterangan' => ['nullable', 'string', 'max:1000'],
+            'document' => [$documentRequired ? 'required' : 'nullable', 'file', 'mimes:pdf', 'max:2048'],
         ]);
 
         return [
-            ...$validated,
+            ...collect($validated)->except('document')->all(),
             'jenis_kontrak' => strtoupper($validated['jenis_kontrak']),
             'status_kontrak' => strtoupper($validated['status_kontrak']),
             'durasi_bulan' => $this->durationMonths($validated['start_date'], $validated['end_date']),

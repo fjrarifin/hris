@@ -75,6 +75,7 @@ class KaryawanController extends Controller
             'bpjs' => ['nullable', 'boolean'],
             'no_bpjs' => ['nullable', 'string', 'max:50'],
             'jenis_kelamin' => ['nullable', 'in:L,P'],
+            'golongan_darah' => ['nullable', 'in:A,B,AB,O'],
             'tanggal_lahir' => ['nullable', 'date'],
             'no_ktp' => ['nullable', 'string', 'max:30'],
             'tempat_lahir' => ['nullable', 'string', 'max:100'],
@@ -173,6 +174,7 @@ class KaryawanController extends Controller
             'bpjs' => ['nullable', 'boolean'],
             'no_bpjs' => ['nullable', 'string', 'max:50'],
             'jenis_kelamin' => ['nullable', 'in:L,P'],
+            'golongan_darah' => ['nullable', 'in:A,B,AB,O'],
             'tanggal_lahir' => ['nullable', 'date'],
             'no_ktp' => ['nullable', 'string', 'max:30'],
             'tempat_lahir' => ['nullable', 'string', 'max:100'],
@@ -215,6 +217,7 @@ class KaryawanController extends Controller
             'bpjs',
             'no_bpjs',
             'jenis_kelamin',
+            'golongan_darah',
             'tanggal_lahir',
             'no_ktp',
             'tempat_lahir',
@@ -266,6 +269,7 @@ class KaryawanController extends Controller
             'durasi_bulan' => ['nullable', 'integer', 'min:0'],
             'status_kontrak' => ['required', 'string', 'max:50'],
             'catatan' => ['nullable', 'string', 'max:255'],
+            'document' => ['required', 'file', 'mimes:pdf', 'max:2048'],
         ]);
 
         DB::table('t_kontrak_karyawan')->insert([
@@ -276,6 +280,7 @@ class KaryawanController extends Controller
             'durasi_bulan' => $validated['durasi_bulan'] ?? null,
             'status_kontrak' => strtoupper($validated['status_kontrak']),
             'catatan' => $validated['catatan'] ?? null,
+            'document' => $request->file('document')->store('contract-documents', 'local'),
             'created_at' => now(),
             'updated_at' => now(),
         ]);

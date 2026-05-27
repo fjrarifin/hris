@@ -74,6 +74,7 @@ class IncompleteAttendanceWhatsAppReport
                     'position' => $employee->jabatan ?: ($employee->posisi ?: '-'),
                     'department' => $employee->departement ?: ($employee->divisi ?: '-'),
                     'phone' => trim((string) $employee->no_hp),
+                    'direct_supervisor_name' => trim((string) $employee->nama_atasan_langsung),
                     'raw_scan_in' => $rawScans['scan_in'],
                     'raw_scan_out' => $rawScans['scan_out'],
                     'scan_in' => $scans['scan_in'],
@@ -213,6 +214,71 @@ class IncompleteAttendanceWhatsAppReport
         ];
     }
 
+    public function supervisorMessagesForDate(Carbon $date, bool $test = false): Collection
+    {
+        $overrideRecipient = $this->employeeWarningOverrideRecipient();
+        $records = $this->recordsForDate($date)
+            ->filter(fn (array $record): bool => $record['direct_supervisor_name'] !== '');
+
+        $supervisors = Karyawan::query()
+            ->whereIn('nama_karyawan', $records->pluck('direct_supervisor_name')->unique())
+            ->get(['nik', 'nama_karyawan', 'no_hp'])
+            ->keyBy('nama_karyawan');
+
+        return $records
+            ->groupBy('direct_supervisor_name')
+            ->map(function (Collection $findings, string $supervisorName) use ($supervisors, $overrideRecipient, $date, $test): ?array {
+                $supervisor = $supervisors->get($supervisorName);
+                $phone = $overrideRecipient['phone'] ?? trim((string) $supervisor?->no_hp);
+
+                if ($phone === '') {
+                    return null;
+                }
+
+                return [
+                    'supervisor_nik' => $supervisor?->nik,
+                    'supervisor_name' => $supervisor?->nama_karyawan ?? $supervisorName,
+                    'phone' => $phone,
+                    'recipient_nik' => $overrideRecipient['nik'] ?? $supervisor?->nik,
+                    'recipient_name' => $overrideRecipient['name'] ?? ($supervisor?->nama_karyawan ?? $supervisorName),
+                    'is_redirected' => $overrideRecipient !== null,
+                    'employee_count' => $findings->count(),
+                    'message' => $this->supervisorWarningMessage($findings, $date, $test),
+                ];
+            })
+            ->filter()
+            ->values();
+    }
+
+    public function sendSupervisorWarningsForDate(Carbon $date, bool $test = false): array
+    {
+        $notifications = $this->supervisorMessagesForDate($date, $test);
+
+        if (! config('services.whatsapp.url') || ! config('services.whatsapp.device_id')) {
+            return [
+                'ok' => false,
+                'sent_count' => 0,
+                'notifications' => $notifications,
+                'reason' => 'Konfigurasi WhatsApp belum lengkap.',
+            ];
+        }
+
+        $ok = true;
+        foreach ($notifications as $notification) {
+            $ok = app(WhatsAppService::class)->sendMessage(
+                $notification['phone'],
+                $notification['message']
+            ) && $ok;
+        }
+
+        return [
+            'ok' => $ok,
+            'sent_count' => $notifications->count(),
+            'notifications' => $notifications,
+            'reason' => $ok ? null : 'Pengiriman WhatsApp atasan gagal.',
+        ];
+    }
+
     private function employeeWarningOverrideRecipient(): ?array
     {
         $nik = trim((string) config('services.whatsapp.attendance_warning_override_nik'));
@@ -266,6 +332,27 @@ class IncompleteAttendanceWhatsAppReport
             'Scan pulang: '.$this->scanTime($record['scan_out']),
             '',
             'Harap segera melapor kepada HRD untuk pengecekan atau koreksi absensi.',
+
+            'Jika Anda sudah melakukan koreksi atau melapor ke HRD, mohon abaikan pesan ini. Terima kasih.',
+            'Pesan ini dikirim secara otomatis oleh sistem absensi perusahaan. Jika Anda merasa ada kesalahan, silakan hubungi HRD.',
+        ]);
+    }
+
+    private function supervisorWarningMessage(Collection $records, Carbon $date, bool $test): string
+    {
+        $title = $test ? '*[TEST] KONFIRMASI ABSENSI BAWAHAN*' : '*KONFIRMASI ABSENSI BAWAHAN*';
+        $items = $records->values()->map(
+            fn (array $record, int $index): string => ($index + 1).'. '.$record['name'].' ('.$record['nik'].') - '.$record['finding']
+        )->implode("\n");
+
+        return implode("\n", [
+            $title,
+            '',
+            'Pada absensi tanggal '.$date->format('d/m/Y').' terdapat bawahan Anda dengan data scan belum lengkap:',
+            $items,
+            '',
+            'Mohon informasikan kepada karyawan terkait untuk memvalidasi datanya dan konfirmasikan kepada HRD paling lambat hari ini.',
+            'Pesan ini dikirim otomatis oleh sistem absensi perusahaan.',
         ]);
     }
 

@@ -5,6 +5,7 @@ namespace Tests\Feature\Api;
 use App\Models\FrontendMenu;
 use App\Models\Karyawan;
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
@@ -92,6 +93,13 @@ class SingleDeviceLoginApiTest extends TestCase
         ]);
     }
 
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+
+        parent::tearDown();
+    }
+
     public function test_an_active_session_blocks_a_second_device_until_logout(): void
     {
         $firstLogin = $this->withServerVariables(['REMOTE_ADDR' => '10.20.30.40'])
@@ -172,5 +180,29 @@ class SingleDeviceLoginApiTest extends TestCase
             ])
             ->assertOk()
             ->assertJsonPath('user.must_change_password', false);
+    }
+
+    public function test_idle_session_is_removed_and_allows_login_on_another_device_after_thirty_minutes(): void
+    {
+        Carbon::setTestNow('2026-05-27 08:00:00');
+
+        $this->postJson('/api/auth/login', [
+            'username' => 'EMP001',
+            'password' => 'password',
+        ])->assertOk();
+
+        Carbon::setTestNow('2026-05-27 08:31:00');
+
+        $this->withHeader('User-Agent', 'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Version/18.0 Mobile Safari/604.1')
+            ->postJson('/api/auth/login', [
+                'username' => 'EMP001',
+                'password' => 'password',
+            ])
+            ->assertOk();
+
+        $this->assertDatabaseCount('personal_access_tokens', 1);
+        $this->assertDatabaseHas('personal_access_tokens', [
+            'device_name' => 'Safari di iPhone/iPad',
+        ]);
     }
 }

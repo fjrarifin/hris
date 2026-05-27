@@ -23,11 +23,80 @@ class FrontendNavigation
             return $menus;
         }
 
+        $employeeKeys = ['employees', 'hr-contracts'];
+        $employeeAnchor = $menus
+            ->first(fn (array $menu) => in_array($menu['key'], $employeeKeys, true))['key'] ?? null;
+        $employeeChildren = $menus
+            ->whereIn('key', $employeeKeys)
+            ->sortBy(fn (array $menu) => array_search($menu['key'], $employeeKeys, true))
+            ->map(function (array $menu): array {
+                if ($menu['key'] === 'employees') {
+                    $menu['label'] = 'Data Karyawan';
+                }
+
+                return $menu;
+            })
+            ->values()
+            ->all();
+
+        $attendanceKeys = ['attendance', 'hr-attendance-corrections', 'hr-schedules'];
+        $attendanceAnchor = $menus
+            ->first(fn (array $menu) => in_array($menu['key'], $attendanceKeys, true))['key'] ?? null;
+        $attendanceChildren = $menus
+            ->whereIn('key', $attendanceKeys)
+            ->sortBy(fn (array $menu) => array_search($menu['key'], $attendanceKeys, true))
+            ->map(function (array $menu): array {
+                if ($menu['key'] === 'attendance') {
+                    $menu['label'] = 'Rekap Absensi';
+                }
+
+                return $menu;
+            })
+            ->values()
+            ->all();
+
         $approvalKeys = ['hr-approval-leave', 'hr-approval-overtime', 'hr-approval-ph', 'hr-approval-permission'];
         $children = $menus->whereIn('key', $approvalKeys)->values()->all();
+        $approvalAnchor = $children[0]['key'] ?? null;
 
-        return $menus->flatMap(function (array $menu) use ($approvalKeys, $children): array {
-            if ($menu['key'] === $approvalKeys[0] && $children) {
+        return $menus->flatMap(function (array $menu) use (
+            $employeeKeys,
+            $employeeChildren,
+            $employeeAnchor,
+            $attendanceKeys,
+            $attendanceChildren,
+            $attendanceAnchor,
+            $approvalKeys,
+            $children,
+            $approvalAnchor
+        ): array {
+            if ($menu['key'] === $employeeAnchor && $employeeChildren) {
+                return [[
+                    'key' => 'hr-employees',
+                    'label' => 'Karyawan',
+                    'icon' => 'i-lucide-users-round',
+                    'children' => $employeeChildren,
+                ]];
+            }
+
+            if (in_array($menu['key'], $employeeKeys, true)) {
+                return [];
+            }
+
+            if ($menu['key'] === $attendanceAnchor && $attendanceChildren) {
+                return [[
+                    'key' => 'hr-attendance',
+                    'label' => 'Absensi',
+                    'icon' => 'i-lucide-calendar-clock',
+                    'children' => $attendanceChildren,
+                ]];
+            }
+
+            if (in_array($menu['key'], $attendanceKeys, true)) {
+                return [];
+            }
+
+            if ($menu['key'] === $approvalAnchor && $children) {
                 return [[
                     'key' => 'hr-approvals',
                     'label' => 'Pengajuan',
@@ -85,7 +154,7 @@ class FrontendNavigation
             return false;
         }
 
-        if ($menu->key === 'staff-team-schedules' && ! $this->isSupervisor($user)) {
+        if ($menu->key === 'staff-team-schedules' && ! $this->hasScheduleSubordinates($user)) {
             return false;
         }
 
@@ -112,20 +181,16 @@ class FrontendNavigation
             : false;
     }
 
-    private function isSupervisor(User $user): bool
+    private function hasScheduleSubordinates(User $user): bool
     {
         $employee = $user->karyawan;
-        if (! $employee) {
-            return false;
-        }
 
-        $role = strtolower(implode(' ', array_filter([
-            $employee->jabatan,
-            $employee->posisi,
-            $employee->posisi_title,
-        ])));
-
-        return str_contains($role, 'supervisor') || preg_match('/\bspv\b/i', $role) === 1;
+        return $employee
+            ? \App\Models\Karyawan::query()
+                ->where('nama_atasan_langsung', $employee->nama_karyawan)
+                ->orWhere('atasan_tidak_langsung', $employee->nama_karyawan)
+                ->exists()
+            : false;
     }
 
     private function serializeMenu(FrontendMenu $menu, User $user): array

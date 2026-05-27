@@ -46,6 +46,18 @@ class AuthController extends Controller
                 ]);
             }
 
+            $idleMinutes = (int) config('sanctum.idle_expiration', 30);
+
+            if ($idleMinutes > 0) {
+                $idleCutoff = now()->subMinutes($idleMinutes);
+                $user->tokens()
+                    ->where(fn ($query) => $query->whereNull('expires_at')->orWhere('expires_at', '>', now()))
+                    ->where(fn ($query) => $query
+                        ->where(fn ($inner) => $inner->whereNull('last_used_at')->where('created_at', '<=', $idleCutoff))
+                        ->orWhere('last_used_at', '<=', $idleCutoff))
+                    ->delete();
+            }
+
             $activeToken = $user->tokens()
                 ->where(fn ($query) => $query->whereNull('expires_at')->orWhere('expires_at', '>', now()))
                 ->orderByDesc('last_used_at')
@@ -207,6 +219,7 @@ class AuthController extends Controller
             'can_change_password' => (bool) $user->must_change_password
                 || ! $availableAt
                 || now()->greaterThanOrEqualTo($availableAt),
+            'session_idle_timeout_minutes' => (int) config('sanctum.idle_expiration', 30),
         ];
     }
 

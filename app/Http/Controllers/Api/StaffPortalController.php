@@ -256,6 +256,7 @@ class StaffPortalController extends Controller
         ]);
 
         $user = $request->user();
+        $directToHr = $this->requiresDirectHrApproval($user);
         $start = Carbon::parse($data['start_date']);
         $end = Carbon::parse($data['end_date']);
 
@@ -294,11 +295,10 @@ class StaffPortalController extends Controller
             'end_date' => $end,
             'reason' => $data['reason'] ?? null,
             'status' => 'pending',
-            'approval_token' => (string) Str::uuid(),
-            'approval_token_expires_at' => now()->addHours(24),
+            ...$this->initialApprovalFields($directToHr),
         ])->load('user');
 
-        $this->approvalNotification->notifyManager($leave, 'CUTI');
+        $this->notifyInitialApprover($leave, 'CUTI', $directToHr);
 
         return response()->json([
             'message' => 'Pengajuan cuti berhasil dikirim.',
@@ -343,6 +343,7 @@ class StaffPortalController extends Controller
         ]);
 
         $user = $request->user();
+        $directToHr = $this->requiresDirectHrApproval($user);
         $holiday = PublicHoliday::findOrFail($data['public_holiday_id']);
         $claimDate = Carbon::parse($data['claim_date'])->startOfDay();
         $expiredAt = $holiday->holiday_date->copy()->addDays(90);
@@ -396,11 +397,10 @@ class StaffPortalController extends Controller
             'claim_date' => $claimDate,
             'expired_at' => $expiredAt,
             'status' => 'pending',
-            'approval_token' => (string) Str::uuid(),
-            'approval_token_expires_at' => now()->addHours(24),
+            ...$this->initialApprovalFields($directToHr),
         ])->load(['user', 'holiday']);
 
-        $this->approvalNotification->notifyManager($ph, 'PH');
+        $this->notifyInitialApprover($ph, 'PH', $directToHr);
 
         return response()->json([
             'message' => 'Pengajuan PH berhasil dikirim.',
@@ -440,6 +440,7 @@ class StaffPortalController extends Controller
         ]);
 
         $user = $request->user();
+        $directToHr = $this->requiresDirectHrApproval($user);
         $date = Carbon::parse($data['date']);
 
         if (EmployeePermission::query()
@@ -474,11 +475,10 @@ class StaffPortalController extends Controller
             'reason' => $data['reason'] ?? null,
             'document' => $request->file('document')?->store('permission-documents', 'public'),
             'status' => 'pending',
-            'approval_token' => (string) Str::uuid(),
-            'approval_token_expires_at' => now()->addHours(24),
+            ...$this->initialApprovalFields($directToHr),
         ])->load('user');
 
-        $this->approvalNotification->notifyManager($permission, 'IZIN');
+        $this->notifyInitialApprover($permission, strtoupper($permission->type), $directToHr);
 
         return response()->json([
             'message' => 'Pengajuan izin/sakit berhasil dikirim.',
@@ -926,6 +926,40 @@ class StaffPortalController extends Controller
             )
             ->sortByDesc('created_at')
             ->values();
+    }
+
+    private function requiresDirectHrApproval(User $user): bool
+    {
+        $employee = $this->employeeFor($user);
+        $positionTitle = strtolower(trim((string) ($employee->posisi_title ?: $employee->jabatan ?: $employee->posisi)));
+
+        return in_array($positionTitle, ['manager', 'gm', 'general manager'], true);
+    }
+
+    private function initialApprovalFields(bool $directToHr): array
+    {
+        return $directToHr
+            ? [
+                'manager_approved_at' => now(),
+                'manager_approved_by' => null,
+                'approval_token' => null,
+                'approval_token_expires_at' => null,
+            ]
+            : [
+                'approval_token' => (string) Str::uuid(),
+                'approval_token_expires_at' => now()->addHours(24),
+            ];
+    }
+
+    private function notifyInitialApprover(object $request, string $type, bool $directToHr): void
+    {
+        if ($directToHr) {
+            $this->approvalNotification->notifyHrGroups($request, $type);
+
+            return;
+        }
+
+        $this->approvalNotification->notifyManager($request, $type);
     }
 
     private function isDirectSubordinateRequest(User $manager, object $approvalRequest): bool

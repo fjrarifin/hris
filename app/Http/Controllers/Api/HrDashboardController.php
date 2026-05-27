@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\EmployeeDailySchedule;
+use App\Models\EmployeePermission;
 use App\Models\FingerspotAttendanceLog;
 use App\Models\Karyawan;
 use App\Models\LeaveRequest;
@@ -29,6 +30,9 @@ class HrDashboardController extends Controller
         $attendance = $this->attendanceForDate($today);
         $leaveToday = $this->leaveToday($today);
         $phToday = $this->publicHolidayToday($today);
+        $permissionsToday = $this->permissionsToday($today);
+        $permissionToday = $permissionsToday->where('type', 'izin')->values();
+        $sickToday = $permissionsToday->where('type', 'sakit')->values();
         $overtimeToday = $this->overtimeToday($today);
         $incompleteYesterday = $this->incompleteAttendanceForDate($yesterday);
         $expiringContracts = $this->expiringContracts($today);
@@ -42,12 +46,16 @@ class HrDashboardController extends Controller
                 'scan_pins_today' => $attendance['unique_pin_count'],
                 'leave_today' => $leaveToday->count(),
                 'public_holiday_today' => $phToday->count(),
+                'permission_today' => $permissionToday->count(),
+                'sick_today' => $sickToday->count(),
                 'overtime_today' => $overtimeToday->count(),
                 'expiring_contracts' => $expiringContracts->count(),
             ],
             'attendance' => $attendance,
             'leave_today' => $leaveToday,
             'public_holiday_today' => $phToday,
+            'permission_today' => $permissionToday,
+            'sick_today' => $sickToday,
             'overtime_today' => $overtimeToday,
             'yesterday_incomplete_attendance' => $incompleteYesterday,
             'expiring_contracts' => [
@@ -81,6 +89,7 @@ class HrDashboardController extends Controller
             ->map(fn (Collection $employees, string $department) => [
                 'department' => $department,
                 'total' => $employees->count(),
+                'employees' => $employees->values(),
             ])
             ->sortByDesc('total')
             ->values();
@@ -96,6 +105,13 @@ class HrDashboardController extends Controller
                 ->values(),
             'assistant_managers_present' => $presentEmployees
                 ->where('position_title', 'Asst. Manager')
+                ->values(),
+            'management_present' => $presentEmployees
+                ->filter(fn (array $employee): bool => in_array(
+                    strtolower((string) $employee['position_title']),
+                    ['manager', 'asst. manager', 'supervisor', 'spv', 'leader'],
+                    true
+                ))
                 ->values(),
         ];
     }
@@ -187,6 +203,22 @@ class HrDashboardController extends Controller
             ->values();
     }
 
+    private function permissionsToday(Carbon $date): Collection
+    {
+        return EmployeePermission::query()
+            ->with('user.karyawan')
+            ->where('status', 'approved')
+            ->whereNotNull('hr_approved_at')
+            ->whereDate('date', $date)
+            ->get()
+            ->map(fn (EmployeePermission $permission) => [
+                ...$this->requestEmployeeRow($permission->user),
+                'type' => $permission->type,
+                'date' => $permission->date?->toDateString(),
+            ])
+            ->values();
+    }
+
     private function overtimeToday(Carbon $date): Collection
     {
         return OvertimeRequest::query()
@@ -268,7 +300,7 @@ class HrDashboardController extends Controller
             'nik' => $employee->nik,
             'name' => $employee->nama_karyawan,
             'position' => $employee->jabatan ?: ($employee->posisi ?: '-'),
-            'position_title' => $employee->posisi_title,
+            'position_title' => $employee->posisi_title ?: ($employee->jabatan ?: $employee->posisi),
             'department' => $employee->departement ?: ($employee->divisi ?: '-'),
         ];
     }

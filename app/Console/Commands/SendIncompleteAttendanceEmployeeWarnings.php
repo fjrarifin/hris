@@ -14,7 +14,7 @@ class SendIncompleteAttendanceEmployeeWarnings extends Command
         {--preview : Tampilkan isi peringatan tanpa mengirim WhatsApp}
         {--test : Tambahkan tanda TEST pada peringatan yang dikirim}';
 
-    protected $description = 'Kirim peringatan pribadi kepada karyawan yang scan absensinya tidak lengkap.';
+    protected $description = 'Kirim peringatan pribadi kepada karyawan dan atasan langsung terkait scan absensi tidak lengkap.';
 
     public function handle(IncompleteAttendanceWhatsAppReport $report): int
     {
@@ -28,6 +28,7 @@ class SendIncompleteAttendanceEmployeeWarnings extends Command
 
         if ($this->option('preview')) {
             $notifications = $report->employeeMessagesForDate($date, (bool) $this->option('test'));
+            $supervisorNotifications = $report->supervisorMessagesForDate($date, (bool) $this->option('test'));
 
             foreach ($notifications as $notification) {
                 $target = $notification['is_redirected']
@@ -44,26 +45,35 @@ class SendIncompleteAttendanceEmployeeWarnings extends Command
                 $this->newLine();
             }
 
+            foreach ($supervisorNotifications as $notification) {
+                $this->line('Tujuan atasan: '.$notification['recipient_name'].' / '.$notification['phone']);
+                $this->line($notification['message']);
+                $this->newLine();
+            }
+
             $this->info(sprintf(
-                'Preview selesai. %d pesan siap dikirim, tidak ada WhatsApp yang dikirim.',
-                $notifications->count()
+                'Preview selesai. %d pesan karyawan dan %d pesan atasan siap dikirim, tidak ada WhatsApp yang dikirim.',
+                $notifications->count(),
+                $supervisorNotifications->count()
             ));
 
             return self::SUCCESS;
         }
 
         $result = $report->sendEmployeeWarningsForDate($date, (bool) $this->option('test'));
+        $supervisorResult = $report->sendSupervisorWarningsForDate($date, (bool) $this->option('test'));
 
-        if (! $result['ok']) {
-            $this->error($result['reason']);
+        if (! $result['ok'] || ! $supervisorResult['ok']) {
+            $this->error($result['reason'] ?? $supervisorResult['reason']);
 
             return self::FAILURE;
         }
 
         $this->info(sprintf(
-            'Peringatan absensi %s berhasil dikirim (%d pesan). Dilewati tanpa nomor HP: %d.',
+            'Peringatan absensi %s berhasil dikirim (%d pesan karyawan, %d pesan atasan). Dilewati tanpa nomor HP karyawan: %d.',
             $date->format('d/m/Y'),
             $result['sent_count'],
+            $supervisorResult['sent_count'],
             $result['skipped_count']
         ));
 

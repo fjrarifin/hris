@@ -46,7 +46,7 @@ class EmployeeController extends Controller
             fputcsv($file, [
                 'NIK', 'Nama', 'Jabatan', 'Posisi', 'Divisi', 'Departemen', 'Unit',
                 'Email', 'No HP', 'Status Karyawan', 'Tanggal Bergabung',
-                'Status Pajak', 'Status Pernikahan', 'Nama Pasangan',
+                'Golongan Darah', 'Status Pajak', 'Status Pernikahan', 'Nama Pasangan',
                 'Nama Anak Ke-1', 'Nama Anak Ke-2', 'Nama Anak Ke-3',
             ]);
 
@@ -63,6 +63,7 @@ class EmployeeController extends Controller
                     $employee->no_hp,
                     $this->employeeStatus($employee->nik),
                     $employee->join_date?->toDateString(),
+                    $employee->golongan_darah,
                     $employee->status_pajak,
                     $employee->status_pernikahan,
                     $employee->nama_pasangan,
@@ -188,10 +189,12 @@ class EmployeeController extends Controller
             'start_date' => ['nullable', 'date', 'required_with:end_date,status_kontrak,jenis_kontrak'],
             'end_date' => ['nullable', 'date', 'after_or_equal:start_date', 'required_with:start_date,status_kontrak,jenis_kontrak'],
             'keterangan_kontrak' => ['nullable', 'string', 'max:1000'],
+            'document' => [$this->requiresNewContractDocument($request, $employee) ? 'required' : 'nullable', 'file', 'mimes:pdf', 'max:2048'],
             'no_hp' => ['nullable', 'string', 'max:30'],
             'email' => ['nullable', 'email', 'max:150', $emailRule],
             'tanggal_lahir' => ['nullable', 'date'],
             'jenis_kelamin' => ['nullable', Rule::in(['L', 'P'])],
+            'golongan_darah' => ['nullable', Rule::in(['A', 'B', 'AB', 'O'])],
             'no_ktp' => ['nullable', 'string', 'max:30'],
             'tempat_lahir' => ['nullable', 'string', 'max:100'],
             'alamat' => ['nullable', 'string'],
@@ -247,6 +250,10 @@ class EmployeeController extends Controller
             $payload['status_pernikahan'] = $this->maritalStatusFromTax($payload['status_pajak']);
         }
 
+        if ($request->hasFile('document')) {
+            $payload['document'] = $request->file('document')->store('contract-documents', 'local');
+        }
+
         return $payload;
     }
 
@@ -258,6 +265,7 @@ class EmployeeController extends Controller
             'start_date',
             'end_date',
             'keterangan_kontrak',
+            'document',
             'status_karyawan',
         ]);
     }
@@ -300,6 +308,7 @@ class EmployeeController extends Controller
                 'duration_label' => $this->durationLabel($this->durationMonths($contract->start_date, $contract->end_date)),
                 'status' => $contract->status_kontrak,
                 'description' => $contract->keterangan,
+                'has_document' => filled($contract->document),
             ])->values(),
         ];
     }
@@ -318,6 +327,7 @@ class EmployeeController extends Controller
             return;
         }
 
+        $fields = [...$fields, ...Arr::only($payload, ['document'])];
         $contractPayload = [
             'jenis_kontrak' => strtoupper((string) $fields['jenis_kontrak']),
             'status_kontrak' => strtoupper((string) $fields['status_kontrak']),
@@ -326,6 +336,7 @@ class EmployeeController extends Controller
             'durasi_bulan' => $this->durationMonths($fields['start_date'], $fields['end_date']),
             'keterangan' => $fields['keterangan_kontrak'] ?? null,
             'updated_at' => now(),
+            ...array_key_exists('document', $fields) ? ['document' => $fields['document']] : [],
         ];
 
         $contract = DB::table('t_kontrak_karyawan')
@@ -369,6 +380,18 @@ class EmployeeController extends Controller
         $employee->update([
             'status_karyawan' => $this->employeeStatus($employee->nik),
         ]);
+    }
+
+    private function requiresNewContractDocument(Request $request, ?Karyawan $employee): bool
+    {
+        $hasContractInput = collect(['jenis_kontrak', 'status_kontrak', 'start_date', 'end_date'])
+            ->contains(fn (string $field): bool => $request->filled($field));
+
+        if (! $hasContractInput) {
+            return false;
+        }
+
+        return ! $employee || ! DB::table('t_kontrak_karyawan')->where('nik', $employee->nik)->exists();
     }
 
     private function employeeStatus(string $nik): string

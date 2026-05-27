@@ -6,7 +6,10 @@ use App\Models\FrontendMenu;
 use App\Models\Karyawan;
 use App\Models\User;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -15,6 +18,9 @@ class EmployeeApiTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        Storage::fake('public');
+        Storage::fake('local');
 
         Schema::dropIfExists('t_kontrak_karyawan');
         Schema::dropIfExists('m_karyawan');
@@ -73,6 +79,7 @@ class EmployeeApiTest extends TestCase
             $table->string('email')->nullable();
             $table->date('tanggal_lahir')->nullable();
             $table->string('jenis_kelamin')->nullable();
+            $table->string('golongan_darah')->nullable();
             $table->string('no_ktp')->nullable();
             $table->string('tempat_lahir')->nullable();
             $table->text('alamat')->nullable();
@@ -112,6 +119,7 @@ class EmployeeApiTest extends TestCase
             $table->unsignedInteger('durasi_bulan')->nullable();
             $table->string('status_kontrak');
             $table->text('keterangan')->nullable();
+            $table->string('document')->nullable();
             $table->text('catatan')->nullable();
             $table->timestamps();
         });
@@ -187,7 +195,7 @@ class EmployeeApiTest extends TestCase
             'nama_karyawan' => 'Manager HR',
         ]);
 
-        $this->postJson('/api/employee', [
+        $this->post('/api/employee', [
             'nik' => 'EMP003',
             'nama_karyawan' => 'Siti Aminah',
             'jabatan' => 'HR Staff',
@@ -206,12 +214,14 @@ class EmployeeApiTest extends TestCase
             'nama_atasan_langsung' => 'Manager HR',
             'npwp' => true,
             'bpjs' => true,
-        ])
+            'document' => UploadedFile::fake()->create('kontrak-awal.pdf', 100, 'application/pdf'),
+        ], ['Accept' => 'application/json'])
             ->assertCreated()
             ->assertJsonPath('data.nik', 'EMP003')
             ->assertJsonPath('data.posisi', 'Jr. Staff')
             ->assertJsonPath('data.join_date', '2025-12-25')
-            ->assertJsonPath('data.tanggal_lahir', '1995-11-19');
+            ->assertJsonPath('data.tanggal_lahir', '1995-11-19')
+            ->assertJsonPath('data.contracts.0.has_document', true);
 
         $this->assertDatabaseHas('m_karyawan', [
             'nik' => 'EMP003',
@@ -231,6 +241,9 @@ class EmployeeApiTest extends TestCase
             'end_date' => '2027-04-30',
             'durasi_bulan' => 12,
         ]);
+        Storage::disk('local')->assertExists(
+            DB::table('t_kontrak_karyawan')->where('nik', 'EMP003')->value('document')
+        );
 
         $this->patchJson('/api/employee/EMP003', [
             'nama_karyawan' => 'Siti A. Aminah',
@@ -272,6 +285,62 @@ class EmployeeApiTest extends TestCase
             ->assertNoContent();
 
         $this->assertDatabaseMissing('m_karyawan', ['nik' => 'EMP003']);
+    }
+
+    public function test_it_requires_a_pdf_document_when_hr_adds_a_new_contract(): void
+    {
+        FrontendMenu::create([
+            'key' => 'hr-contracts',
+            'label' => 'Kontrak Karyawan',
+            'path' => '/hr/contracts',
+            'allowed_levels' => '2',
+            'is_active' => true,
+        ]);
+
+        Karyawan::create([
+            'nik' => 'EMP004',
+            'nama_karyawan' => 'Rina Kontrak',
+            'jabatan' => 'Staff',
+        ]);
+
+        $payload = [
+            'jenis_kontrak' => 'PKWT',
+            'status_kontrak' => 'AKTIF',
+            'start_date' => '2026-06-01',
+            'end_date' => '2027-05-31',
+            'keterangan' => 'Kontrak baru',
+        ];
+
+        $this->postJson('/api/hr/contracts/EMP004', $payload)
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('document');
+
+        $this->post('/api/hr/contracts/EMP004', [
+            ...$payload,
+            'document' => UploadedFile::fake()->create('kontrak-terlalu-besar.pdf', 2049, 'application/pdf'),
+        ], ['Accept' => 'application/json'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('document');
+
+        $this->post('/api/hr/contracts/EMP004', [
+            ...$payload,
+            'document' => UploadedFile::fake()->create('kontrak-rina.pdf', 100, 'application/pdf'),
+        ], ['Accept' => 'application/json'])
+            ->assertCreated()
+            ->assertJsonPath('data.contract_number', 1)
+            ->assertJsonPath('data.status', 'AKTIF')
+            ->assertJsonPath('data.has_document', true);
+
+        $document = DB::table('t_kontrak_karyawan')->where('nik', 'EMP004')->value('document');
+        $this->assertNotNull($document);
+        Storage::disk('local')->assertExists($document);
+
+        $contractId = DB::table('t_kontrak_karyawan')->where('nik', 'EMP004')->value('id');
+
+        $this->get('/api/hr/contracts/records/'.$contractId.'/pdf-preview')
+            ->assertOk()
+            ->assertJsonPath('mime_type', 'application/pdf')
+            ->assertJsonPath('filename', 'Kontrak-EMP004-1.pdf');
     }
 
     public function test_level_zero_can_receive_and_manage_its_allowed_frontend_menu(): void

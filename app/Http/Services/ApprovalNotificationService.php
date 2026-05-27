@@ -261,6 +261,7 @@ class ApprovalNotificationService
     public function notifyHrGroups($request, string $type): void
     {
         try {
+            $this->notifyHrUsers($request, $type);
             $groups = $this->hrGroupIds($type);
 
             if (empty($groups)) {
@@ -281,6 +282,18 @@ class ApprovalNotificationService
         }
     }
 
+    public function notifyHrUsers($request, string $type): void
+    {
+        $request->loadMissing('user');
+
+        User::query()
+            ->where('level', 2)
+            ->get()
+            ->each(fn (User $hr) => $hr->notify(
+                new \App\Notifications\ApprovalRequestNotification($request, $type)
+            ));
+    }
+
     private function hrGroupIds(string $type): array
     {
         return match (strtoupper($type)) {
@@ -291,6 +304,9 @@ class ApprovalNotificationService
             'LEMBUR' => [
                 '120363426538856642@g.us',
             ],
+            'IZIN', 'SAKIT' => array_filter([
+                trim((string) config('services.whatsapp.hr_permission_group_id')),
+            ]),
             default => [],
         };
     }
@@ -304,6 +320,7 @@ class ApprovalNotificationService
             'CUTI' => 'leave',
             'PH' => 'ph',
             'IZIN' => 'permission',
+            'SAKIT' => 'permission',
             'LEMBUR' => 'overtime',
             default => strtolower($type),
         };
@@ -312,6 +329,7 @@ class ApprovalNotificationService
             'CUTI' => 'Cuti',
             'PH' => 'Public Holiday',
             'IZIN' => 'Izin/Sakit',
+            'SAKIT' => 'Sakit',
             'LEMBUR' => 'Lembur',
             default => $type,
         };

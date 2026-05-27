@@ -9,6 +9,7 @@ use App\Models\EmployeeDailySchedule;
 use App\Models\Karyawan;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -16,34 +17,61 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Maatwebsite\Excel\Facades\Excel;
 use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class HrScheduleController extends Controller
 {
+    public function options(): JsonResponse
+    {
+        $employees = Karyawan::query()
+            ->orderBy('nama_karyawan')
+            ->get(['nik', 'nama_karyawan', 'jabatan', 'posisi', 'departement', 'divisi', 'unit']);
+
+        return response()->json([
+            'departments' => $employees
+                ->map(fn (Karyawan $employee) => $this->employeeDepartment($employee))
+                ->unique()
+                ->sort()
+                ->values(),
+            'employees' => $employees->map(fn (Karyawan $employee) => $this->serializeEmployee($employee)),
+        ]);
+    }
+
     public function index(Request $request): JsonResponse
     {
         [$start, $end] = $this->period($request);
+        $validated = $request->validate([
+            'departments' => ['nullable', 'array'],
+            'departments.*' => ['string', 'max:100'],
+            'employee_niks' => ['nullable', 'array'],
+            'employee_niks.*' => ['string', 'max:30'],
+        ]);
+        $departments = $validated['departments'] ?? [];
+        $employeeNiks = $validated['employee_niks'] ?? [];
         $employees = Karyawan::query()
-            ->orderBy('departement')
+            ->when($departments !== [], fn (Builder $query) => $this->filterDepartments($query, $departments))
+            ->when($employeeNiks !== [], fn (Builder $query) => $query->whereIn('nik', $employeeNiks))
             ->orderBy('nama_karyawan')
-            ->get(['nik', 'departement', 'divisi']);
+            ->get(['nik', 'nama_karyawan', 'jabatan', 'posisi', 'departement', 'divisi', 'unit']);
         $counts = EmployeeDailySchedule::query()
+            ->whereIn('karyawan_nik', $employees->pluck('nik'))
             ->whereBetween('schedule_date', [$start, $end])
             ->select('karyawan_nik', DB::raw('count(*) as total'))
             ->groupBy('karyawan_nik')
             ->pluck('total', 'karyawan_nik');
-
-        $departments = $employees
-            ->groupBy(fn (Karyawan $employee) => $employee->departement ?: ($employee->divisi ?: 'Tanpa Departemen'))
-            ->map(fn (Collection $items, string $department) => [
-                'department' => $department,
-                'employee_count' => $items->count(),
-                'scheduled_days' => $items->sum(fn (Karyawan $employee) => (int) ($counts[$employee->nik] ?? 0)),
-            ])
-            ->values();
+        $totalPeriodDays = $start->diffInDays($end) + 1;
 
         return response()->json([
-            'filters' => $this->serializedPeriod($start, $end),
-            'departments' => $departments,
+            'filters' => [
+                ...$this->serializedPeriod($start, $end),
+                'departments' => $departments,
+                'employee_niks' => $employeeNiks,
+            ],
+            'employees' => $employees->map(fn (Karyawan $employee) => [
+                ...$this->serializeEmployee($employee),
+                'total_period_days' => $totalPeriodDays,
+                'scheduled_days' => (int) ($counts[$employee->nik] ?? 0),
+            ]),
             'categories' => $this->categories(),
         ]);
     }
@@ -73,7 +101,7 @@ class HrScheduleController extends Controller
                 }
             })
             ->orderBy('nama_karyawan')
-            ->get(['nik', 'nama_karyawan', 'jabatan', 'posisi', 'unit']);
+            ->get(['nik', 'nama_karyawan', 'jabatan', 'posisi', 'departement', 'divisi', 'unit']);
         $counts = EmployeeDailySchedule::query()
             ->whereIn('karyawan_nik', $employees->pluck('nik'))
             ->whereBetween('schedule_date', [$start, $end])
@@ -84,13 +112,24 @@ class HrScheduleController extends Controller
         return response()->json([
             'department' => $department,
             'employees' => $employees->map(fn (Karyawan $employee) => [
-                'nik' => $employee->nik,
-                'name' => $employee->nama_karyawan,
-                'position' => $employee->jabatan ?: ($employee->posisi ?: '-'),
-                'unit' => $employee->unit ?: '-',
+                ...$this->serializeEmployee($employee),
                 'scheduled_days' => (int) ($counts[$employee->nik] ?? 0),
             ]),
         ]);
+    }
+
+    public function template(Request $request): StreamedResponse
+    {
+        [$start, $end] = $this->period($request);
+        $validated = $request->validate([
+            'department' => ['required', 'string', 'max:100'],
+        ]);
+        $department = $validated['department'];
+        $employees = $this->departmentEmployees($department);
+        $filename = 'Template_Jadwal_'.preg_replace('/[^A-Za-z0-9_-]+/', '_', $department)
+            .'_'.$start->format('Ymd').'_'.$end->format('Ymd').'.csv';
+
+        return $this->templateResponse($employees, $start, $end, $filename);
     }
 
     public function employee(Request $request, string $nik): JsonResponse
@@ -177,7 +216,15 @@ class HrScheduleController extends Controller
         [$start, $end] = $this->period($request);
         $validated = $request->validate([
             'department' => ['required', 'string', 'max:100'],
-            'file' => ['required', 'file', 'mimes:xlsx,xls,csv'],
+            'file' => [
+                'required',
+                'file',
+                function (string $attribute, mixed $file, \Closure $fail): void {
+                    if (! in_array(strtolower($file->getClientOriginalExtension()), ['xlsx', 'xls', 'csv'], true)) {
+                        $fail('File jadwal harus berformat XLSX, XLS, atau CSV.');
+                    }
+                },
+            ],
         ]);
         $employeeNiks = $this->departmentEmployeeNiks($validated['department'])->flip();
         $rows = collect(Excel::toArray(new RawRowsImport, $request->file('file'))[0] ?? []);
@@ -262,6 +309,11 @@ class HrScheduleController extends Controller
 
     private function departmentEmployeeNiks(string $department): Collection
     {
+        return $this->departmentEmployees($department)->pluck('nik');
+    }
+
+    private function departmentEmployees(string $department): Collection
+    {
         return Karyawan::query()
             ->where(function ($query) use ($department) {
                 if ($department === 'Tanpa Departemen') {
@@ -279,7 +331,78 @@ class HrScheduleController extends Controller
                         });
                 }
             })
-            ->pluck('nik');
+            ->orderBy('nama_karyawan')
+            ->get(['nik', 'nama_karyawan']);
+    }
+
+    private function filterDepartments(Builder $query, array $departments): Builder
+    {
+        $withoutDepartment = in_array('Tanpa Departemen', $departments, true);
+        $namedDepartments = array_values(array_diff($departments, ['Tanpa Departemen']));
+
+        return $query->where(function (Builder $filter) use ($withoutDepartment, $namedDepartments): void {
+            if ($namedDepartments !== []) {
+                $filter->whereIn('departement', $namedDepartments)
+                    ->orWhere(function (Builder $fallback) use ($namedDepartments): void {
+                        $fallback->where(function (Builder $empty): void {
+                            $empty->whereNull('departement')->orWhere('departement', '');
+                        })->whereIn('divisi', $namedDepartments);
+                    });
+            }
+
+            if ($withoutDepartment) {
+                $method = $namedDepartments === [] ? 'where' : 'orWhere';
+                $filter->{$method}(function (Builder $empty): void {
+                    $empty->where(function (Builder $department): void {
+                        $department->whereNull('departement')->orWhere('departement', '');
+                    })->where(function (Builder $division): void {
+                        $division->whereNull('divisi')->orWhere('divisi', '');
+                    });
+                });
+            }
+        });
+    }
+
+    private function serializeEmployee(Karyawan $employee): array
+    {
+        return [
+            'nik' => $employee->nik,
+            'name' => $employee->nama_karyawan,
+            'position' => $employee->jabatan ?: ($employee->posisi ?: '-'),
+            'department' => $this->employeeDepartment($employee),
+            'unit' => $employee->unit ?: '-',
+        ];
+    }
+
+    private function employeeDepartment(Karyawan $employee): string
+    {
+        return $employee->departement ?: ($employee->divisi ?: 'Tanpa Departemen');
+    }
+
+    private function templateResponse(Collection $employees, Carbon $start, Carbon $end, string $filename): StreamedResponse
+    {
+        $dates = collect(CarbonPeriod::create($start, $end))
+            ->map(fn (Carbon $date) => $date->toDateString());
+        $schedules = EmployeeDailySchedule::query()
+            ->whereIn('karyawan_nik', $employees->pluck('nik'))
+            ->whereBetween('schedule_date', [$start, $end])
+            ->get(['karyawan_nik', 'schedule_date', 'schedule_code'])
+            ->keyBy(fn (EmployeeDailySchedule $schedule) => $schedule->karyawan_nik.'|'.$schedule->schedule_date->toDateString());
+
+        return response()->streamDownload(function () use ($employees, $dates, $schedules): void {
+            $file = fopen('php://output', 'w');
+            fputcsv($file, ['NIK', 'Nama Karyawan', ...$dates->all()]);
+
+            foreach ($employees as $employee) {
+                $row = [$employee->nik, $employee->nama_karyawan];
+                foreach ($dates as $date) {
+                    $row[] = $schedules->get($employee->nik.'|'.$date)?->schedule_code ?? '';
+                }
+                fputcsv($file, $row);
+            }
+
+            fclose($file);
+        }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
     }
 
     private function dateColumns(Collection $header, Carbon $start, Carbon $end): array

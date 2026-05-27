@@ -82,10 +82,13 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::get('/contracts/{nik}', [HrContractController::class, 'show']);
                 Route::post('/contracts/{nik}', [HrContractController::class, 'store']);
                 Route::put('/contracts/records/{contractId}', [HrContractController::class, 'update']);
+                Route::get('/contracts/records/{contractId}/pdf-preview', [HrContractController::class, 'previewPdf']);
             });
             Route::get('/approvals/{type}', [HrApprovalController::class, 'index']);
             Route::post('/approvals/{type}/{id}', [HrApprovalController::class, 'decide']);
             Route::post('/approvals/{type}/{id}/cancel', [HrApprovalController::class, 'cancel']);
+            Route::get('/schedules/options', [HrScheduleController::class, 'options']);
+            Route::get('/schedules/template', [HrScheduleController::class, 'template']);
             Route::get('/schedules', [HrScheduleController::class, 'index']);
             Route::get('/schedules/department', [HrScheduleController::class, 'department']);
             Route::post('/schedules/upload', [HrScheduleController::class, 'upload']);
@@ -140,6 +143,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
             Route::prefix('team-schedules')->middleware('frontend.menu:staff-team-schedules')->group(function () {
                 Route::get('/', [StaffTeamScheduleController::class, 'index']);
+                Route::get('/template', [StaffTeamScheduleController::class, 'template']);
                 Route::post('/upload', [StaffTeamScheduleController::class, 'upload']);
                 Route::get('/employees/{nik}', [StaffTeamScheduleController::class, 'employee']);
                 Route::put('/employees/{nik}', [StaffTeamScheduleController::class, 'store']);

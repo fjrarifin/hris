@@ -39,6 +39,7 @@ class ApprovalRequestNotification extends Notification
             'CUTI' => 'Pengajuan Cuti Baru',
             'PH' => 'Pengajuan PH Baru',
             'IZIN' => 'Pengajuan Izin/Sakit Baru',
+            'SAKIT' => 'Pengajuan Sakit Baru',
             'LEMBUR' => 'Pengajuan Lembur Baru',
             default => 'Pengajuan Baru'
         };
@@ -52,6 +53,7 @@ class ApprovalRequestNotification extends Notification
             'CUTI' => 'cuti',
             'PH' => 'PH',
             'IZIN' => 'izin/sakit',
+            'SAKIT' => 'sakit',
             'LEMBUR' => 'lembur',
             default => strtolower($this->type),
         };

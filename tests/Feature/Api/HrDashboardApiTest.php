@@ -4,6 +4,7 @@ namespace Tests\Feature\Api;
 
 use App\Models\AttendanceScheduleCategory;
 use App\Models\EmployeeDailySchedule;
+use App\Models\EmployeePermission;
 use App\Models\FingerspotAttendanceLog;
 use App\Models\Karyawan;
 use App\Models\LeaveRequest;
@@ -29,6 +30,7 @@ class HrDashboardApiTest extends TestCase
             't_kontrak_karyawan',
             'overtime_requests',
             'public_holiday_requests',
+            'employee_permissions',
             'leave_requests',
             'fingerspot_attendance_logs',
             'attendance_corrections',
@@ -58,12 +60,14 @@ class HrDashboardApiTest extends TestCase
         $manager = $this->employee('MGR001', 'Manager Marketing', 'PIN-M', 'Manager', 'Marketing');
         $assistant = $this->employee('ASM001', 'Asisten Sales', 'PIN-A', 'Asst. Manager', 'Sales');
         $staff = $this->employee('EMP001', 'Staf Operasional', 'PIN-E', 'Staff', 'Operations');
+        $leader = $this->employee('LDR001', 'Leader Marketing', 'PIN-L', 'Leader', 'Marketing');
         $this->employee('EMP002', 'PIN Belum Terhubung', null, 'Staff', 'Operations');
         $this->employee('EMP003', 'Tidak Hadir', 'PIN-N', 'Staff', 'Operations');
 
         $this->log('PIN-M', '2026-05-24 08:00:00', '0');
         $this->log('PIN-M', '2026-05-24 17:00:00', '1');
         $this->log('PIN-A', '2026-05-24 08:10:00', '0');
+        $this->log('PIN-L', '2026-05-24 08:20:00', '0');
         $this->log('PIN-UNKNOWN', '2026-05-24 08:15:00', '0');
 
         $work = AttendanceScheduleCategory::query()->create([
@@ -102,6 +106,22 @@ class HrDashboardApiTest extends TestCase
             'hr_approved_at' => now(),
         ]);
 
+        EmployeePermission::query()->create([
+            'user_id' => $staff->id,
+            'type' => 'izin',
+            'date' => '2026-05-24',
+            'status' => 'approved',
+            'hr_approved_at' => now(),
+        ]);
+
+        EmployeePermission::query()->create([
+            'user_id' => $manager->id,
+            'type' => 'sakit',
+            'date' => '2026-05-24',
+            'status' => 'approved',
+            'hr_approved_at' => now(),
+        ]);
+
         OvertimeRequest::query()->create([
             'user_id' => $staff->id,
             'date' => '2026-05-24',
@@ -121,19 +141,25 @@ class HrDashboardApiTest extends TestCase
 
         $this->getJson('/api/hr/dashboard')
             ->assertOk()
-            ->assertJsonPath('summary.total_employees', 5)
+            ->assertJsonPath('summary.total_employees', 6)
             ->assertJsonPath('summary.active_employees', 1)
-            ->assertJsonPath('summary.attendance_today', 2)
-            ->assertJsonPath('summary.scan_pins_today', 3)
-            ->assertJsonPath('attendance.mapped_employee_count', 2)
+            ->assertJsonPath('summary.attendance_today', 3)
+            ->assertJsonPath('summary.scan_pins_today', 4)
+            ->assertJsonPath('attendance.mapped_employee_count', 3)
             ->assertJsonPath('attendance.unmapped_pin_count', 1)
-            ->assertJsonPath('attendance.by_department.0.total', 1)
+            ->assertJsonPath('attendance.by_department.0.total', 2)
+            ->assertJsonPath('attendance.by_department.0.employees.0.name', 'Manager Marketing')
             ->assertJsonCount(1, 'attendance.managers_present')
             ->assertJsonPath('attendance.managers_present.0.scan_in', '08:00:00')
             ->assertJsonPath('attendance.managers_present.0.scan_out', '17:00:00')
             ->assertJsonCount(1, 'attendance.assistant_managers_present')
+            ->assertJsonCount(3, 'attendance.management_present')
             ->assertJsonPath('summary.leave_today', 1)
             ->assertJsonPath('summary.public_holiday_today', 1)
+            ->assertJsonPath('summary.permission_today', 1)
+            ->assertJsonPath('summary.sick_today', 1)
+            ->assertJsonPath('permission_today.0.name', 'Staf Operasional')
+            ->assertJsonPath('sick_today.0.name', 'Manager Marketing')
             ->assertJsonPath('summary.overtime_today', 1)
             ->assertJsonPath('overtime_today.0.department', 'Operations')
             ->assertJsonPath('yesterday_incomplete_attendance.unlinked_pin_count', 1)
@@ -225,6 +251,16 @@ class HrDashboardApiTest extends TestCase
             $table->id();
             $table->unsignedBigInteger('user_id');
             $table->date('claim_date');
+            $table->string('status');
+            $table->timestamp('hr_approved_at')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('employee_permissions', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('user_id');
+            $table->string('type');
+            $table->date('date');
             $table->string('status');
             $table->timestamp('hr_approved_at')->nullable();
             $table->timestamps();
