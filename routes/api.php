@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\HrContractController;
 use App\Http\Controllers\Api\HrDashboardController;
 use App\Http\Controllers\Api\HrScheduleController;
 use App\Http\Controllers\Api\NavigationController;
+use App\Http\Controllers\Api\OnlineUserController;
 use App\Http\Controllers\Api\StaffPortalController;
 use App\Http\Controllers\Api\StaffTeamScheduleController;
 use App\Http\Controllers\AttendanceController;
@@ -59,6 +60,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::middleware('password.changed.api')->group(function () {
         Route::get('/navigation', [NavigationController::class, 'index']);
+        Route::get('/online-users', [OnlineUserController::class, 'index']);
+        Route::post('/online-users/heartbeat', [OnlineUserController::class, 'heartbeat']);
         Route::prefix('navigation/access')->middleware('level:0')->group(function () {
             Route::get('/', [NavigationController::class, 'access']);
             Route::put('/{frontendMenu}', [NavigationController::class, 'update']);

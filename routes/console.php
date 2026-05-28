@@ -22,3 +22,13 @@ Schedule::command('attendance:send-employee-warnings')
     ->dailyAt('07:30')
     ->withoutOverlapping()
     ->runInBackground();
+
+Schedule::command('absence:auto-cancel-attended')
+    ->dailyAt('07:45')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+Schedule::command('contracts:expire')
+    ->dailyAt('00:15')
+    ->withoutOverlapping()
+    ->runInBackground();

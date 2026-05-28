@@ -28,6 +28,7 @@ class HrContractController extends Controller
         ]);
 
         $today = now()->startOfDay();
+        $this->expireContracts($today);
         $records = $this->employeeContractRows($today);
         $search = strtolower(trim((string) ($validated['q'] ?? '')));
         $status = $validated['status'] ?? 'all';
@@ -97,6 +98,7 @@ class HrContractController extends Controller
 
     public function show(string $nik): JsonResponse
     {
+        $this->expireContracts(now()->startOfDay(), $nik);
         $employee = Karyawan::query()->where('nik', $nik)->firstOrFail();
 
         return response()->json([
@@ -304,9 +306,12 @@ class HrContractController extends Controller
 
     private function ensureNoActiveContract(string $nik, ?int $exceptId = null): void
     {
+        $today = now()->startOfDay();
         $hasActiveContract = DB::table('t_kontrak_karyawan')
             ->where('nik', $nik)
             ->where('status_kontrak', 'AKTIF')
+            ->whereDate('start_date', '<=', $today)
+            ->whereDate('end_date', '>=', $today)
             ->when($exceptId !== null, fn ($query) => $query->where('id', '!=', $exceptId))
             ->exists();
 
@@ -332,6 +337,32 @@ class HrContractController extends Controller
         Karyawan::query()->where('nik', $nik)->update([
             'status_karyawan' => $active ? 'AKTIF' : 'NONAKTIF',
         ]);
+    }
+
+    private function expireContracts(Carbon $today, ?string $nik = null): void
+    {
+        $expiredNiks = DB::table('t_kontrak_karyawan')
+            ->where('status_kontrak', 'AKTIF')
+            ->whereDate('end_date', '<', $today)
+            ->when($nik !== null, fn ($query) => $query->where('nik', $nik))
+            ->pluck('nik')
+            ->unique()
+            ->values();
+
+        if ($expiredNiks->isEmpty()) {
+            return;
+        }
+
+        DB::table('t_kontrak_karyawan')
+            ->where('status_kontrak', 'AKTIF')
+            ->whereDate('end_date', '<', $today)
+            ->when($nik !== null, fn ($query) => $query->where('nik', $nik))
+            ->update([
+                'status_kontrak' => 'NONAKTIF',
+                'updated_at' => now(),
+            ]);
+
+        $expiredNiks->each(fn (string $expiredNik) => $this->syncEmployeeStatus($expiredNik));
     }
 
     private function durationMonths(?string $startDate, ?string $endDate): ?int

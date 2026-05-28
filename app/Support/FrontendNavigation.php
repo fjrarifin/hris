@@ -19,10 +19,19 @@ class FrontendNavigation
             ->map(fn (FrontendMenu $menu) => $this->serializeMenu($menu, $user))
             ->values();
 
-        if ((int) $user->level !== 2) {
-            return $menus;
+        if ((int) $user->level === 2) {
+            return $this->groupHrMenus($menus);
         }
 
+        if ((int) $user->level === 3) {
+            return $this->groupStaffMenus($menus);
+        }
+
+        return $menus;
+    }
+
+    private function groupHrMenus(Collection $menus): Collection
+    {
         $employeeKeys = ['employees', 'hr-contracts'];
         $employeeAnchor = $menus
             ->first(fn (array $menu) => in_array($menu['key'], $employeeKeys, true))['key'] ?? null;
@@ -106,6 +115,67 @@ class FrontendNavigation
             }
 
             return in_array($menu['key'], $approvalKeys, true) ? [] : [$menu];
+        })->values();
+    }
+
+    private function groupStaffMenus(Collection $menus): Collection
+    {
+        $requestKeys = ['staff-leave', 'staff-public-holiday', 'staff-permission'];
+        $requestAnchor = $menus
+            ->first(fn (array $menu) => in_array($menu['key'], $requestKeys, true))['key'] ?? null;
+        $requestChildren = $menus
+            ->whereIn('key', $requestKeys)
+            ->sortBy(fn (array $menu) => array_search($menu['key'], $requestKeys, true))
+            ->values()
+            ->all();
+
+        $supervisorKeys = ['staff-approvals', 'staff-overtime', 'staff-team-schedules'];
+        $supervisorAnchor = $menus
+            ->first(fn (array $menu) => in_array($menu['key'], $supervisorKeys, true))['key'] ?? null;
+        $supervisorChildren = $menus
+            ->whereIn('key', $supervisorKeys)
+            ->sortBy(fn (array $menu) => array_search($menu['key'], $supervisorKeys, true))
+            ->map(function (array $menu): array {
+                if ($menu['key'] === 'staff-approvals') {
+                    $menu['label'] = 'Persetujuan Pengajuan';
+                }
+
+                return $menu;
+            })
+            ->values()
+            ->all();
+
+        return $menus->flatMap(function (array $menu) use (
+            $requestKeys,
+            $requestAnchor,
+            $requestChildren,
+            $supervisorKeys,
+            $supervisorAnchor,
+            $supervisorChildren
+        ): array {
+            if ($menu['key'] === $requestAnchor && $requestChildren) {
+                return [[
+                    'key' => 'staff-requests',
+                    'label' => 'Pengajuan',
+                    'icon' => 'i-lucide-clipboard-list',
+                    'children' => $requestChildren,
+                ]];
+            }
+
+            if (in_array($menu['key'], $requestKeys, true)) {
+                return [];
+            }
+
+            if ($menu['key'] === $supervisorAnchor && $supervisorChildren) {
+                return [[
+                    'key' => 'staff-supervisor',
+                    'label' => 'Menu Atasan',
+                    'icon' => 'i-lucide-users-round',
+                    'children' => $supervisorChildren,
+                ]];
+            }
+
+            return in_array($menu['key'], $supervisorKeys, true) ? [] : [$menu];
         })->values();
     }
 
