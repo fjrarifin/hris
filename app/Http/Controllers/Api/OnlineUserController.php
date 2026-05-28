@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Karyawan;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -12,9 +11,30 @@ class OnlineUserController extends Controller
 {
     public function heartbeat(Request $request): JsonResponse
     {
-        $request->user()->forceFill([
+        $payload = $request->validate([
+            'latitude' => ['nullable', 'numeric', 'between:-90,90'],
+            'longitude' => ['nullable', 'numeric', 'between:-180,180'],
+            'city' => ['nullable', 'string', 'max:100'],
+            'location_unavailable' => ['nullable', 'boolean'],
+        ]);
+
+        $attributes = [
             'last_seen_at' => now(),
-        ])->save();
+        ];
+
+        if ($payload['location_unavailable'] ?? false) {
+            $attributes['online_latitude'] = null;
+            $attributes['online_longitude'] = null;
+            $attributes['online_city'] = null;
+            $attributes['online_location_updated_at'] = null;
+        } elseif (isset($payload['latitude'], $payload['longitude'])) {
+            $attributes['online_latitude'] = $payload['latitude'];
+            $attributes['online_longitude'] = $payload['longitude'];
+            $attributes['online_city'] = $this->normalizeCity($payload['city'] ?? null);
+            $attributes['online_location_updated_at'] = now();
+        }
+
+        $request->user()->forceFill($attributes)->save();
 
         return response()->json(['ok' => true]);
     }
@@ -41,38 +61,27 @@ class OnlineUserController extends Controller
             'name' => $employee?->nama_karyawan ?? $user->name,
             'nik' => $employee?->nik ?? $user->username,
             'position' => $employee?->jabatan ?: ($employee?->posisi ?: '-'),
-            'city' => $this->cityFromEmployee($employee),
+            'city' => $user->online_city,
+            'latitude' => $user->online_latitude,
+            'longitude' => $user->online_longitude,
             'photo_url' => $user->photo
                 ? route('profile-photos.show', ['filename' => basename($user->photo)])
                 : null,
             'last_seen_at' => $user->last_seen_at?->toIso8601String(),
+            'location_updated_at' => $user->online_location_updated_at?->toIso8601String(),
         ];
     }
 
-    private function cityFromEmployee(?Karyawan $employee): string
+    private function normalizeCity(?string $city): ?string
     {
-        if (! $employee) {
-            return '-';
+        $city = trim((string) $city);
+
+        if ($city === '') {
+            return null;
         }
 
-        $address = trim((string) $employee->alamat);
-        if ($address === '') {
-            return trim((string) $employee->tempat_lahir) ?: '-';
-        }
+        $city = preg_replace('/\b(kota|kabupaten|kab\.)\b/i', '', $city);
 
-        $parts = collect(preg_split('/[,;\n]+/', $address))
-            ->map(fn (string $part): string => trim($part))
-            ->filter()
-            ->values();
-
-        $city = $parts->first(fn (string $part): bool => preg_match('/\b(kota|kabupaten|kab\.|jakarta|bandung|bekasi|depok|tangerang|bogor)\b/i', $part));
-
-        if (! $city) {
-            $city = $parts->last();
-        }
-
-        $city = preg_replace('/\b(kota|kabupaten|kab\.)\b/i', '', (string) $city);
-
-        return trim((string) $city) ?: '-';
+        return trim((string) $city) ?: null;
     }
 }
