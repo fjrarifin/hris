@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Api;
 
 use App\Exports\HrAttendanceExport;
+use App\Exports\HrAttendanceMinimumExport;
 use App\Http\Controllers\Controller;
+use App\Http\Services\WhatsAppService;
 use App\Models\AttendanceCorrection;
 use App\Models\EmployeePermission;
 use App\Models\FingerspotAttendanceLog;
@@ -12,6 +14,8 @@ use App\Models\LeaveRequest;
 use App\Models\OvertimeRequest;
 use App\Models\PublicHoliday;
 use App\Models\PublicHolidayRequest;
+use App\Models\User;
+use App\Notifications\MinimumAttendanceWarningNotification;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use Illuminate\Database\Eloquent\Builder;
@@ -19,6 +23,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -119,57 +124,29 @@ class HrAttendanceController extends Controller
             'employee_niks' => ['nullable', 'array'],
             'employee_niks.*' => ['string', 'max:30', 'exists:m_karyawan,nik'],
             'employee_status' => ['nullable', 'in:AKTIF,NONAKTIF'],
+            'result_status' => ['nullable', 'in:all,under,met'],
+            'search' => ['nullable', 'string', 'max:100'],
+            'per_page' => ['nullable', 'in:all'],
             'page' => ['nullable', 'integer', 'min:1'],
         ]);
 
-        $periodMonth = Carbon::createFromFormat('Y-m-d', $validated['period_month'].'-01')->startOfDay();
-        $periodStart = $periodMonth->copy()->subMonthNoOverflow()->day(25);
-        $periodEnd = $periodMonth->copy()->day(24);
-        $report = $this->report([
-            ...$validated,
-            'start_date' => $periodStart->toDateString(),
-            'end_date' => $periodEnd->toDateString(),
-        ]);
-        $targets = $this->monthlyTargets();
-        $records = $report['records']
-            ->map(function (array $record) use ($targets): array {
-                $attendanceDiff = $record['total_attendance'] - $targets['ideal_attendance_days'];
-                $durationDiff = $record['total_work_duration_minutes'] - $targets['minimum_work_duration_minutes'];
-                $isUnderTarget = $attendanceDiff < 0 || $durationDiff < 0;
+        $monitoring = $this->minimumMonitoringData($validated);
+        $records = $monitoring['records'];
 
-                return [
-                    'nik' => $record['nik'],
-                    'name' => $record['name'],
-                    'position' => $record['position'],
-                    'department' => $record['department'],
-                    'unit' => $record['unit'],
-                    'employee_status' => $record['employee_status'],
-                    'total_attendance' => $record['total_attendance'],
-                    'attendance_diff' => $attendanceDiff,
-                    'attendance_diff_label' => $this->signedNumberLabel($attendanceDiff, 'hari'),
-                    'total_work_duration_minutes' => $record['total_work_duration_minutes'],
-                    'total_work_duration' => $record['total_work_duration'],
-                    'work_duration_diff_minutes' => $durationDiff,
-                    'work_duration_diff' => $this->signedDurationLabel($durationDiff),
-                    'total_overtime' => $record['total_overtime'],
-                    'status' => $isUnderTarget ? 'under' : 'met',
-                    'status_label' => $isUnderTarget ? 'Kurang' : 'Memenuhi / Lebih',
-                ];
-            })
-            ->values();
-
-        $perPage = 15;
         $total = $records->count();
+        $perPage = ($validated['per_page'] ?? null) === 'all' ? max($total, 1) : 15;
         $lastPage = max((int) ceil($total / $perPage), 1);
         $page = min((int) ($validated['page'] ?? 1), $lastPage);
 
         return response()->json([
             'filters' => [
-                ...$report['filters'],
+                ...$monitoring['report']['filters'],
                 'period_month' => $validated['period_month'],
-                'period_label' => $periodMonth->translatedFormat('F Y'),
+                'period_label' => $monitoring['period_month']->translatedFormat('F Y'),
+                'result_status' => $validated['result_status'] ?? 'all',
+                'search' => $validated['search'] ?? '',
             ],
-            'targets' => $targets,
+            'targets' => $monitoring['targets'],
             'summary' => [
                 'total_employees' => $total,
                 'under_target' => $records->where('status', 'under')->count(),
@@ -184,6 +161,114 @@ class HrAttendanceController extends Controller
                 'from' => $total ? (($page - 1) * $perPage) + 1 : 0,
                 'to' => min($page * $perPage, $total),
             ],
+        ]);
+    }
+
+    public function exportMinimumMonitoring(Request $request): BinaryFileResponse
+    {
+        $validated = $request->validate([
+            'period_month' => ['required', 'date_format:Y-m'],
+            'departments' => ['nullable', 'array'],
+            'departments.*' => ['string', 'max:100'],
+            'employee_niks' => ['nullable', 'array'],
+            'employee_niks.*' => ['string', 'max:30', 'exists:m_karyawan,nik'],
+            'employee_status' => ['nullable', 'in:AKTIF,NONAKTIF'],
+            'result_status' => ['nullable', 'in:all,under,met'],
+            'search' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        $monitoring = $this->minimumMonitoringData($validated);
+        $fileName = 'Monitoring_Minimum_Absensi_'.$validated['period_month'].'.xlsx';
+
+        return Excel::download(
+            new HrAttendanceMinimumExport($monitoring['records'], $monitoring['targets']),
+            $fileName
+        );
+    }
+
+    public function notifyMinimumMonitoringEmployee(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'period_month' => ['required', 'date_format:Y-m'],
+            'nik' => ['required', 'string', 'exists:m_karyawan,nik'],
+        ]);
+
+        $monitoring = $this->minimumMonitoringData([
+            'period_month' => $validated['period_month'],
+            'employee_niks' => [$validated['nik']],
+            'result_status' => 'all',
+        ]);
+        $record = $monitoring['records']->firstWhere('nik', $validated['nik']);
+
+        if (! $record) {
+            throw ValidationException::withMessages([
+                'nik' => 'Data karyawan tidak ditemukan pada periode ini.',
+            ]);
+        }
+
+        if ($record['work_duration_diff_minutes'] >= 0) {
+            throw ValidationException::withMessages([
+                'nik' => 'Notifikasi hanya dapat dikirim untuk karyawan yang durasi jam kerjanya kurang.',
+            ]);
+        }
+
+        $employee = Karyawan::query()->where('nik', $validated['nik'])->firstOrFail();
+        $user = User::query()->where('username', $validated['nik'])->first();
+        $periodLabel = $monitoring['period_month']->translatedFormat('F Y');
+
+        $this->sendMinimumMonitoringNotification($employee, $user, $record, $periodLabel, $monitoring['targets']);
+
+        return response()->json([
+            'message' => 'Notifikasi kekurangan minimum absensi berhasil dikirim.',
+        ]);
+    }
+
+    public function notifyMinimumMonitoringEmployees(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'period_month' => ['required', 'date_format:Y-m'],
+            'employee_niks' => ['required', 'array', 'min:1'],
+            'employee_niks.*' => ['string', 'exists:m_karyawan,nik'],
+        ]);
+
+        $monitoring = $this->minimumMonitoringData([
+            'period_month' => $validated['period_month'],
+            'employee_niks' => array_values(array_unique($validated['employee_niks'])),
+            'result_status' => 'all',
+        ]);
+        $records = $monitoring['records']
+            ->filter(fn (array $record): bool => $record['work_duration_diff_minutes'] < 0)
+            ->values();
+        $employees = Karyawan::query()
+            ->whereIn('nik', $records->pluck('nik'))
+            ->get()
+            ->keyBy('nik');
+        $users = User::query()
+            ->whereIn('username', $records->pluck('nik'))
+            ->get()
+            ->keyBy('username');
+        $periodLabel = $monitoring['period_month']->translatedFormat('F Y');
+        $sent = 0;
+
+        $records->each(function (array $record) use ($employees, $users, $periodLabel, $monitoring, &$sent): void {
+            $employee = $employees->get($record['nik']);
+            if (! $employee) {
+                return;
+            }
+
+            $this->sendMinimumMonitoringNotification(
+                $employee,
+                $users->get($record['nik']),
+                $record,
+                $periodLabel,
+                $monitoring['targets']
+            );
+            $sent++;
+        });
+
+        return response()->json([
+            'message' => "Notifikasi massal berhasil dikirim ke {$sent} karyawan.",
+            'sent' => $sent,
         ]);
     }
 
@@ -237,6 +322,114 @@ class HrAttendanceController extends Controller
             'records' => $records,
             ...$this->monthlyTargets(),
         ];
+    }
+
+    private function minimumMonitoringData(array $validated): array
+    {
+        $periodMonth = Carbon::createFromFormat('Y-m-d', $validated['period_month'].'-01')->startOfDay();
+        $periodStart = $periodMonth->copy()->subMonthNoOverflow()->day(25);
+        $periodEnd = $periodMonth->copy()->day(24);
+        $report = $this->report([
+            ...$validated,
+            'start_date' => $periodStart->toDateString(),
+            'end_date' => $periodEnd->toDateString(),
+        ]);
+        $targets = $this->monthlyTargets();
+        $records = $report['records']
+            ->map(function (array $record) use ($targets): array {
+                $attendanceDiff = $record['total_attendance'] - $targets['ideal_attendance_days'];
+                $durationDiff = $record['total_work_duration_minutes'] - $targets['minimum_work_duration_minutes'];
+                $isUnderTarget = $attendanceDiff < 0 || $durationDiff < 0;
+
+                return [
+                    'nik' => $record['nik'],
+                    'name' => $record['name'],
+                    'position' => $record['position'],
+                    'department' => $record['department'],
+                    'unit' => $record['unit'],
+                    'employee_status' => $record['employee_status'],
+                    'total_attendance' => $record['total_attendance'],
+                    'attendance_diff' => $attendanceDiff,
+                    'attendance_diff_label' => $this->signedNumberLabel($attendanceDiff, 'hari'),
+                    'total_work_duration_minutes' => $record['total_work_duration_minutes'],
+                    'total_work_duration' => $record['total_work_duration'],
+                    'work_duration_diff_minutes' => $durationDiff,
+                    'work_duration_diff' => $this->signedDurationLabel($durationDiff),
+                    'total_overtime' => $record['total_overtime'],
+                    'status' => $isUnderTarget ? 'under' : 'met',
+                    'status_label' => $isUnderTarget ? 'Kurang' : 'Memenuhi / Lebih',
+                    'can_notify' => $durationDiff < 0,
+                ];
+            });
+
+        $records = $this->filterMinimumMonitoringRecords(
+            $records,
+            $validated['result_status'] ?? 'all',
+            $validated['search'] ?? ''
+        )->values();
+
+        return [
+            'period_month' => $periodMonth,
+            'report' => $report,
+            'targets' => $targets,
+            'records' => $records,
+        ];
+    }
+
+    private function filterMinimumMonitoringRecords(Collection $records, string $status, ?string $search): Collection
+    {
+        $keyword = trim(strtolower((string) $search));
+
+        return $records
+            ->when(
+                in_array($status, ['under', 'met'], true),
+                fn (Collection $items) => $items->where('status', $status)
+            )
+            ->when($keyword !== '', function (Collection $items) use ($keyword): Collection {
+                return $items->filter(fn (array $record): bool => str_contains(strtolower((string) $record['nik']), $keyword)
+                    || str_contains(strtolower((string) $record['name']), $keyword)
+                    || str_contains(strtolower((string) $record['position']), $keyword)
+                    || str_contains(strtolower((string) $record['department']), $keyword)
+                    || str_contains(strtolower((string) $record['unit']), $keyword));
+            });
+    }
+
+    private function minimumMonitoringWhatsAppMessage(array $record, string $periodLabel, array $targets): string
+    {
+        return "*PERINGATAN MINIMUM ABSENSI*\n\n"
+            . "Halo {$record['name']},\n\n"
+            . "Pada periode payroll {$periodLabel}, data absensi Anda masih kurang dari target perusahaan.\n\n"
+            . "Target: {$targets['ideal_attendance_days']} hari dan {$targets['minimum_work_duration']}\n"
+            . "Kehadiran Anda: {$record['total_attendance']} hari ({$record['attendance_diff_label']})\n"
+            . "Durasi kerja Anda: {$record['total_work_duration']} ({$record['work_duration_diff']})\n\n"
+            . "Mohon segera cek data absensi Anda dan hubungi HRD jika ada data yang perlu dikoreksi.\n\n"
+            . 'Pesan ini dikirim otomatis oleh HRIS.';
+    }
+
+    private function sendMinimumMonitoringNotification(
+        Karyawan $employee,
+        ?User $user,
+        array $record,
+        string $periodLabel,
+        array $targets
+    ): void {
+        $user?->notify(new MinimumAttendanceWarningNotification($record, $periodLabel, $targets));
+
+        if (! filled($employee->no_hp)) {
+            return;
+        }
+
+        try {
+            app(WhatsAppService::class)->sendMessage(
+                $employee->no_hp,
+                $this->minimumMonitoringWhatsAppMessage($record, $periodLabel, $targets)
+            );
+        } catch (\Throwable $exception) {
+            Log::warning('Gagal mengirim notifikasi minimum absensi ke karyawan.', [
+                'nik' => $employee->nik,
+                'error' => $exception->getMessage(),
+            ]);
+        }
     }
 
     private function report(array $validated): array

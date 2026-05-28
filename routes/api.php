@@ -107,6 +107,12 @@ Route::middleware('auth:sanctum')->group(function () {
             ->middleware(['level:1,2', 'frontend.menu:attendance']);
         Route::get('/hr/attendance/minimum-monitoring', [HrAttendanceController::class, 'minimumMonitoring'])
             ->middleware(['level:2', 'frontend.menu:hr-attendance-minimum']);
+        Route::get('/hr/attendance/minimum-monitoring/export', [HrAttendanceController::class, 'exportMinimumMonitoring'])
+            ->middleware(['level:2', 'frontend.menu:hr-attendance-minimum']);
+        Route::post('/hr/attendance/minimum-monitoring/notify', [HrAttendanceController::class, 'notifyMinimumMonitoringEmployee'])
+            ->middleware(['level:2', 'frontend.menu:hr-attendance-minimum']);
+        Route::post('/hr/attendance/minimum-monitoring/notify-bulk', [HrAttendanceController::class, 'notifyMinimumMonitoringEmployees'])
+            ->middleware(['level:2', 'frontend.menu:hr-attendance-minimum']);
 
         Route::prefix('staff')->middleware('level:3')->group(function () {
             Route::get('/dashboard', [StaffPortalController::class, 'dashboard']);
@@ -140,6 +146,7 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::get('/approvals', [StaffPortalController::class, 'approvals']);
                 Route::post('/approvals/{type}/{id}', [StaffPortalController::class, 'decideApproval']);
             });
+            Route::post('/dashboard/absence-cancellation-notification', [StaffPortalController::class, 'notifyHrAbsenceCancellation']);
 
             Route::middleware('frontend.menu:staff-overtime')->group(function () {
                 Route::get('/overtime', [StaffPortalController::class, 'overtime']);

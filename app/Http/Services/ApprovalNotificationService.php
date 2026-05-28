@@ -9,6 +9,7 @@ use App\Models\PublicHolidayRequest;
 use App\Models\EmployeePermission;
 use App\Models\OvertimeRequest;
 use App\Notifications\DirectManagerDecisionNotification;
+use App\Notifications\HrCancellationRequestNotification;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 
@@ -294,6 +295,43 @@ class ApprovalNotificationService
             ));
     }
 
+    public function notifyHrCancellationRequest(
+        object $request,
+        string $type,
+        Karyawan $employee,
+        User $supervisor,
+        string $reason
+    ): void {
+        try {
+            $request->loadMissing('user.karyawan');
+
+            User::query()
+                ->where('level', 2)
+                ->get()
+                ->each(fn (User $hr) => $hr->notify(
+                    new HrCancellationRequestNotification($request, $type, $employee, $supervisor, $reason)
+                ));
+
+            $groups = $this->hrGroupIds($type);
+            if (empty($groups)) {
+                return;
+            }
+
+            $message = $this->buildHrCancellationMessage($request, $type, $employee, $supervisor, $reason);
+            foreach ($groups as $groupId) {
+                $this->whatsAppService->sendMessage($groupId, $message);
+            }
+        } catch (\Throwable $e) {
+            Log::error('HR cancellation request notification failed', [
+                'type' => $type,
+                'request_id' => $request->id ?? null,
+                'employee_nik' => $employee->nik,
+                'supervisor_id' => $supervisor->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
     private function hrGroupIds(string $type): array
     {
         return match (strtoupper($type)) {
@@ -358,6 +396,34 @@ class ApprovalNotificationService
             . "NIK: {$employeeNik}\n"
             . "{$detail}\n\n"
             . "Silakan proses di aplikasi:\n{$link}";
+    }
+
+    private function buildHrCancellationMessage(
+        object $request,
+        string $type,
+        Karyawan $employee,
+        User $supervisor,
+        string $reason
+    ): string {
+        $label = strtoupper($type) === 'PH' ? 'PH' : 'Cuti';
+        $dateLabel = '-';
+
+        if ($request instanceof PublicHolidayRequest) {
+            $dateLabel = Carbon::parse($request->claim_date)->format('d M Y');
+        } elseif ($request instanceof LeaveRequest) {
+            $start = Carbon::parse($request->start_date)->format('d M Y');
+            $end = Carbon::parse($request->end_date)->format('d M Y');
+            $dateLabel = "{$start} - {$end}";
+        }
+
+        return "*PERMINTAAN PEMBATALAN {$label}*\n\n"
+            . "Atasan meminta HRD membatalkan pengajuan {$label} berikut:\n\n"
+            . "Nama: {$employee->nama_karyawan}\n"
+            . "NIK: {$employee->nik}\n"
+            . "Tanggal: {$dateLabel}\n"
+            . "Atasan: {$supervisor->name}\n"
+            . "Alasan: {$reason}\n\n"
+            . 'Silakan proses pembatalan di menu Approval HRD.';
     }
 
     private function buildDirectManagerDecisionMessage($request, Karyawan $karyawan, string $type, string $status): string

@@ -655,6 +655,42 @@ class StaffPortalController extends Controller
         return response()->json(['requests' => $this->pendingApprovalsFor($request->user())]);
     }
 
+    public function notifyHrAbsenceCancellation(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'type' => ['required', Rule::in(['leave', 'ph'])],
+            'id' => ['required', 'integer'],
+            'reason' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $model = $validated['type'] === 'ph'
+            ? PublicHolidayRequest::with(['user.karyawan', 'holiday'])->findOrFail($validated['id'])
+            : LeaveRequest::with('user.karyawan')->findOrFail($validated['id']);
+
+        abort_unless($this->isDirectSubordinateRequest($request->user(), $model), 403);
+        abort_unless(
+            $model->status === 'approved' && $model->manager_approved_at !== null,
+            422,
+            'Pengajuan ini belum berstatus approved atasan.'
+        );
+
+        $employee = $model->user?->karyawan;
+        abort_unless($employee, 404);
+
+        $reason = $validated['reason'] ?: 'Karyawan tetap masuk kerja pada tanggal pengajuan.';
+        $this->approvalNotification->notifyHrCancellationRequest(
+            $model,
+            $validated['type'] === 'ph' ? 'PH' : 'CUTI',
+            $employee,
+            $request->user(),
+            $reason
+        );
+
+        return response()->json([
+            'message' => 'Notifikasi permintaan pembatalan sudah dikirim ke HRD.',
+        ]);
+    }
+
     public function decideApproval(Request $request, string $type, int $id): JsonResponse
     {
         $data = $request->validate([
@@ -965,25 +1001,27 @@ class StaffPortalController extends Controller
                 'attendance_status_label' => $approvedAbsence['label'] ?? null,
                 'schedule_code' => $schedule?->schedule_code,
                 'schedule_label' => $schedule?->category?->name,
-                'status_action' => $this->subordinateStatusAction($employee, $approvedAbsence, $schedule, $hasScan),
+                'status_actions' => $this->subordinateStatusActions($employee, $approvedAbsence, $schedule, $hasScan),
             ];
         })->values();
     }
 
-    private function subordinateStatusAction(
+    private function subordinateStatusActions(
         Karyawan $employee,
         ?array $approvedAbsence,
         ?EmployeeDailySchedule $schedule,
         bool $hasScan
-    ): ?array {
+    ): array {
         if (! $hasScan) {
-            return null;
+            return [];
         }
 
+        $actions = [];
         if ($approvedAbsence && in_array($approvedAbsence['status'], ['leave', 'ph'], true)) {
-            return [
-                'type' => 'hr_cancel_required',
-                'label' => 'Butuh Pembatalan HRD',
+            $actions[] = [
+                'key' => 'notify_hr_'.$approvedAbsence['approval_type'].'_'.$approvedAbsence['approval_id'],
+                'type' => 'notify_hr_cancellation',
+                'label' => 'Notif HRD Batalkan '.($approvedAbsence['status'] === 'ph' ? 'PH' : 'Cuti'),
                 'employee_nik' => $employee->nik,
                 'employee_name' => $employee->nama_karyawan,
                 'approval_type' => $approvedAbsence['approval_type'],
@@ -994,7 +1032,8 @@ class StaffPortalController extends Controller
         }
 
         if ($this->isNonWorkdaySchedule($schedule)) {
-            return [
+            $actions[] = [
+                'key' => 'edit_schedule_'.$employee->nik.'_'.($schedule?->schedule_date?->toDateString() ?? 'today'),
                 'type' => 'edit_schedule',
                 'label' => 'Ubah Jadwal Hari Ini',
                 'employee_nik' => $employee->nik,
@@ -1006,7 +1045,7 @@ class StaffPortalController extends Controller
             ];
         }
 
-        return null;
+        return $actions;
     }
 
     private function subordinateApprovedAbsencesToday(Collection $subordinateNiks, Carbon $date): Collection
