@@ -35,7 +35,7 @@ class HrAttendanceController extends Controller
     {
         $employees = Karyawan::query()
             ->orderBy('nama_karyawan')
-            ->get(['nik', 'nama_karyawan', 'jabatan', 'posisi', 'departement', 'divisi']);
+            ->get(['nik', 'nama_karyawan', 'jabatan', 'posisi', 'departement', 'divisi', 'status_karyawan']);
 
         return response()->json([
             'departments' => $employees
@@ -48,6 +48,7 @@ class HrAttendanceController extends Controller
                 'name' => $employee->nama_karyawan,
                 'position' => $employee->jabatan ?: ($employee->posisi ?: '-'),
                 'department' => $this->employeeDepartment($employee),
+                'status' => $employee->status_karyawan ?: '-',
             ]),
         ]);
     }
@@ -61,6 +62,7 @@ class HrAttendanceController extends Controller
             'departments.*' => ['string', 'max:100'],
             'employee_niks' => ['nullable', 'array'],
             'employee_niks.*' => ['string', 'max:30', 'exists:m_karyawan,nik'],
+            'employee_status' => ['nullable', 'in:AKTIF,NONAKTIF'],
             'page' => ['nullable', 'integer', 'min:1'],
         ]);
 
@@ -96,6 +98,7 @@ class HrAttendanceController extends Controller
             'departments.*' => ['string', 'max:100'],
             'employee_niks' => ['nullable', 'array'],
             'employee_niks.*' => ['string', 'max:30', 'exists:m_karyawan,nik'],
+            'employee_status' => ['nullable', 'in:AKTIF,NONAKTIF'],
             'format' => ['nullable', 'in:detail,summary'],
         ]);
 
@@ -105,6 +108,83 @@ class HrAttendanceController extends Controller
         $fileName = 'Rekap_Absensi_HRD_'.$suffix.'_'.$report['filters']['start_date'].'_'.$report['filters']['end_date'].'.xlsx';
 
         return Excel::download(new HrAttendanceExport($report['records'], $report['dates'], $withDailyBreakdown), $fileName);
+    }
+
+    public function minimumMonitoring(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'period_month' => ['required', 'date_format:Y-m'],
+            'departments' => ['nullable', 'array'],
+            'departments.*' => ['string', 'max:100'],
+            'employee_niks' => ['nullable', 'array'],
+            'employee_niks.*' => ['string', 'max:30', 'exists:m_karyawan,nik'],
+            'employee_status' => ['nullable', 'in:AKTIF,NONAKTIF'],
+            'page' => ['nullable', 'integer', 'min:1'],
+        ]);
+
+        $periodMonth = Carbon::createFromFormat('Y-m-d', $validated['period_month'].'-01')->startOfDay();
+        $periodStart = $periodMonth->copy()->subMonthNoOverflow()->day(25);
+        $periodEnd = $periodMonth->copy()->day(24);
+        $report = $this->report([
+            ...$validated,
+            'start_date' => $periodStart->toDateString(),
+            'end_date' => $periodEnd->toDateString(),
+        ]);
+        $targets = $this->monthlyTargets();
+        $records = $report['records']
+            ->map(function (array $record) use ($targets): array {
+                $attendanceDiff = $record['total_attendance'] - $targets['ideal_attendance_days'];
+                $durationDiff = $record['total_work_duration_minutes'] - $targets['minimum_work_duration_minutes'];
+                $isUnderTarget = $attendanceDiff < 0 || $durationDiff < 0;
+
+                return [
+                    'nik' => $record['nik'],
+                    'name' => $record['name'],
+                    'position' => $record['position'],
+                    'department' => $record['department'],
+                    'unit' => $record['unit'],
+                    'employee_status' => $record['employee_status'],
+                    'total_attendance' => $record['total_attendance'],
+                    'attendance_diff' => $attendanceDiff,
+                    'attendance_diff_label' => $this->signedNumberLabel($attendanceDiff, 'hari'),
+                    'total_work_duration_minutes' => $record['total_work_duration_minutes'],
+                    'total_work_duration' => $record['total_work_duration'],
+                    'work_duration_diff_minutes' => $durationDiff,
+                    'work_duration_diff' => $this->signedDurationLabel($durationDiff),
+                    'total_overtime' => $record['total_overtime'],
+                    'status' => $isUnderTarget ? 'under' : 'met',
+                    'status_label' => $isUnderTarget ? 'Kurang' : 'Memenuhi / Lebih',
+                ];
+            })
+            ->values();
+
+        $perPage = 15;
+        $total = $records->count();
+        $lastPage = max((int) ceil($total / $perPage), 1);
+        $page = min((int) ($validated['page'] ?? 1), $lastPage);
+
+        return response()->json([
+            'filters' => [
+                ...$report['filters'],
+                'period_month' => $validated['period_month'],
+                'period_label' => $periodMonth->translatedFormat('F Y'),
+            ],
+            'targets' => $targets,
+            'summary' => [
+                'total_employees' => $total,
+                'under_target' => $records->where('status', 'under')->count(),
+                'met_target' => $records->where('status', 'met')->count(),
+            ],
+            'records' => $records->forPage($page, $perPage)->values(),
+            'pagination' => [
+                'current_page' => $page,
+                'per_page' => $perPage,
+                'total' => $total,
+                'last_page' => $lastPage,
+                'from' => $total ? (($page - 1) * $perPage) + 1 : 0,
+                'to' => min($page * $perPage, $total),
+            ],
+        ]);
     }
 
     public function monthlyMonitoring(Carbon $asOfDate): array
@@ -173,7 +253,8 @@ class HrAttendanceController extends Controller
 
         $departments = array_values(array_unique($validated['departments'] ?? []));
         $employeeNiks = array_values(array_unique($validated['employee_niks'] ?? []));
-        $employees = $this->selectedEmployees($departments, $employeeNiks);
+        $employeeStatus = $validated['employee_status'] ?? null;
+        $employees = $this->selectedEmployees($departments, $employeeNiks, $employeeStatus);
         $selectedNiks = $employees->pluck('nik');
         $selectedPins = $employees->pluck('pin')->filter()->values();
         $dates = collect(CarbonPeriod::create($start, $lastDate))
@@ -240,6 +321,7 @@ class HrAttendanceController extends Controller
                 'end_date' => $lastDate->toDateString(),
                 'departments' => $departments,
                 'employee_niks' => $employeeNiks,
+                'employee_status' => $employeeStatus,
             ],
             'dates' => $dates,
             'summary' => [
@@ -411,11 +493,12 @@ class HrAttendanceController extends Controller
         return $nik.'|'.$date;
     }
 
-    private function selectedEmployees(array $departments, array $employeeNiks): Collection
+    private function selectedEmployees(array $departments, array $employeeNiks, ?string $employeeStatus = null): Collection
     {
         return Karyawan::query()
             ->when($departments !== [], fn (Builder $query) => $this->filterDepartments($query, $departments))
             ->when($employeeNiks !== [], fn (Builder $query) => $query->whereIn('nik', $employeeNiks))
+            ->when($employeeStatus, fn (Builder $query) => $query->where('status_karyawan', $employeeStatus))
             ->orderBy('nama_karyawan')
             ->get();
     }
@@ -542,6 +625,7 @@ class HrAttendanceController extends Controller
             'position' => $employee->jabatan ?: ($employee->posisi ?: '-'),
             'department' => $employee->departement ?: ($employee->divisi ?: '-'),
             'unit' => $employee->unit ?: '-',
+            'employee_status' => $employee->status_karyawan ?: '-',
             'days' => $days,
             'total_period_days' => $days->count(),
             'total_attendance' => $days->where('counts_as_attendance', true)->count(),
@@ -582,6 +666,27 @@ class HrAttendanceController extends Controller
     private function workDurationLabel(int $minutes): string
     {
         return intdiv($minutes, 60).' jam '.($minutes % 60).' menit';
+    }
+
+    private function signedNumberLabel(int $value, string $unit): string
+    {
+        if ($value === 0) {
+            return "0 {$unit}";
+        }
+
+        return ($value > 0 ? '+' : '').$value.' '.$unit;
+    }
+
+    private function signedDurationLabel(int $minutes): string
+    {
+        if ($minutes === 0) {
+            return '0 jam 0 menit';
+        }
+
+        $prefix = $minutes > 0 ? '+' : '-';
+        $absolute = abs($minutes);
+
+        return $prefix.$this->workDurationLabel($absolute);
     }
 
     private function monthlyTargets(): array

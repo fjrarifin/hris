@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Services\ApprovalNotificationService;
+use App\Models\EmployeeChangeLog;
+use App\Models\EmployeeDailySchedule;
 use App\Models\EmployeePermission;
 use App\Models\FingerspotAttendanceLog;
 use App\Models\Karyawan;
@@ -57,6 +59,7 @@ class StaffPortalController extends Controller
             : 0;
 
         return response()->json([
+            'as_of_date' => $today->toDateString(),
             'employee' => $this->employeeSummary($employee, $user),
             'summary' => [
                 'working_days' => $this->workingDaysSinceJoining($employee, $today),
@@ -88,8 +91,122 @@ class StaffPortalController extends Controller
                 'email' => $user->email,
                 'photo_url' => $this->publicFileUrl($user->photo),
                 ...$this->photoChangeAvailability($user),
+                ...$this->contactChangeAvailability($user, $employee),
             ],
             'employee' => $employee,
+        ]);
+    }
+
+    public function updateProfileContact(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $employee = $this->employeeFor($user);
+        $validated = $request->validate([
+            'email' => ['sometimes', 'required', 'email', 'max:150', Rule::unique('users', 'email')->ignore($user->id)],
+            'no_hp' => ['sometimes', 'required', 'string', 'max:30'],
+        ]);
+
+        $email = array_key_exists('email', $validated)
+            ? strtolower(trim((string) $validated['email']))
+            : null;
+        $phone = array_key_exists('no_hp', $validated)
+            ? trim((string) $validated['no_hp'])
+            : null;
+
+        $changes = [];
+
+        if (array_key_exists('email', $validated) && $email !== (string) $user->email) {
+            if ($user->email_updated_at) {
+                throw ValidationException::withMessages([
+                    'email' => ['Email hanya dapat diubah 1 kali. Untuk perubahan berikutnya, silakan hubungi HRD.'],
+                ]);
+            }
+
+            $changes['email'] = [
+                'old' => $user->email,
+                'new' => $email,
+            ];
+        }
+
+        if (array_key_exists('no_hp', $validated) && $phone !== (string) $employee->no_hp) {
+            if ($employee->phone_updated_at) {
+                throw ValidationException::withMessages([
+                    'no_hp' => ['Nomor telepon hanya dapat diubah 1 kali. Untuk perubahan berikutnya, silakan hubungi HRD.'],
+                ]);
+            }
+
+            $changes['no_hp'] = [
+                'old' => $employee->no_hp,
+                'new' => $phone,
+            ];
+        }
+
+        if ($changes === []) {
+            return response()->json([
+                'message' => 'Tidak ada perubahan kontak yang perlu disimpan.',
+                'user' => [
+                    ...$this->contactChangeAvailability($user, $employee),
+                ],
+                'employee' => [
+                    'email' => $employee->email,
+                    'no_hp' => $employee->no_hp,
+                ],
+            ]);
+        }
+
+        [$user, $employee] = DB::transaction(function () use ($request, $changes): array {
+            $user = User::query()->lockForUpdate()->findOrFail($request->user()->id);
+            $employee = $this->employeeFor($user);
+            $now = now();
+            $employeePayload = [];
+            $userPayload = [];
+
+            if (isset($changes['email'])) {
+                if ($user->email_updated_at) {
+                    throw ValidationException::withMessages([
+                        'email' => ['Email hanya dapat diubah 1 kali. Untuk perubahan berikutnya, silakan hubungi HRD.'],
+                    ]);
+                }
+
+                $userPayload['email'] = $changes['email']['new'];
+                $userPayload['email_updated_at'] = $now;
+                $employeePayload['email'] = $changes['email']['new'];
+            }
+
+            if (isset($changes['no_hp'])) {
+                if ($employee->phone_updated_at) {
+                    throw ValidationException::withMessages([
+                        'no_hp' => ['Nomor telepon hanya dapat diubah 1 kali. Untuk perubahan berikutnya, silakan hubungi HRD.'],
+                    ]);
+                }
+
+                $employeePayload['no_hp'] = $changes['no_hp']['new'];
+                $employeePayload['phone_updated_at'] = $now;
+            }
+
+            if ($userPayload) {
+                $user->update($userPayload);
+            }
+
+            if ($employeePayload) {
+                $employee->update($employeePayload);
+            }
+
+            $this->recordContactChanges($employee, $changes, $user);
+
+            return [$user->fresh(), $employee->fresh()];
+        });
+
+        return response()->json([
+            'message' => 'Kontak berhasil diperbarui. Perubahan berikutnya dapat dibantu oleh HRD.',
+            'user' => [
+                'email' => $user->email,
+                ...$this->contactChangeAvailability($user, $employee),
+            ],
+            'employee' => [
+                'email' => $employee->email,
+                'no_hp' => $employee->no_hp,
+            ],
         ]);
     }
 
@@ -165,6 +282,40 @@ class StaffPortalController extends Controller
             'photo' => [
                 'Foto profil hanya dapat diganti 1 kali dalam 30 hari. Anda dapat mengganti kembali pada '.$availability['photo_change_available_label'].'.',
             ],
+        ]);
+    }
+
+    private function contactChangeAvailability(User $user, Karyawan $employee): array
+    {
+        return [
+            'email_updated_at' => $user->email_updated_at?->toIso8601String(),
+            'phone_updated_at' => $employee->phone_updated_at?->toIso8601String(),
+            'can_change_email' => ! $user->email_updated_at,
+            'can_change_phone' => ! $employee->phone_updated_at,
+        ];
+    }
+
+    private function recordContactChanges(Karyawan $employee, array $changes, User $actor): void
+    {
+        $labels = [
+            'email' => 'Email',
+            'no_hp' => 'Nomor HP',
+        ];
+
+        EmployeeChangeLog::create([
+            'employee_nik' => $employee->nik,
+            'changed_by_user_id' => $actor->id,
+            'changed_by_name' => $actor->name,
+            'source' => 'self_service',
+            'changes' => collect($changes)
+                ->map(fn (array $change, string $field): array => [
+                    'field' => $field,
+                    'label' => $labels[$field] ?? $field,
+                    'old' => $change['old'] === null ? null : trim((string) $change['old']),
+                    'new' => trim((string) $change['new']),
+                ])
+                ->values()
+                ->all(),
         ]);
     }
 
@@ -769,8 +920,9 @@ class StaffPortalController extends Controller
 
     private function subordinatesToday(User $user, Carbon $date): Collection
     {
+        $subordinateNiks = $this->subordinateNiks($user);
         $subordinates = Karyawan::query()
-            ->whereIn('nik', $this->subordinateNiks($user))
+            ->whereIn('nik', $subordinateNiks)
             ->orderBy('nama_karyawan')
             ->get(['nik', 'pin', 'nama_karyawan', 'jabatan', 'posisi', 'departement', 'divisi', 'unit']);
         $logsByPin = FingerspotAttendanceLog::query()
@@ -779,12 +931,24 @@ class StaffPortalController extends Controller
             ->orderBy('scan_date')
             ->get(['pin', 'scan_date', 'status_scan'])
             ->groupBy(fn (FingerspotAttendanceLog $log) => (string) $log->pin);
+        $schedules = EmployeeDailySchedule::query()
+            ->with('category')
+            ->whereIn('karyawan_nik', $subordinateNiks)
+            ->whereDate('schedule_date', $date)
+            ->get()
+            ->keyBy('karyawan_nik');
+        $approvedAbsences = $this->subordinateApprovedAbsencesToday($subordinateNiks, $date);
 
-        return $subordinates->map(function (Karyawan $employee) use ($logsByPin): array {
+        return $subordinates->map(function (Karyawan $employee) use ($logsByPin, $schedules, $approvedAbsences): array {
             $scans = $this->dailyScanSummary($logsByPin->get((string) $employee->pin, collect()));
+            $schedule = $schedules->get($employee->nik);
+            $approvedAbsence = $approvedAbsences->get($employee->nik);
+            $hasScan = filled($scans['scan_in']) || filled($scans['scan_out']);
             $attendanceStatus = match (true) {
                 $scans['scan_in'] && $scans['scan_out'] => 'checked_out',
-                $scans['scan_in'] => 'present',
+                $approvedAbsence !== null => $approvedAbsence['status'],
+                $this->isOffSchedule($schedule) => 'off',
+                $scans['scan_in'] => 'working',
                 $scans['scan_out'] => 'missing_in',
                 default => 'absent',
             };
@@ -798,8 +962,139 @@ class StaffPortalController extends Controller
                 'scan_in' => $scans['scan_in'],
                 'scan_out' => $scans['scan_out'],
                 'attendance_status' => $attendanceStatus,
+                'attendance_status_label' => $approvedAbsence['label'] ?? null,
+                'schedule_code' => $schedule?->schedule_code,
+                'schedule_label' => $schedule?->category?->name,
+                'status_action' => $this->subordinateStatusAction($employee, $approvedAbsence, $schedule, $hasScan),
             ];
         })->values();
+    }
+
+    private function subordinateStatusAction(
+        Karyawan $employee,
+        ?array $approvedAbsence,
+        ?EmployeeDailySchedule $schedule,
+        bool $hasScan
+    ): ?array {
+        if (! $hasScan) {
+            return null;
+        }
+
+        if ($approvedAbsence && in_array($approvedAbsence['status'], ['leave', 'ph'], true)) {
+            return [
+                'type' => 'hr_cancel_required',
+                'label' => 'Butuh Pembatalan HRD',
+                'employee_nik' => $employee->nik,
+                'employee_name' => $employee->nama_karyawan,
+                'approval_type' => $approvedAbsence['approval_type'],
+                'approval_id' => $approvedAbsence['approval_id'],
+                'approval_label' => $approvedAbsence['label'],
+                'message' => "{$approvedAbsence['label']} sudah disetujui atasan. Karena karyawan tercatat scan hari ini, pembatalan pengajuan dilakukan oleh HRD agar jatah kembali dan data tidak bentrok.",
+            ];
+        }
+
+        if ($this->isNonWorkdaySchedule($schedule)) {
+            return [
+                'type' => 'edit_schedule',
+                'label' => 'Ubah Jadwal Hari Ini',
+                'employee_nik' => $employee->nik,
+                'employee_name' => $employee->nama_karyawan,
+                'date' => $schedule->schedule_date?->toDateString(),
+                'schedule_code' => $schedule->schedule_code,
+                'schedule_label' => $schedule->category?->name,
+                'message' => 'Karyawan tercatat scan pada jadwal non-kerja. Ubah jadwal hari ini ke kode kerja yang sesuai, misalnya P0, P1, M0, atau jadwal lainnya.',
+            ];
+        }
+
+        return null;
+    }
+
+    private function subordinateApprovedAbsencesToday(Collection $subordinateNiks, Carbon $date): Collection
+    {
+        if ($subordinateNiks->isEmpty()) {
+            return collect();
+        }
+
+        $users = User::query()
+            ->whereIn('username', $subordinateNiks)
+            ->get(['id', 'username'])
+            ->keyBy('id');
+        $userIds = $users->keys();
+        $absences = collect();
+
+        LeaveRequest::query()
+            ->whereIn('user_id', $userIds)
+            ->where('status', 'approved')
+            ->whereNotNull('manager_approved_at')
+            ->whereDate('start_date', '<=', $date)
+            ->whereDate('end_date', '>=', $date)
+            ->get(['id', 'user_id', 'leave_type'])
+            ->each(function (LeaveRequest $request) use ($users, $absences): void {
+                $nik = $users->get($request->user_id)?->username;
+                if ($nik) {
+                    $absences->put($nik, [
+                        'status' => 'leave',
+                        'approval_type' => 'leave',
+                        'approval_id' => $request->id,
+                        'label' => LeaveRequest::LEAVE_TYPES[$request->leave_type] ?? 'Cuti',
+                    ]);
+                }
+            });
+
+        PublicHolidayRequest::query()
+            ->whereIn('user_id', $userIds)
+            ->where('status', 'approved')
+            ->whereNotNull('manager_approved_at')
+            ->whereDate('claim_date', $date)
+            ->get(['id', 'user_id'])
+            ->each(function (PublicHolidayRequest $request) use ($users, $absences): void {
+                $nik = $users->get($request->user_id)?->username;
+                if ($nik) {
+                    $absences->put($nik, [
+                        'status' => 'ph',
+                        'approval_type' => 'ph',
+                        'approval_id' => $request->id,
+                        'label' => 'PH',
+                    ]);
+                }
+            });
+
+        EmployeePermission::query()
+            ->whereIn('user_id', $userIds)
+            ->where('status', 'approved')
+            ->whereNotNull('manager_approved_at')
+            ->whereDate('date', $date)
+            ->get(['id', 'user_id', 'type'])
+            ->each(function (EmployeePermission $request) use ($users, $absences): void {
+                $nik = $users->get($request->user_id)?->username;
+                if ($nik) {
+                    $isSick = $request->type === 'sakit';
+                    $absences->put($nik, [
+                        'status' => $isSick ? 'sick' : 'permission',
+                        'approval_type' => 'permission',
+                        'approval_id' => $request->id,
+                        'label' => $isSick ? 'Sakit' : 'Izin',
+                    ]);
+                }
+            });
+
+        return $absences;
+    }
+
+    private function isOffSchedule(?EmployeeDailySchedule $schedule): bool
+    {
+        if (! $schedule) {
+            return false;
+        }
+
+        $code = strtoupper((string) ($schedule->schedule_code ?: $schedule->category?->code));
+
+        return $code === 'O' || $schedule->category?->type === 'off';
+    }
+
+    private function isNonWorkdaySchedule(?EmployeeDailySchedule $schedule): bool
+    {
+        return $schedule !== null && $schedule->category !== null && ! $schedule->category->is_workday;
     }
 
     private function dailyScanSummary(Collection $logs): array

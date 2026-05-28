@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\EmployeeChangeLog;
 use App\Models\Karyawan;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -133,10 +134,13 @@ class EmployeeController extends Controller
         $payload = $this->validatedPayload($request, $employee);
         $payload = $this->preparePayload($request, $payload, $employee);
 
-        DB::transaction(function () use ($employee, $payload): void {
+        DB::transaction(function () use ($request, $employee, $payload): void {
             $profilePayload = $this->profilePayload($payload);
+            $auditPayload = $this->employeeAuditPayload($profilePayload);
+            $before = $this->snapshotEmployee($employee, array_keys($auditPayload));
             $employee->update($profilePayload);
             $this->syncExistingUser($employee, $profilePayload);
+            $this->recordEmployeeChanges($employee, $before, $auditPayload, $request->user(), 'hrd');
             $this->saveContract($employee, $payload);
             $this->syncEmployeeStatus($employee);
         });
@@ -199,6 +203,7 @@ class EmployeeController extends Controller
             'npwp' => ['nullable', 'boolean'],
             'no_npwp' => ['nullable', 'string', 'max:30'],
             'status_pajak' => ['nullable', Rule::in($this->taxStatuses())],
+            'status_pernikahan' => ['nullable', Rule::in($this->maritalStatuses())],
             'agama' => ['nullable', 'string', 'max:50'],
             'kewarganegaraan' => ['nullable', 'string', 'max:50'],
             'pendidikan_terakhir' => ['nullable', 'string', 'max:50'],
@@ -244,10 +249,6 @@ class EmployeeController extends Controller
             $title = trim((string) ($payload['posisi_title'] ?? $employee?->posisi_title));
 
             $payload['posisi'] = trim($level.' '.$title) ?: null;
-        }
-
-        if (array_key_exists('status_pajak', $payload)) {
-            $payload['status_pernikahan'] = $this->maritalStatusFromTax($payload['status_pajak']);
         }
 
         if ($request->has('children')) {
@@ -315,7 +316,152 @@ class EmployeeController extends Controller
                 'description' => $contract->keterangan,
                 'has_document' => filled($contract->document),
             ])->values(),
+            'change_logs' => $this->employeeChangeLogs($employee),
         ];
+    }
+
+    private function snapshotEmployee(Karyawan $employee, array $fields): array
+    {
+        return collect($fields)
+            ->mapWithKeys(fn (string $field): array => [$field => $this->normalizeAuditValue($employee->{$field})])
+            ->all();
+    }
+
+    private function employeeAuditPayload(array $payload): array
+    {
+        if (array_key_exists('children', $payload)) {
+            return Arr::except($payload, ['nama_anak_1', 'nama_anak_2', 'nama_anak_3']);
+        }
+
+        return $payload;
+    }
+
+    private function recordEmployeeChanges(
+        Karyawan $employee,
+        array $before,
+        array $payload,
+        ?\App\Models\User $actor,
+        string $source
+    ): void {
+        $changes = collect($payload)
+            ->map(function ($newValue, string $field) use ($before): ?array {
+                $old = $before[$field] ?? null;
+                $new = $this->normalizeAuditValue($newValue);
+
+                if ($old === $new) {
+                    return null;
+                }
+
+                return [
+                    'field' => $field,
+                    'label' => $this->employeeFieldLabel($field),
+                    'old' => $old,
+                    'new' => $new,
+                ];
+            })
+            ->filter()
+            ->values()
+            ->all();
+
+        if ($changes === []) {
+            return;
+        }
+
+        EmployeeChangeLog::create([
+            'employee_nik' => $employee->nik,
+            'changed_by_user_id' => $actor?->id,
+            'changed_by_name' => $actor?->name,
+            'source' => $source,
+            'changes' => $changes,
+        ]);
+    }
+
+    private function employeeChangeLogs(Karyawan $employee): array
+    {
+        return EmployeeChangeLog::query()
+            ->where('employee_nik', $employee->nik)
+            ->latest()
+            ->limit(50)
+            ->get()
+            ->map(fn (EmployeeChangeLog $log): array => [
+                'id' => $log->id,
+                'changed_by_name' => $log->changed_by_name ?: 'User tidak diketahui',
+                'source' => $log->source,
+                'source_label' => $log->source === 'self_service' ? 'Karyawan' : 'HRD',
+                'changes' => $log->changes ?? [],
+                'created_at' => $log->created_at?->toIso8601String(),
+            ])
+            ->all();
+    }
+
+    private function normalizeAuditValue(mixed $value): mixed
+    {
+        if ($value instanceof Carbon) {
+            return $value->toDateString();
+        }
+
+        if (is_bool($value)) {
+            return $value ? 'Ya' : 'Tidak';
+        }
+
+        if (is_array($value)) {
+            return collect($value)
+                ->map(fn ($item): string => trim((string) $item))
+                ->filter()
+                ->values()
+                ->all();
+        }
+
+        return $value === null ? null : trim((string) $value);
+    }
+
+    private function employeeFieldLabel(string $field): string
+    {
+        return [
+            'nama_karyawan' => 'Nama Karyawan',
+            'jabatan' => 'Jabatan',
+            'posisi' => 'Posisi',
+            'posisi_level' => 'Level Posisi',
+            'posisi_title' => 'Title Posisi',
+            'divisi' => 'Divisi',
+            'departement' => 'Departemen',
+            'unit' => 'Unit',
+            'nama_atasan_langsung' => 'Atasan Langsung',
+            'atasan_tidak_langsung' => 'Atasan Tidak Langsung',
+            'join_date' => 'Tanggal Bergabung',
+            'no_hp' => 'Nomor HP',
+            'email' => 'Email',
+            'tanggal_lahir' => 'Tanggal Lahir',
+            'jenis_kelamin' => 'Jenis Kelamin',
+            'golongan_darah' => 'Golongan Darah',
+            'no_ktp' => 'Nomor KTP',
+            'tempat_lahir' => 'Tempat Lahir',
+            'alamat' => 'Alamat',
+            'npwp' => 'NPWP',
+            'no_npwp' => 'Nomor NPWP',
+            'status_pajak' => 'Status Pajak',
+            'status_pernikahan' => 'Status Pernikahan',
+            'agama' => 'Agama',
+            'kewarganegaraan' => 'Kewarganegaraan',
+            'pendidikan_terakhir' => 'Pendidikan Terakhir',
+            'nama_institusi' => 'Institusi / Sekolah',
+            'jurusan' => 'Jurusan',
+            'nama_pasangan' => 'Nama Pasangan',
+            'jumlah_anak' => 'Jumlah Anak',
+            'children' => 'Daftar Anak',
+            'nama_anak_1' => 'Nama Anak 1',
+            'nama_anak_2' => 'Nama Anak 2',
+            'nama_anak_3' => 'Nama Anak 3',
+            'nama_ayah' => 'Nama Ayah',
+            'nama_ibu' => 'Nama Ibu',
+            'kontak_darurat_nama' => 'Kontak Darurat',
+            'kontak_darurat_hubungan' => 'Hubungan Kontak Darurat',
+            'kontak_darurat_no_hp' => 'Nomor Kontak Darurat',
+            'bank' => 'Bank',
+            'no_rekening' => 'Nomor Rekening',
+            'bpjs' => 'BPJS',
+            'no_bpjs' => 'Nomor BPJS',
+        ][$field] ?? str($field)->replace('_', ' ')->title()->toString();
     }
 
     private function publicFileUrl(?string $path): ?string
@@ -493,15 +639,6 @@ class EmployeeController extends Controller
         return ['TK/0', 'TK/1', 'TK/2', 'TK/3', 'K/0', 'K/1', 'K/2', 'K/3', 'K/I/0', 'K/I/1', 'K/I/2', 'K/I/3'];
     }
 
-    private function maritalStatusFromTax(?string $status): ?string
-    {
-        if (! $status) {
-            return null;
-        }
-
-        return str_starts_with($status, 'K/') ? 'Menikah' : 'Tidak Kawin';
-    }
-
     private function syncExistingUser(Karyawan $employee, array $payload): void
     {
         $user = $employee->user;
@@ -538,5 +675,10 @@ class EmployeeController extends Controller
     private function divisionOptions(): array
     {
         return ['Business Partner', 'Commercial Business'];
+    }
+
+    private function maritalStatuses(): array
+    {
+        return ['Menikah', 'Tidak Kawin', 'Cerai Hidup', 'Cerai Mati'];
     }
 }

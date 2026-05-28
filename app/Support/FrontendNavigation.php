@@ -48,7 +48,7 @@ class FrontendNavigation
             ->values()
             ->all();
 
-        $attendanceKeys = ['attendance', 'hr-attendance-corrections', 'hr-schedules'];
+        $attendanceKeys = ['attendance', 'hr-attendance-minimum', 'hr-attendance-corrections', 'hr-schedules'];
         $attendanceAnchor = $menus
             ->first(fn (array $menu) => in_array($menu['key'], $attendanceKeys, true))['key'] ?? null;
         $attendanceChildren = $menus

@@ -153,12 +153,15 @@ class AuthController extends Controller
 
     private function sessionPayload(User $user): array
     {
+        $employee = $user->karyawan;
+
         return [
             'user' => [
                 'id' => $user->id,
                 'username' => $user->username,
                 'name' => $user->name,
                 'email' => $user->email,
+                'position' => $employee?->jabatan ?: $employee?->posisi,
                 'level' => (int) $user->level,
                 'level_label' => $this->navigation->levelLabel($user),
                 'photo' => $user->photo,

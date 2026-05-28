@@ -105,10 +105,13 @@ Route::middleware('auth:sanctum')->group(function () {
             ->middleware(['level:1,2', 'frontend.menu:attendance']);
         Route::get('/hr/attendance/export', [HrAttendanceController::class, 'export'])
             ->middleware(['level:1,2', 'frontend.menu:attendance']);
+        Route::get('/hr/attendance/minimum-monitoring', [HrAttendanceController::class, 'minimumMonitoring'])
+            ->middleware(['level:2', 'frontend.menu:hr-attendance-minimum']);
 
         Route::prefix('staff')->middleware('level:3')->group(function () {
             Route::get('/dashboard', [StaffPortalController::class, 'dashboard']);
             Route::get('/profile', [StaffPortalController::class, 'profile']);
+            Route::patch('/profile/contact', [StaffPortalController::class, 'updateProfileContact']);
             Route::post('/profile/photo', [StaffPortalController::class, 'updateProfilePhoto']);
 
             Route::middleware('frontend.menu:staff-attendance')->group(function () {
