@@ -50,6 +50,7 @@ class Karyawan extends Model
         'jurusan',
         'nama_pasangan',
         'jumlah_anak',
+        'children',
         'nama_anak_1',
         'nama_anak_2',
         'nama_anak_3',
@@ -71,6 +72,7 @@ class Karyawan extends Model
         'bpjs' => 'boolean',
         'npwp' => 'boolean',
         'jumlah_anak' => 'integer',
+        'children' => 'array',
     ];
 
     public function user()

@@ -851,7 +851,8 @@ class StaffPortalController extends Controller
                 ? 'future'
                 : match (true) {
                     $scans['scan_in'] && $scans['scan_out'] => 'checked_out',
-                    $scans['scan_in'] => 'present',
+                    $scans['scan_in'] && $date->isSameDay($today) => 'working',
+                    $scans['scan_in'] => 'missing_out',
                     $scans['scan_out'] => 'missing_in',
                     default => 'absent',
                 };

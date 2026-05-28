@@ -47,7 +47,7 @@ class EmployeeController extends Controller
                 'NIK', 'Nama', 'Jabatan', 'Posisi', 'Divisi', 'Departemen', 'Unit',
                 'Email', 'No HP', 'Status Karyawan', 'Tanggal Bergabung',
                 'Golongan Darah', 'Status Pajak', 'Status Pernikahan', 'Nama Pasangan',
-                'Nama Anak Ke-1', 'Nama Anak Ke-2', 'Nama Anak Ke-3',
+                'Daftar Anak',
             ]);
 
             foreach ($employees as $employee) {
@@ -67,9 +67,7 @@ class EmployeeController extends Controller
                     $employee->status_pajak,
                     $employee->status_pernikahan,
                     $employee->nama_pasangan,
-                    $employee->nama_anak_1,
-                    $employee->nama_anak_2,
-                    $employee->nama_anak_3,
+                    implode('; ', $this->employeeChildren($employee)),
                 ]);
             }
 
@@ -208,6 +206,8 @@ class EmployeeController extends Controller
             'jurusan' => ['nullable', 'string', 'max:100'],
             'nama_pasangan' => ['nullable', 'string', 'max:150'],
             'jumlah_anak' => ['nullable', 'integer', 'min:0'],
+            'children' => ['nullable', 'array'],
+            'children.*' => ['nullable', 'string', 'max:150'],
             'nama_anak_1' => ['nullable', 'string', 'max:150'],
             'nama_anak_2' => ['nullable', 'string', 'max:150'],
             'nama_anak_3' => ['nullable', 'string', 'max:150'],
@@ -250,6 +250,10 @@ class EmployeeController extends Controller
             $payload['status_pernikahan'] = $this->maritalStatusFromTax($payload['status_pajak']);
         }
 
+        if ($request->has('children')) {
+            $payload = $this->syncChildrenPayload($payload);
+        }
+
         if ($request->hasFile('document')) {
             $payload['document'] = $request->file('document')->store('contract-documents', 'local');
         }
@@ -288,6 +292,7 @@ class EmployeeController extends Controller
 
         return [
             ...$employee->toArray(),
+            'children' => $this->employeeChildren($employee),
             'status_karyawan' => $activeContract ? 'AKTIF' : 'NONAKTIF',
             'photo_url' => $photoUrl,
             'join_date' => $employee->join_date?->toDateString(),
@@ -318,6 +323,47 @@ class EmployeeController extends Controller
         return $path
             ? route('profile-photos.show', ['filename' => basename($path)])
             : null;
+    }
+
+    private function syncChildrenPayload(array $payload): array
+    {
+        $children = $this->normalizeChildren($payload['children'] ?? []);
+        $payload['children'] = $children;
+        $payload['jumlah_anak'] = count($children);
+
+        foreach ([1, 2, 3] as $index) {
+            $payload['nama_anak_'.$index] = $children[$index - 1] ?? null;
+        }
+
+        return $payload;
+    }
+
+    private function employeeChildren(Karyawan $employee): array
+    {
+        $children = $this->normalizeChildren($employee->children ?? []);
+
+        if ($children !== []) {
+            return $children;
+        }
+
+        return $this->normalizeChildren([
+            $employee->nama_anak_1,
+            $employee->nama_anak_2,
+            $employee->nama_anak_3,
+        ]);
+    }
+
+    private function normalizeChildren(mixed $children): array
+    {
+        if (! is_array($children)) {
+            return [];
+        }
+
+        return collect($children)
+            ->map(fn ($name) => trim((string) $name))
+            ->filter()
+            ->values()
+            ->all();
     }
 
     private function saveContract(Karyawan $employee, array $payload): void
