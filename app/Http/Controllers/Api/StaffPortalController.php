@@ -226,9 +226,9 @@ class StaffPortalController extends Controller
         $this->ensurePhotoCanBeChanged($request->user());
 
         $request->validate([
-            'photo' => ['required', 'image', 'mimes:jpg,jpeg,png', 'max:1024'],
+            'photo' => ['required', 'image', 'mimes:jpg,jpeg,png', 'max:5120'],
         ], [
-            'photo.max' => 'Ukuran foto profil maksimal 1 MB.',
+            'photo.max' => 'Ukuran foto profil maksimal 5 MB.',
             'photo.mimes' => 'Foto profil harus berformat PNG, JPG, atau JPEG.',
         ]);
 
@@ -237,7 +237,7 @@ class StaffPortalController extends Controller
             $this->ensurePhotoCanBeChanged($user);
 
             $oldPhoto = $user->photo;
-            $path = $request->file('photo')->store('profile-photos', 'public');
+            $path = $this->storeCompressedProfilePhoto($request->file('photo'));
 
             $user->update([
                 'photo' => $path,
@@ -256,6 +256,51 @@ class StaffPortalController extends Controller
             'photo_url' => $this->publicFileUrl($path),
             ...$this->photoChangeAvailability($user),
         ]);
+    }
+
+    private function storeCompressedProfilePhoto(\Illuminate\Http\UploadedFile $photo): string
+    {
+        $source = @imagecreatefromstring(file_get_contents($photo->getRealPath()));
+
+        if (! $source) {
+            throw ValidationException::withMessages([
+                'photo' => ['Foto profil tidak dapat diproses.'],
+            ]);
+        }
+
+        $sourceWidth = imagesx($source);
+        $sourceHeight = imagesy($source);
+        $maxDimension = 1200;
+        $scale = min(1, $maxDimension / max($sourceWidth, $sourceHeight));
+        $targetWidth = max(1, (int) round($sourceWidth * $scale));
+        $targetHeight = max(1, (int) round($sourceHeight * $scale));
+        $target = imagecreatetruecolor($targetWidth, $targetHeight);
+
+        imagefill($target, 0, 0, imagecolorallocate($target, 255, 255, 255));
+        imagecopyresampled(
+            $target,
+            $source,
+            0,
+            0,
+            0,
+            0,
+            $targetWidth,
+            $targetHeight,
+            $sourceWidth,
+            $sourceHeight
+        );
+        imageinterlace($target, true);
+
+        ob_start();
+        imagejpeg($target, null, 82);
+        $contents = ob_get_clean();
+        imagedestroy($source);
+        imagedestroy($target);
+
+        $path = 'profile-photos/'.(string) Str::uuid().'.jpg';
+        Storage::disk('public')->put($path, $contents);
+
+        return $path;
     }
 
     private function photoChangeAvailability(User $user): array
