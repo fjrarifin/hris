@@ -986,6 +986,8 @@ class StaffPortalController extends Controller
                 $this->isOffSchedule($schedule) => 'off',
                 $scans['scan_in'] => 'working',
                 $scans['scan_out'] => 'missing_in',
+                $this->isWorkdaySchedule($schedule) => 'alpha',
+                $this->hasEmptySchedule($schedule) => 'not_present',
                 default => 'absent',
             };
 
@@ -1129,6 +1131,30 @@ class StaffPortalController extends Controller
         $code = strtoupper((string) ($schedule->schedule_code ?: $schedule->category?->code));
 
         return $code === 'O' || $schedule->category?->type === 'off';
+    }
+
+    private function isWorkdaySchedule(?EmployeeDailySchedule $schedule): bool
+    {
+        if (! $schedule) {
+            return false;
+        }
+
+        $code = strtoupper(trim((string) ($schedule->schedule_code ?: $schedule->category?->code)));
+
+        return $code !== ''
+            && $schedule->category !== null
+            && $schedule->category->is_workday
+            && filled($schedule->category->start_time)
+            && filled($schedule->category->end_time);
+    }
+
+    private function hasEmptySchedule(?EmployeeDailySchedule $schedule): bool
+    {
+        if (! $schedule) {
+            return true;
+        }
+
+        return trim((string) ($schedule->schedule_code ?: $schedule->category?->code)) === '';
     }
 
     private function isNonWorkdaySchedule(?EmployeeDailySchedule $schedule): bool

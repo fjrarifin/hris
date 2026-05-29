@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\EmployeeChangeLog;
 use App\Models\Karyawan;
+use App\Services\FingerspotUserinfoService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -12,6 +13,7 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use InvalidArgumentException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class EmployeeController extends Controller
@@ -126,6 +128,60 @@ class EmployeeController extends Controller
     {
         return response()->json([
             'data' => $this->employeeData($employee),
+        ]);
+    }
+
+    public function fingerspotClouds(FingerspotUserinfoService $fingerspot): JsonResponse
+    {
+        return response()->json([
+            'data' => $fingerspot->clouds(),
+        ]);
+    }
+
+    public function sendFingerspotUserinfo(
+        Request $request,
+        Karyawan $employee,
+        FingerspotUserinfoService $fingerspot
+    ): JsonResponse {
+        $validated = $request->validate([
+            'cloud_id' => ['required', 'string', 'max:100'],
+        ]);
+
+        try {
+            $cloudIds = $validated['cloud_id'] === 'all'
+                ? collect($fingerspot->clouds())->pluck('id')->all()
+                : [$validated['cloud_id']];
+
+            if ($cloudIds === []) {
+                throw new InvalidArgumentException('Belum ada mesin absensi yang terdaftar di konfigurasi Fingerspot.');
+            }
+
+            $results = collect($cloudIds)
+                ->map(fn (string $cloudId): array => $fingerspot->sendEmployee($employee, $cloudId))
+                ->values();
+        } catch (InvalidArgumentException $e) {
+            return response()->json([
+                'ok' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+
+        $successCount = $results->where('ok', true)->count();
+        $total = $results->count();
+
+        return response()->json([
+            'ok' => $successCount === $total,
+            'message' => $successCount === $total
+                ? "Perintah kirim userinfo {$employee->nama_karyawan} berhasil dikirim ke {$total} mesin. Cek webhook Fingerspot untuk status eksekusi di mesin."
+                : "Perintah userinfo terkirim ke {$successCount} dari {$total} mesin. Cek detail respons dan webhook Fingerspot.",
+            'data' => [
+                'employee' => [
+                    'nik' => $employee->nik,
+                    'pin' => $employee->pin,
+                    'name' => $employee->nama_karyawan,
+                ],
+                'results' => $results->all(),
+            ],
         ]);
     }
 

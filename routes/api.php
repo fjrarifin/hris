@@ -69,6 +69,8 @@ Route::middleware('auth:sanctum')->group(function () {
         });
 
         Route::middleware('frontend.menu:employees')->group(function () {
+            Route::get('/employee/fingerspot/clouds', [EmployeeController::class, 'fingerspotClouds']);
+            Route::post('/employee/{employee}/fingerspot-userinfo', [EmployeeController::class, 'sendFingerspotUserinfo']);
             Route::apiResource('employee', EmployeeController::class);
             Route::get('/employees', [EmployeeController::class, 'frontendIndex']);
             Route::get('/employees/export', [EmployeeController::class, 'export']);

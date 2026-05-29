@@ -8,6 +8,7 @@ use App\Models\User;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
@@ -341,6 +342,69 @@ class EmployeeApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('mime_type', 'application/pdf')
             ->assertJsonPath('filename', 'Kontrak-EMP004-1.pdf');
+    }
+
+    public function test_it_sends_employee_userinfo_to_fingerspot_machine(): void
+    {
+        config()->set('fingerspot.base_url', 'https://developer.fingerspot.io/api');
+        config()->set('fingerspot.api_token', 'test-token');
+        config()->set('fingerspot.clouds', [
+            ['id' => 'cloud-office', 'name' => 'Office'],
+        ]);
+
+        Karyawan::create([
+            'nik' => 'EMP777',
+            'pin' => 'PIN-777',
+            'nama_karyawan' => 'User Fingerspot',
+            'jabatan' => 'Staff',
+        ]);
+
+        Http::fake([
+            'https://developer.fingerspot.io/api/set_userinfo' => Http::response([
+                'success' => true,
+                'message' => 'queued',
+            ]),
+        ]);
+
+        $this->postJson('/api/employee/EMP777/fingerspot-userinfo', [
+            'cloud_id' => 'cloud-office',
+        ])
+            ->assertOk()
+            ->assertJsonPath('ok', true)
+            ->assertJsonPath('data.employee.pin', 'PIN-777')
+            ->assertJsonPath('data.results.0.cloud.name', 'Office');
+
+        Http::assertSent(fn ($request): bool => $request->url() === 'https://developer.fingerspot.io/api/set_userinfo'
+            && $request->hasHeader('Authorization', 'Bearer test-token')
+            && $request['cloud_id'] === 'cloud-office'
+            && $request['data']['pin'] === 'PIN-777'
+            && $request['data']['name'] === 'User Fingerspot'
+            && $request['data']['privilege'] === '1'
+            && $request['data']['template'] === '');
+    }
+
+    public function test_it_requires_employee_pin_before_sending_userinfo_to_fingerspot(): void
+    {
+        config()->set('fingerspot.api_token', 'test-token');
+        config()->set('fingerspot.clouds', [
+            ['id' => 'cloud-office', 'name' => 'Office'],
+        ]);
+
+        Karyawan::create([
+            'nik' => 'EMP778',
+            'nama_karyawan' => 'Tanpa PIN',
+            'jabatan' => 'Staff',
+        ]);
+
+        Http::fake();
+
+        $this->postJson('/api/employee/EMP778/fingerspot-userinfo', [
+            'cloud_id' => 'cloud-office',
+        ])
+            ->assertUnprocessable()
+            ->assertJsonPath('message', 'PIN absensi karyawan belum diisi.');
+
+        Http::assertNothingSent();
     }
 
     public function test_level_zero_can_receive_and_manage_its_allowed_frontend_menu(): void
