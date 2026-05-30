@@ -17,12 +17,17 @@ use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\AttendanceWebhookController;
 use App\Http\Controllers\FingerspotController;
 use App\Http\Controllers\RfidController;
+use App\Http\Controllers\WhatsAppAiAgentWebhookController;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/rfid', [RfidController::class, 'scan'])->withoutMiddleware(['auth']);
 Route::get('/rfid', [RfidController::class, 'last'])->withoutMiddleware(['auth']);
 
 Route::post('/attendance/webhook', [AttendanceWebhookController::class, 'handle'])
+    ->withoutMiddleware(['auth']);
+
+Route::post('/whatsapp/ai-agent/webhook', WhatsAppAiAgentWebhookController::class)
+    ->middleware('throttle:30,1')
     ->withoutMiddleware(['auth']);
 
 Route::get('/attendance/pull', [AttendanceController::class, 'pull']);
@@ -124,6 +129,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
             Route::middleware('frontend.menu:staff-attendance')->group(function () {
                 Route::get('/attendance', [StaffPortalController::class, 'attendance']);
+                Route::post('/attendance/selfie', [StaffPortalController::class, 'storeSelfAttendance']);
             });
 
             Route::middleware('frontend.menu:staff-leave')->group(function () {

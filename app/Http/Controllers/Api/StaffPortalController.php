@@ -377,6 +377,12 @@ class StaffPortalController extends Controller
         $endDate = $validated['end_date'] ?? $validated['start_date'] ?? $periodEnd->toDateString();
         $start = Carbon::parse($startDate)->startOfDay();
         $end = Carbon::parse($endDate)->endOfDay();
+        $schedules = EmployeeDailySchedule::query()
+            ->with('category')
+            ->where('karyawan_nik', $employee->nik)
+            ->whereBetween('schedule_date', [$start->toDateString(), $end->toDateString()])
+            ->get()
+            ->keyBy(fn (EmployeeDailySchedule $schedule) => $schedule->schedule_date->toDateString());
 
         $records = $employee->pin
             ? FingerspotAttendanceLog::query()
@@ -401,6 +407,18 @@ class StaffPortalController extends Controller
                 ->values()
             : collect();
 
+        $records = $records->map(function (array $record) use ($schedules): array {
+            $schedule = $schedules->get($record['date']);
+
+            return [
+                ...$record,
+                'schedule_code' => $schedule?->schedule_code,
+                'schedule_label' => $schedule?->category?->name,
+                'schedule_start_time' => $schedule?->category?->start_time,
+                'schedule_end_time' => $schedule?->category?->end_time,
+            ];
+        });
+
         return response()->json([
             'employee' => [
                 'nik' => $employee->nik,
@@ -416,8 +434,80 @@ class StaffPortalController extends Controller
                 'complete_days' => $records->where('is_complete', true)->count(),
                 'incomplete_days' => $records->where('is_complete', false)->count(),
             ],
-            'records' => $records,
+            'records' => $records->values(),
         ]);
+    }
+
+    public function storeSelfAttendance(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'photo' => ['required', 'string'],
+            'latitude' => ['required', 'numeric'],
+            'longitude' => ['required', 'numeric'],
+        ]);
+
+        $employee = $this->employeeFor($request->user());
+        abort_unless($employee->pin, 422, 'Akun pegawai belum terdaftar PIN absensi.');
+
+        $photoPayload = $validated['photo'];
+        $photoType = 'image/jpeg';
+        $photoData = null;
+
+        if (preg_match('/^data:(image\/[^;]+);base64,(.+)$/', $photoPayload, $matches)) {
+            $photoType = $matches[1];
+            $photoData = base64_decode($matches[2]);
+        } else {
+            $photoData = base64_decode($photoPayload);
+        }
+
+        if ($photoData === false || strlen($photoData) === 0) {
+            abort(422, 'Format foto tidak valid.');
+        }
+
+        $extension = match ($photoType) {
+            'image/png' => 'png',
+            'image/webp' => 'webp',
+            'image/jpeg',
+            'image/jpg' => 'jpg',
+            default => 'jpg',
+        };
+
+        $fileName = sprintf('selfie-%s-%s.%s', $employee->nik, now()->format('YmdHis'), $extension);
+        $filePath = 'selfie-attendance/'.$fileName;
+        Storage::disk('public')->put($filePath, $photoData);
+
+        $now = now();
+        $todayStart = $now->copy()->startOfDay();
+        $todayEnd = $now->copy()->endOfDay();
+        $hasScanIn = FingerspotAttendanceLog::query()
+            ->where('pin', $employee->pin)
+            ->whereBetween('scan_date', [$todayStart, $todayEnd])
+            ->where('status_scan', '0')
+            ->exists();
+
+        $attendanceType = $hasScanIn ? 'Pulang' : 'Masuk';
+        $statusScan = $hasScanIn ? '1' : '0';
+
+        FingerspotAttendanceLog::create([
+            'pin' => $employee->pin,
+            'scan_date' => $now,
+            'verify' => 'selfie',
+            'status_scan' => $statusScan,
+            'source' => 'mobile',
+            'raw_payload' => [
+                'latitude' => $validated['latitude'],
+                'longitude' => $validated['longitude'],
+                'photo_path' => $filePath,
+                'photo_type' => $photoType,
+                'attendance_type' => strtolower($attendanceType),
+            ],
+        ]);
+
+        return response()->json([
+            'message' => "Absen {$attendanceType} berhasil.",
+            'attendance_type' => $attendanceType,
+            'scan_time' => $now->toTimeString(),
+        ], 201);
     }
 
     public function leaves(Request $request): JsonResponse
