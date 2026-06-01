@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Services\WhatsAppService;
+use App\Models\Karyawan;
 use App\Models\PasswordResetOtp;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
@@ -16,6 +17,8 @@ use Throwable;
 
 class ForgotPasswordController extends Controller
 {
+    private const DEFAULT_FIRST_LOGIN_PASSWORD = '12345678';
+
     private const PASSWORD_CHANGE_INTERVAL_DAYS = 30;
 
     public function __construct(private readonly WhatsAppService $whatsAppService) {}
@@ -141,10 +144,15 @@ class ForgotPasswordController extends Controller
 
     private function userForNik(string $nik): User
     {
+        $nik = trim($nik);
         $user = User::query()
             ->with('karyawan')
-            ->where('username', trim($nik))
+            ->where('username', $nik)
             ->first();
+
+        if (! $user) {
+            $user = $this->provisionEmployeeAccount($nik);
+        }
 
         if (! $user) {
             throw ValidationException::withMessages([
@@ -153,6 +161,31 @@ class ForgotPasswordController extends Controller
         }
 
         return $user;
+    }
+
+    private function provisionEmployeeAccount(string $nik): ?User
+    {
+        $employee = Karyawan::query()
+            ->where('nik', $nik)
+            ->first();
+
+        if (! $employee) {
+            return null;
+        }
+
+        $email = $employee->email ?: $employee->nik.'@hris.local';
+        if (User::query()->where('email', $email)->exists()) {
+            $email = $employee->nik.'@hris.local';
+        }
+
+        return User::query()->create([
+            'username' => $employee->nik,
+            'name' => $employee->nama_karyawan,
+            'email' => $email,
+            'password' => Hash::make(self::DEFAULT_FIRST_LOGIN_PASSWORD),
+            'level' => 3,
+            'must_change_password' => true,
+        ])->load('karyawan');
     }
 
     private function validOtp(User $user, string $otp): bool

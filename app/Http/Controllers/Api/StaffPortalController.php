@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Services\ApprovalNotificationService;
+use App\Http\Services\WhatsAppService;
 use App\Models\EmployeeChangeLog;
 use App\Models\EmployeeDailySchedule;
 use App\Models\EmployeePermission;
@@ -23,6 +24,7 @@ use Carbon\CarbonPeriod;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
@@ -30,6 +32,7 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Throwable;
 
 class StaffPortalController extends Controller
 {
@@ -37,7 +40,10 @@ class StaffPortalController extends Controller
 
     private const PUBLIC_HOLIDAY_ATTENDANCE_REQUIRED_FROM = '2026-05-27';
 
-    public function __construct(private readonly ApprovalNotificationService $approvalNotification) {}
+    public function __construct(
+        private readonly ApprovalNotificationService $approvalNotification,
+        private readonly WhatsAppService $whatsAppService
+    ) {}
 
     public function dashboard(Request $request): JsonResponse
     {
@@ -104,6 +110,7 @@ class StaffPortalController extends Controller
         $validated = $request->validate([
             'email' => ['sometimes', 'required', 'email', 'max:150', Rule::unique('users', 'email')->ignore($user->id)],
             'no_hp' => ['sometimes', 'required', 'string', 'max:30'],
+            'phone_otp' => ['sometimes', 'required', 'digits:6'],
         ]);
 
         $email = array_key_exists('email', $validated)
@@ -134,6 +141,8 @@ class StaffPortalController extends Controller
                     'no_hp' => ['Nomor telepon hanya dapat diubah 1 kali. Untuk perubahan berikutnya, silakan hubungi HRD.'],
                 ]);
             }
+
+            $this->ensureValidPhoneOtp($user, $phone, $validated['phone_otp'] ?? null);
 
             $changes['no_hp'] = [
                 'old' => $employee->no_hp,
@@ -197,6 +206,10 @@ class StaffPortalController extends Controller
             return [$user->fresh(), $employee->fresh()];
         });
 
+        if (isset($changes['no_hp'])) {
+            Cache::forget($this->phoneOtpCacheKey($request->user(), $changes['no_hp']['new']));
+        }
+
         return response()->json([
             'message' => 'Kontak berhasil diperbarui. Perubahan berikutnya dapat dibantu oleh HRD.',
             'user' => [
@@ -207,6 +220,58 @@ class StaffPortalController extends Controller
                 'email' => $employee->email,
                 'no_hp' => $employee->no_hp,
             ],
+        ]);
+    }
+
+    public function requestProfilePhoneOtp(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $employee = $this->employeeFor($user);
+        $validated = $request->validate([
+            'no_hp' => ['required', 'string', 'max:30'],
+        ]);
+        $phone = trim((string) $validated['no_hp']);
+        $normalizedPhone = $this->normalizedPhone($phone);
+
+        if (strlen($normalizedPhone) < 10 || strlen($normalizedPhone) > 16) {
+            throw ValidationException::withMessages([
+                'no_hp' => ['Format nomor WhatsApp baru tidak valid.'],
+            ]);
+        }
+
+        if ($employee->phone_updated_at) {
+            throw ValidationException::withMessages([
+                'no_hp' => ['Nomor telepon hanya dapat diubah 1 kali. Untuk perubahan berikutnya, silakan hubungi HRD.'],
+            ]);
+        }
+
+        if ($phone === trim((string) $employee->no_hp)) {
+            throw ValidationException::withMessages([
+                'no_hp' => ['Nomor telepon baru harus berbeda dari nomor saat ini.'],
+            ]);
+        }
+
+        $otp = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+        Cache::put($this->phoneOtpCacheKey($user, $phone), $otp, now()->addMinutes(2));
+
+        try {
+            $sent = $this->whatsAppService->sendMessage($phone, $this->phoneOtpMessage($user->name, $otp));
+        } catch (Throwable $exception) {
+            report($exception);
+            $sent = false;
+        }
+
+        if (! $sent) {
+            Cache::forget($this->phoneOtpCacheKey($user, $phone));
+
+            throw ValidationException::withMessages([
+                'no_hp' => ['Kode OTP gagal dikirim ke nomor WhatsApp baru. Silakan periksa nomor dan coba kembali.'],
+            ]);
+        }
+
+        return response()->json([
+            'message' => 'Kode OTP telah dikirim ke nomor WhatsApp baru.',
+            'expires_in' => 120,
         ]);
     }
 
@@ -340,6 +405,48 @@ class StaffPortalController extends Controller
         ];
     }
 
+    private function ensureValidPhoneOtp(User $user, string $phone, ?string $otp): void
+    {
+        $storedOtp = Cache::get($this->phoneOtpCacheKey($user, $phone));
+
+        if (! $otp || ! is_string($storedOtp) || ! hash_equals($storedOtp, $otp)) {
+            throw ValidationException::withMessages([
+                'phone_otp' => ['Kode OTP nomor telepon salah atau sudah kedaluwarsa.'],
+            ]);
+        }
+    }
+
+    private function phoneOtpCacheKey(User $user, string $phone): string
+    {
+        return 'profile-phone-otp:'.$user->id.':'.hash('sha256', $this->normalizedPhone($phone));
+    }
+
+    private function normalizedPhone(string $phone): string
+    {
+        $phone = preg_replace('/[^0-9]/', '', $phone) ?? '';
+
+        if (str_starts_with($phone, '6208')) {
+            return '62'.substr($phone, 3);
+        }
+
+        if (str_starts_with($phone, '08')) {
+            return '62'.substr($phone, 1);
+        }
+
+        return str_starts_with($phone, '8') ? '62'.$phone : $phone;
+    }
+
+    private function phoneOtpMessage(string $name, string $otp): string
+    {
+        return "*Verifikasi Nomor Telepon HRIS*\n\n"
+            ."Halo *{$name}*,\n\n"
+            ."Kode OTP untuk mengganti nomor telepon HRIS Anda adalah:\n"
+            ."*{$otp}*\n\n"
+            ."Kode ini berlaku selama 2 menit.\n"
+            ."Jangan bagikan kode ini kepada siapa pun.\n\n"
+            .'IT Hompim Play';
+    }
+
     private function recordContactChanges(Karyawan $employee, array $changes, User $actor): void
     {
         $labels = [
@@ -418,6 +525,17 @@ class StaffPortalController extends Controller
                 'schedule_end_time' => $schedule?->category?->end_time,
             ];
         });
+        $scheduleRecords = $schedules
+            ->map(fn (EmployeeDailySchedule $schedule): array => [
+                'date' => $schedule->schedule_date->toDateString(),
+                'schedule_code' => $schedule->schedule_code,
+                'schedule_label' => $schedule->category?->name,
+                'schedule_start_time' => $schedule->category?->start_time,
+                'schedule_end_time' => $schedule->category?->end_time,
+                'is_workday' => $schedule->category?->is_workday,
+            ])
+            ->sortBy('date')
+            ->values();
 
         return response()->json([
             'employee' => [
@@ -435,6 +553,7 @@ class StaffPortalController extends Controller
                 'incomplete_days' => $records->where('is_complete', false)->count(),
             ],
             'records' => $records->values(),
+            'schedules' => $scheduleRecords,
         ]);
     }
 
@@ -981,6 +1100,8 @@ class StaffPortalController extends Controller
             'department' => $employee->departement ?: $employee->divisi,
             'join_date' => $employee->join_date?->toDateString(),
             'photo_url' => $this->publicFileUrl($user->photo),
+            'is_birthday_today' => $employee->tanggal_lahir
+                && $employee->tanggal_lahir->format('m-d') === now()->format('m-d'),
         ];
     }
 

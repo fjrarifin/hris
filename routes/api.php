@@ -125,6 +125,8 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/dashboard', [StaffPortalController::class, 'dashboard']);
             Route::get('/profile', [StaffPortalController::class, 'profile']);
             Route::patch('/profile/contact', [StaffPortalController::class, 'updateProfileContact']);
+            Route::post('/profile/contact/phone-otp', [StaffPortalController::class, 'requestProfilePhoneOtp'])
+                ->middleware('throttle:5,1');
             Route::post('/profile/photo', [StaffPortalController::class, 'updateProfilePhoto']);
 
             Route::middleware('frontend.menu:staff-attendance')->group(function () {
