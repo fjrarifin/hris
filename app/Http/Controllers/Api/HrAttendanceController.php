@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Services\WhatsAppService;
 use App\Models\AttendanceCorrection;
 use App\Models\EmployeePermission;
+use App\Models\ExtraOffRequest;
 use App\Models\FingerspotAttendanceLog;
 use App\Models\Karyawan;
 use App\Models\LeaveRequest;
@@ -529,6 +530,7 @@ class HrAttendanceController extends Controller
                 'total_alpha' => $records->sum('total_alpha'),
                 'leave_days' => $records->sum('total_leave'),
                 'public_holiday_days' => $records->sum('total_ph'),
+                'extra_off_days' => $records->sum('total_eo'),
                 'sick_days' => $records->sum('total_sick'),
                 'permission_days' => $records->sum('total_permission'),
                 'national_holiday_attendance' => $records->sum('total_national_holiday_attendance'),
@@ -585,6 +587,24 @@ class HrAttendanceController extends Controller
                         'code' => 'PH',
                         'label' => 'Public Holiday',
                         'approval_type' => 'ph',
+                        'approval_id' => $request->id,
+                    ]);
+                }
+            });
+
+        ExtraOffRequest::query()
+            ->with('user.karyawan')
+            ->where('status', 'approved')
+            ->whereNotNull('hr_approved_at')
+            ->whereBetween('claim_date', [$start->toDateString(), $end->toDateString()])
+            ->get()
+            ->each(function (ExtraOffRequest $request) use ($absences, $selectedNiks): void {
+                $employee = $request->user?->karyawan;
+                if ($employee && $selectedNiks->contains($employee->nik)) {
+                    $absences->put($this->recordKey($employee->nik, $request->claim_date->toDateString()), [
+                        'code' => 'EO',
+                        'label' => 'Extra Off',
+                        'approval_type' => 'extra_off',
                         'approval_id' => $request->id,
                     ]);
                 }
@@ -786,7 +806,7 @@ class HrAttendanceController extends Controller
         }
 
         $durationMinutes = $this->workDurationMinutes($scanIn, $scanOut);
-        if (! $hasScan && in_array($status, ['PH', 'C'], true)) {
+        if (! $hasScan && in_array($status, ['PH', 'C', 'EO'], true)) {
             $durationMinutes = self::APPROVED_PAID_ABSENCE_MINUTES;
         }
 
@@ -799,7 +819,7 @@ class HrAttendanceController extends Controller
             'overtime_minutes' => $overtimeMinutes,
             'note' => $note,
             'is_present' => $hasScan,
-            'counts_as_attendance' => in_array($status, ['M', 'PH', 'C'], true),
+            'counts_as_attendance' => in_array($status, ['M', 'PH', 'C', 'EO'], true),
             'is_national_holiday' => $isHoliday,
             'holiday_name' => $holiday?->name,
             'approval_type' => $absence['approval_type'] ?? null,
@@ -831,6 +851,7 @@ class HrAttendanceController extends Controller
             'total_present' => $days->where('status', 'M')->count(),
             'total_alpha' => $days->where('status', 'A')->count(),
             'total_ph' => $days->where('status', 'PH')->count(),
+            'total_eo' => $days->where('status', 'EO')->count(),
             'total_leave' => $days->where('status', 'C')->count(),
             'total_sick' => $days->where('status', 'S')->count(),
             'total_permission' => $days->where('status', 'I')->count(),

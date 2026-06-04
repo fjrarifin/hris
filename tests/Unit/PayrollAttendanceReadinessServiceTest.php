@@ -97,7 +97,39 @@ class PayrollAttendanceReadinessServiceTest extends TestCase
         $this->assertSame(0, $result['summary']['blocker_count']);
     }
 
-    private function serviceWithDays(array $days): PayrollAttendanceReadinessService
+    public function test_it_counts_attendance_even_when_schedule_is_missing(): void
+    {
+        $result = $this->serviceWithDays([
+            '2026-05-25' => $this->day('M', '08:00:00', '17:00:00'),
+            '2026-05-26' => $this->day('M', '08:00:00', '17:00:00'),
+            '2026-05-27' => $this->day('A'),
+        ])->audit($this->filters('2026-05-27'));
+
+        $this->assertFalse($result['can_submit']);
+        $this->assertSame(2, $result['records'][0]['present_days']);
+        $this->assertSame(2, $result['records'][0]['total_hari_masuk']);
+        $this->assertSame(2, $result['summary']['total_hari_masuk']);
+        $this->assertSame(3, $result['summary']['missing_schedule_days']);
+    }
+
+    public function test_it_counts_extra_attendance_on_scheduled_off_days(): void
+    {
+        $work = $this->category('P1', 'work', true);
+        $off = $this->category('O', 'off', false);
+
+        $this->schedule('EMP001', '2026-05-25', $work);
+        $this->schedule('EMP001', '2026-05-26', $off);
+
+        $result = $this->serviceWithDays([
+            '2026-05-25' => $this->day('M', '08:00:00', '17:00:00'),
+            '2026-05-26' => $this->day('M', '08:00:00', '17:00:00'),
+        ], workdays: 1)->audit($this->filters('2026-05-26'));
+
+        $this->assertSame(2, $result['records'][0]['total_hari_masuk']);
+        $this->assertSame(1, $result['records'][0]['extra_off_days']);
+    }
+
+    private function serviceWithDays(array $days, int $workdays = 4): PayrollAttendanceReadinessService
     {
         $dates = collect(array_keys($days));
         $report = [
@@ -124,7 +156,7 @@ class PayrollAttendanceReadinessServiceTest extends TestCase
             'period_days' => $dates->count(),
             'sundays' => 0,
             'public_holidays' => 0,
-            'workdays' => 4,
+            'workdays' => $workdays,
         ]);
 
         return new PayrollAttendanceReadinessService($reportService, $periodService);

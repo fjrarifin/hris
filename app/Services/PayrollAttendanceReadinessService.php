@@ -84,6 +84,7 @@ class PayrollAttendanceReadinessService
             'present_days' => 0,
             'leave_days' => 0,
             'ph_days' => 0,
+            'eo_days' => 0,
             'permission_days' => 0,
             'total_hari_masuk' => 0,
             'extra_off_days' => 0,
@@ -92,6 +93,24 @@ class PayrollAttendanceReadinessService
         foreach ($dates as $date) {
             $day = $record['days']->get($date);
             $schedule = $schedules->get($this->recordKey($record['nik'], $date));
+            $status = $day['status'] ?? null;
+
+            $summary['overtime_minutes'] += (int) ($day['overtime_minutes'] ?? 0);
+
+            if ($status === 'M') {
+                $summary['present_days']++;
+            } elseif ($status === 'C') {
+                $summary['leave_days']++;
+            } elseif ($status === 'PH') {
+                $summary['ph_days']++;
+            } elseif ($status === 'EO') {
+                $summary['eo_days']++;
+            } elseif ($status === 'I') {
+                $summary['permission_days']++;
+            } elseif ($status === 'S') {
+                $key = ($day['has_document'] ?? false) ? 'sick_with_document_days' : 'sick_without_document_days';
+                $summary[$key]++;
+            }
 
             if (! $schedule || ! $schedule->category) {
                 $summary['missing_schedule_days']++;
@@ -104,18 +123,6 @@ class PayrollAttendanceReadinessService
             }
 
             $summary['scheduled_workdays']++;
-            $summary['overtime_minutes'] += (int) ($day['overtime_minutes'] ?? 0);
-            $status = $day['status'] ?? null;
-
-            if ($status === 'M') {
-                $summary['present_days']++;
-            } elseif ($status === 'C') {
-                $summary['leave_days']++;
-            } elseif ($status === 'PH') {
-                $summary['ph_days']++;
-            } elseif ($status === 'I') {
-                $summary['permission_days']++;
-            }
 
             if ($day['has_approved_absence_conflict'] ?? false) {
                 $summary['approved_absence_conflicts']++;
@@ -132,16 +139,12 @@ class PayrollAttendanceReadinessService
                 $summary['incomplete_scan_days']++;
                 $issues->push($this->issue($date, 'incomplete_scan', 'Scan masuk atau pulang belum lengkap.'));
             }
-
-            if ($status === 'S') {
-                $key = ($day['has_document'] ?? false) ? 'sick_with_document_days' : 'sick_without_document_days';
-                $summary[$key]++;
-            }
         }
 
         $summary['total_hari_masuk'] = $summary['present_days']
             + $summary['sick_with_document_days']
             + $summary['ph_days']
+            + $summary['eo_days']
             + $summary['leave_days'];
 
         return [

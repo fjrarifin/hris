@@ -38,6 +38,7 @@ class ApprovalRequestNotification extends Notification
         return match (strtoupper($this->type)) {
             'CUTI' => 'Pengajuan Cuti Baru',
             'PH' => 'Pengajuan PH Baru',
+            'EO' => 'Pengajuan Extra Off Baru',
             'IZIN' => 'Pengajuan Izin/Sakit Baru',
             'SAKIT' => 'Pengajuan Sakit Baru',
             'LEMBUR' => 'Pengajuan Lembur Baru',
@@ -52,6 +53,7 @@ class ApprovalRequestNotification extends Notification
         $type = match (strtoupper($this->type)) {
             'CUTI' => 'cuti',
             'PH' => 'PH',
+            'EO' => 'Extra Off',
             'IZIN' => 'izin/sakit',
             'SAKIT' => 'sakit',
             'LEMBUR' => 'lembur',

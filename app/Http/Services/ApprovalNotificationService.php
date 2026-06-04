@@ -3,6 +3,7 @@
 namespace App\Http\Services;
 
 use App\Models\EmployeePermission;
+use App\Models\ExtraOffRequest;
 use App\Models\Karyawan;
 use App\Models\LeaveRequest;
 use App\Models\OvertimeRequest;
@@ -123,6 +124,18 @@ class ApprovalNotificationService
 
             {$footer}
             MSG;
+        }
+
+        if ($request instanceof ExtraOffRequest) {
+            $claim = Carbon::parse($request->claim_date)->format('d M Y');
+            $periodStart = Carbon::parse($request->source_period_start)->format('d M Y');
+            $periodEnd = Carbon::parse($request->source_period_end)->format('d M Y');
+
+            return "Keputusan EO dari Atasan Langsung\n\n"
+                ."Nama: {$karyawan->nama_karyawan}\n"
+                ."Sumber EO: {$periodStart} - {$periodEnd}\n"
+                ."Tanggal Pengambilan: {$claim}\n\n"
+                ."Status: *{$statusLabel}* oleh atasan langsung.";
         }
 
         if ($request instanceof EmployeePermission) {
@@ -357,6 +370,7 @@ class ApprovalNotificationService
         $approvalType = match (strtoupper($type)) {
             'CUTI' => 'leave',
             'PH' => 'ph',
+            'EO' => 'extra-off',
             'IZIN' => 'permission',
             'SAKIT' => 'permission',
             'LEMBUR' => 'overtime',
@@ -366,6 +380,7 @@ class ApprovalNotificationService
         $label = match (strtoupper($type)) {
             'CUTI' => 'Cuti',
             'PH' => 'Public Holiday',
+            'EO' => 'Extra Off',
             'IZIN' => 'Izin/Sakit',
             'SAKIT' => 'Sakit',
             'LEMBUR' => 'Lembur',
@@ -382,6 +397,11 @@ class ApprovalNotificationService
             $claim = Carbon::parse($request->claim_date)->format('d M Y');
             $holiday = optional($request->holiday)->name ?: 'Hari Libur';
             $detail = "PH: {$holiday}\nTanggal Pengambilan: {$claim}";
+        } elseif ($request instanceof ExtraOffRequest) {
+            $claim = Carbon::parse($request->claim_date)->format('d M Y');
+            $periodStart = Carbon::parse($request->source_period_start)->format('d M Y');
+            $periodEnd = Carbon::parse($request->source_period_end)->format('d M Y');
+            $detail = "Sumber EO: {$periodStart} - {$periodEnd}\nTanggal Pengambilan: {$claim}";
         } elseif ($request instanceof EmployeePermission) {
             $date = Carbon::parse($request->date)->format('d M Y');
             $kind = $request->type === 'sakit' ? 'Sakit' : 'Izin Tidak Masuk';
@@ -405,11 +425,20 @@ class ApprovalNotificationService
         User $supervisor,
         string $reason
     ): string {
-        $label = strtoupper($type) === 'PH' ? 'PH' : 'Cuti';
+        $label = match (strtoupper($type)) {
+            'PH' => 'PH',
+            'EO' => 'Extra Off',
+            'IZIN', 'SAKIT' => 'Izin/Sakit',
+            default => 'Cuti',
+        };
         $dateLabel = '-';
 
         if ($request instanceof PublicHolidayRequest) {
             $dateLabel = Carbon::parse($request->claim_date)->format('d M Y');
+        } elseif ($request instanceof ExtraOffRequest) {
+            $dateLabel = Carbon::parse($request->claim_date)->format('d M Y');
+        } elseif ($request instanceof EmployeePermission) {
+            $dateLabel = Carbon::parse($request->date)->format('d M Y');
         } elseif ($request instanceof LeaveRequest) {
             $start = Carbon::parse($request->start_date)->format('d M Y');
             $end = Carbon::parse($request->end_date)->format('d M Y');

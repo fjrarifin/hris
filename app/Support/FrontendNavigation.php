@@ -81,7 +81,13 @@ class FrontendNavigation
             ->values()
             ->all();
 
-        $approvalKeys = ['hr-approval-leave', 'hr-approval-overtime', 'hr-approval-ph', 'hr-approval-permission'];
+        $approvalKeys = [
+            'hr-approval-leave',
+            'hr-approval-overtime',
+            'hr-approval-ph',
+            'hr-approval-extra-off',
+            'hr-approval-permission',
+        ];
         $children = $menus->whereIn('key', $approvalKeys)->values()->all();
         $approvalAnchor = $children[0]['key'] ?? null;
         $talentKeys = ['hr-talent-jobdesks', 'hr-talent-kpis', 'hr-talent-periods', 'hr-talent-reviews'];
@@ -172,7 +178,7 @@ class FrontendNavigation
 
     private function groupStaffMenus(Collection $menus): Collection
     {
-        $requestKeys = ['staff-leave', 'staff-public-holiday', 'staff-permission'];
+        $requestKeys = ['staff-leave', 'staff-public-holiday', 'staff-extra-off', 'staff-permission'];
         $requestAnchor = $menus
             ->first(fn (array $menu) => in_array($menu['key'], $requestKeys, true))['key'] ?? null;
         $requestChildren = $menus

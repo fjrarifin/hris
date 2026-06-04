@@ -8,7 +8,9 @@ use App\Http\Services\ApprovalRoutingService;
 use App\Http\Services\WhatsAppService;
 use App\Models\EmployeeChangeLog;
 use App\Models\EmployeeDailySchedule;
+use App\Models\EmployeeExtraOff;
 use App\Models\EmployeePermission;
+use App\Models\ExtraOffRequest;
 use App\Models\FingerspotAttendanceLog;
 use App\Models\Karyawan;
 use App\Models\LeaveAccrual;
@@ -74,6 +76,7 @@ class StaffPortalController extends Controller
                 'attendance_days' => $attendanceDays,
                 'leave_balance' => $this->leaveBalance($user),
                 'public_holiday_balance' => $this->publicHolidayBalance($user),
+                'extra_off_balance' => $this->extraOffBalance($user),
             ],
             'attendance_period' => [
                 'start' => $periodStart->toDateString(),
@@ -826,6 +829,83 @@ class StaffPortalController extends Controller
         return response()->json(['message' => 'Pengajuan PH berhasil dibatalkan.']);
     }
 
+    public function extraOffs(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        return response()->json([
+            'balance' => $this->extraOffBalance($user),
+            'sources' => $this->availableExtraOffSources($user)->values(),
+            'requests' => ExtraOffRequest::query()
+                ->where('user_id', $user->id)
+                ->latest()
+                ->get(),
+        ]);
+    }
+
+    public function storeExtraOff(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'source_period_start' => ['required', 'date'],
+            'source_period_end' => ['required', 'date', 'after_or_equal:source_period_start'],
+            'claim_date' => ['required', 'date'],
+        ]);
+
+        $user = $request->user();
+        $directToHr = $this->approvalRouting->requiresDirectHrApproval($user);
+        $employee = $user->karyawan;
+        $claimDate = Carbon::parse($data['claim_date'])->startOfDay();
+
+        if (! $employee) {
+            throw ValidationException::withMessages(['extra_off' => 'Data karyawan tidak ditemukan.']);
+        }
+
+        if ($claimDate->lt(now()->startOfDay())) {
+            throw ValidationException::withMessages(['claim_date' => 'Tanggal pengambilan tidak boleh sebelum hari ini.']);
+        }
+
+        $source = EmployeeExtraOff::query()
+            ->where('karyawan_nik', $employee->nik)
+            ->whereDate('periode_start', $data['source_period_start'])
+            ->whereDate('periode_end', $data['source_period_end'])
+            ->first();
+
+        if (! $source || $this->remainingExtraOffDays($user, $source) <= 0) {
+            throw ValidationException::withMessages(['source_period_start' => 'Saldo Extra Off periode ini tidak tersedia.']);
+        }
+
+        if ($this->hasDateConflict($user, $claimDate)) {
+            throw ValidationException::withMessages(['claim_date' => 'Tanggal Extra Off bentrok dengan pengajuan lain.']);
+        }
+
+        $extraOff = ExtraOffRequest::create([
+            'user_id' => $user->id,
+            'source_period_start' => $source->periode_start,
+            'source_period_end' => $source->periode_end,
+            'claim_date' => $claimDate,
+            'status' => 'pending',
+            ...$this->approvalRouting->initialApprovalFields($directToHr),
+        ])->load('user');
+
+        $this->approvalRouting->notifyInitialApprover($extraOff, 'EO', $directToHr);
+
+        return response()->json([
+            'message' => 'Pengajuan Extra Off berhasil dikirim.',
+            'data' => $extraOff,
+        ], 201);
+    }
+
+    public function destroyExtraOff(Request $request, ExtraOffRequest $extraOffRequest): JsonResponse
+    {
+        abort_unless(
+            $extraOffRequest->user_id === $request->user()->id && $extraOffRequest->status === 'pending',
+            404
+        );
+        $extraOffRequest->delete();
+
+        return response()->json(['message' => 'Pengajuan Extra Off berhasil dibatalkan.']);
+    }
+
     public function permissions(Request $request): JsonResponse
     {
         return response()->json([
@@ -914,14 +994,17 @@ class StaffPortalController extends Controller
     public function notifyHrAbsenceCancellation(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'type' => ['required', Rule::in(['leave', 'ph'])],
+            'type' => ['required', Rule::in(['leave', 'ph', 'extra_off', 'permission'])],
             'id' => ['required', 'integer'],
             'reason' => ['nullable', 'string', 'max:255'],
         ]);
 
-        $model = $validated['type'] === 'ph'
-            ? PublicHolidayRequest::with(['user.karyawan', 'holiday'])->findOrFail($validated['id'])
-            : LeaveRequest::with('user.karyawan')->findOrFail($validated['id']);
+        $model = match ($validated['type']) {
+            'ph' => PublicHolidayRequest::with(['user.karyawan', 'holiday'])->findOrFail($validated['id']),
+            'extra_off' => ExtraOffRequest::with('user.karyawan')->findOrFail($validated['id']),
+            'permission' => EmployeePermission::with('user.karyawan')->findOrFail($validated['id']),
+            default => LeaveRequest::with('user.karyawan')->findOrFail($validated['id']),
+        };
 
         abort_unless($this->isDirectSubordinateRequest($request->user(), $model), 403);
         abort_unless(
@@ -936,7 +1019,12 @@ class StaffPortalController extends Controller
         $reason = $validated['reason'] ?: 'Karyawan tetap masuk kerja pada tanggal pengajuan.';
         $this->approvalNotification->notifyHrCancellationRequest(
             $model,
-            $validated['type'] === 'ph' ? 'PH' : 'CUTI',
+            match ($validated['type']) {
+                'ph' => 'PH',
+                'extra_off' => 'EO',
+                'permission' => 'IZIN',
+                default => 'CUTI',
+            },
             $employee,
             $request->user(),
             $reason
@@ -957,6 +1045,7 @@ class StaffPortalController extends Controller
         $model = match ($type) {
             'leave' => LeaveRequest::with('user')->findOrFail($id),
             'ph' => PublicHolidayRequest::with(['user', 'holiday'])->findOrFail($id),
+            'extra_off' => ExtraOffRequest::with('user')->findOrFail($id),
             'permission' => EmployeePermission::with('user')->findOrFail($id),
             default => abort(404),
         };
@@ -981,6 +1070,7 @@ class StaffPortalController extends Controller
         $notificationType = match ($type) {
             'leave' => 'CUTI',
             'ph' => 'PH',
+            'extra_off' => 'EO',
             default => 'IZIN',
         };
         $this->approvalNotification->notifyIndirectManagerOfDirectManagerDecision($model, $notificationType, $data['decision']);
@@ -992,6 +1082,7 @@ class StaffPortalController extends Controller
         match ($type) {
             'leave' => $model->user->notify(new LeaveStatusNotification($model, $data['decision'], $data['reason'] ?? null)),
             'ph' => $model->user->notify(new PublicHolidayStatusNotification($model, $data['decision'])),
+            'extra_off' => $model->user->notify(new RequestStatusNotification($model, 'EO', $data['decision'])),
             default => $model->user->notify(new RequestStatusNotification($model, 'IZIN', $data['decision'])),
         };
 
@@ -1159,6 +1250,77 @@ class StaffPortalController extends Controller
         return $this->eligiblePublicHolidays($user)
             ->whereNotIn('id', $approvedIds)
             ->count();
+    }
+
+    private function extraOffBalance(User $user): int
+    {
+        return $this->availableExtraOffSources($user)->sum('remaining_days');
+    }
+
+    private function availableExtraOffSources(User $user): Collection
+    {
+        $employee = $this->employeeFor($user);
+
+        return EmployeeExtraOff::query()
+            ->where('karyawan_nik', $employee->nik)
+            ->where('days', '>', 0)
+            ->orderBy('periode_start')
+            ->get()
+            ->map(function (EmployeeExtraOff $source) use ($user): array {
+                $used = $this->usedExtraOffDays($user, $source);
+                $remaining = max((int) $source->days - $used, 0);
+
+                return [
+                    'source_period_start' => $source->periode_start->toDateString(),
+                    'source_period_end' => $source->periode_end->toDateString(),
+                    'label' => $source->periode_start->format('d M Y').' - '.$source->periode_end->format('d M Y'),
+                    'days' => (int) $source->days,
+                    'used_days' => $used,
+                    'remaining_days' => $remaining,
+                ];
+            })
+            ->filter(fn (array $source): bool => $source['remaining_days'] > 0)
+            ->values();
+    }
+
+    private function remainingExtraOffDays(User $user, EmployeeExtraOff $source): int
+    {
+        return max((int) $source->days - $this->usedExtraOffDays($user, $source), 0);
+    }
+
+    private function usedExtraOffDays(User $user, EmployeeExtraOff $source): int
+    {
+        return ExtraOffRequest::query()
+            ->where('user_id', $user->id)
+            ->whereDate('source_period_start', $source->periode_start)
+            ->whereDate('source_period_end', $source->periode_end)
+            ->whereNotIn('status', ['rejected', 'cancelled'])
+            ->count();
+    }
+
+    private function hasDateConflict(User $user, Carbon $date): bool
+    {
+        return LeaveRequest::query()
+            ->where('user_id', $user->id)
+            ->whereNotIn('status', ['rejected', 'cancelled'])
+            ->whereDate('start_date', '<=', $date)
+            ->whereDate('end_date', '>=', $date)
+            ->exists()
+            || PublicHolidayRequest::query()
+                ->where('user_id', $user->id)
+                ->whereNotIn('status', ['rejected', 'cancelled'])
+                ->whereDate('claim_date', $date)
+                ->exists()
+            || ExtraOffRequest::query()
+                ->where('user_id', $user->id)
+                ->whereNotIn('status', ['rejected', 'cancelled'])
+                ->whereDate('claim_date', $date)
+                ->exists()
+            || EmployeePermission::query()
+                ->where('user_id', $user->id)
+                ->whereNotIn('status', ['rejected', 'cancelled'])
+                ->whereDate('date', $date)
+                ->exists();
     }
 
     private function eligiblePublicHolidays(User $user): Collection
@@ -1358,6 +1520,24 @@ class StaffPortalController extends Controller
                 }
             });
 
+        ExtraOffRequest::query()
+            ->whereIn('user_id', $userIds)
+            ->where('status', 'approved')
+            ->whereNotNull('manager_approved_at')
+            ->whereDate('claim_date', $date)
+            ->get(['id', 'user_id'])
+            ->each(function (ExtraOffRequest $request) use ($users, $absences): void {
+                $nik = $users->get($request->user_id)?->username;
+                if ($nik) {
+                    $absences->put($nik, [
+                        'status' => 'extra_off',
+                        'approval_type' => 'extra_off',
+                        'approval_id' => $request->id,
+                        'label' => 'EO',
+                    ]);
+                }
+            });
+
         EmployeePermission::query()
             ->whereIn('user_id', $userIds)
             ->where('status', 'approved')
@@ -1534,6 +1714,16 @@ class StaffPortalController extends Controller
                     ->map(fn (PublicHolidayRequest $item) => $this->serializeApproval('ph', $item))
             )
             ->concat(
+                ExtraOffRequest::query()
+                    ->with('user.karyawan')
+                    ->whereIn('user_id', $subordinateUserIds)
+                    ->whereNull('manager_approved_at')
+                    ->where('status', 'pending')
+                    ->latest()
+                    ->get()
+                    ->map(fn (ExtraOffRequest $item) => $this->serializeApproval('extra_off', $item))
+            )
+            ->concat(
                 EmployeePermission::query()
                     ->with('user.karyawan')
                     ->whereIn('user_id', $subordinateUserIds)
@@ -1571,11 +1761,13 @@ class StaffPortalController extends Controller
             'label' => match ($type) {
                 'leave' => LeaveRequest::LEAVE_TYPES[$item->leave_type] ?? $item->leave_type,
                 'ph' => $item->holiday->name ?? 'Public Holiday',
+                'extra_off' => 'Extra Off',
                 default => $item->type === 'sakit' ? 'Sakit' : 'Izin',
             },
             'start_date' => match ($type) {
                 'leave' => $item->start_date,
                 'ph' => $item->claim_date?->toDateString(),
+                'extra_off' => $item->claim_date?->toDateString(),
                 default => $item->date?->toDateString(),
             },
             'end_date' => $type === 'leave' ? $item->end_date : null,

@@ -209,6 +209,12 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::delete('/public-holiday/{publicHolidayRequest}', [StaffPortalController::class, 'destroyPublicHoliday']);
             });
 
+            Route::middleware('frontend.menu:staff-extra-off')->group(function () {
+                Route::get('/extra-off', [StaffPortalController::class, 'extraOffs']);
+                Route::post('/extra-off', [StaffPortalController::class, 'storeExtraOff']);
+                Route::delete('/extra-off/{extraOffRequest}', [StaffPortalController::class, 'destroyExtraOff']);
+            });
+
             Route::middleware('frontend.menu:staff-permission')->group(function () {
                 Route::get('/permission', [StaffPortalController::class, 'permissions']);
                 Route::post('/permission', [StaffPortalController::class, 'storePermission']);

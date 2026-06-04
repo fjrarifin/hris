@@ -22,6 +22,7 @@ class RequestStatusNotification extends Notification
             'IZIN' => 'Izin/Sakit',
             'LEMBUR' => 'Lembur',
             'PH' => 'PH',
+            'EO' => 'Extra Off',
             default => 'Cuti',
         };
 

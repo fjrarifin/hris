@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Services\ApprovalNotificationService;
 use App\Models\EmployeePermission;
+use App\Models\ExtraOffRequest;
 use App\Models\FingerspotAttendanceLog;
 use App\Models\LeaveRequest;
 use App\Models\PublicHolidayRequest;
@@ -157,6 +158,9 @@ class PublicApprovalController extends Controller
             ?? PublicHolidayRequest::with('user', 'holiday')
                 ->where('approval_token', $token)
                 ->first()
+            ?? ExtraOffRequest::with('user')
+                ->where('approval_token', $token)
+                ->first()
             ?? EmployeePermission::with('user')
                 ->where('approval_token', $token)
                 ->first();
@@ -181,6 +185,10 @@ class PublicApprovalController extends Controller
             return 'permission';
         }
 
+        if ($request instanceof ExtraOffRequest) {
+            return 'extra_off';
+        }
+
         return 'unknown';
     }
 
@@ -189,6 +197,7 @@ class PublicApprovalController extends Controller
         return match (true) {
             $request instanceof LeaveRequest => 'CUTI',
             $request instanceof PublicHolidayRequest => 'PH',
+            $request instanceof ExtraOffRequest => 'EO',
             $request instanceof EmployeePermission => 'IZIN',
             default => 'UNKNOWN',
         };
@@ -216,6 +225,12 @@ class PublicApprovalController extends Controller
         if ($request instanceof EmployeePermission) {
             $request->user->notify(
                 new RequestStatusNotification($request, 'IZIN', $status)
+            );
+        }
+
+        if ($request instanceof ExtraOffRequest) {
+            $request->user->notify(
+                new RequestStatusNotification($request, 'EO', $status)
             );
         }
 

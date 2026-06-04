@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\EmployeePermission;
+use App\Models\ExtraOffRequest;
 use App\Models\FingerspotAttendanceLog;
 use App\Models\LeaveRequest;
 use App\Models\OvertimeRequest;
@@ -112,6 +113,7 @@ class HrApprovalController extends Controller
             'leave' => LeaveRequest::class,
             'overtime' => OvertimeRequest::class,
             'ph' => PublicHolidayRequest::class,
+            'extra_off' => ExtraOffRequest::class,
             'permission' => EmployeePermission::class,
             default => abort(404),
         };
@@ -147,12 +149,14 @@ class HrApprovalController extends Controller
             'label' => match ($type) {
                 'leave' => LeaveRequest::LEAVE_TYPES[$item->leave_type] ?? $item->leave_type,
                 'ph' => $item->holiday?->name ?? 'Public Holiday',
+                'extra_off' => 'Extra Off',
                 'permission' => $item->type === 'sakit' ? 'Sakit' : 'Izin',
                 default => 'Lembur',
             },
             'date' => match ($type) {
                 'leave' => $item->start_date,
                 'ph' => $item->claim_date,
+                'extra_off' => $item->claim_date,
                 default => $item->date,
             },
             'end_date' => $type === 'leave' ? $item->end_date : null,
@@ -175,6 +179,7 @@ class HrApprovalController extends Controller
         match ($type) {
             'leave' => $item->user->notify(new LeaveStatusNotification($item, $decision, $reason)),
             'ph' => $item->user->notify(new PublicHolidayStatusNotification($item, $decision)),
+            'extra_off' => $item->user->notify(new RequestStatusNotification($item, 'EO', $decision)),
             'permission' => $item->user->notify(new RequestStatusNotification($item, 'IZIN', $decision)),
             'overtime' => $item->user->notify(new RequestStatusNotification($item, 'LEMBUR', $decision)),
         };
