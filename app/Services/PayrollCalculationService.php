@@ -15,6 +15,24 @@ class PayrollCalculationService
 {
     private const FORMULA_VERSION = 'payroll-business-rules-2026-06-03';
 
+    private const REQUIRED_COMPONENTS = [
+        ['nama' => 'Gaji Pokok', 'type' => 'earning', 'input_mode' => 'calculated'],
+        ['nama' => 'Tunjangan Jabatan', 'type' => 'earning', 'input_mode' => 'calculated'],
+        ['nama' => 'Tunjangan Tidak Tetap', 'type' => 'earning', 'input_mode' => 'calculated'],
+        ['nama' => 'Lembur', 'type' => 'earning', 'input_mode' => 'calculated'],
+        ['nama' => 'Potongan Alpha', 'type' => 'deduction', 'input_mode' => 'calculated'],
+        ['nama' => 'Potongan Izin', 'type' => 'deduction', 'input_mode' => 'calculated'],
+        ['nama' => 'Potongan Sakit Tanpa Surat', 'type' => 'deduction', 'input_mode' => 'calculated'],
+        ['nama' => 'Pot. JKN Karyawan', 'type' => 'deduction', 'input_mode' => 'calculated'],
+        ['nama' => 'Pot. JHT Karyawan', 'type' => 'deduction', 'input_mode' => 'calculated'],
+        ['nama' => 'Pot. JP Karyawan', 'type' => 'deduction', 'input_mode' => 'calculated'],
+        ['nama' => 'JKN Perusahaan', 'type' => 'employer_contribution', 'input_mode' => 'calculated'],
+        ['nama' => 'JHT Perusahaan', 'type' => 'employer_contribution', 'input_mode' => 'calculated'],
+        ['nama' => 'JP Perusahaan', 'type' => 'employer_contribution', 'input_mode' => 'calculated'],
+        ['nama' => 'JKK Perusahaan', 'type' => 'employer_contribution', 'input_mode' => 'calculated'],
+        ['nama' => 'JKM Perusahaan', 'type' => 'employer_contribution', 'input_mode' => 'calculated'],
+    ];
+
     public function __construct(
         private readonly PayrollAttendanceReadinessService $readinessService,
         private readonly PayrollValidationService $validationService,
@@ -71,6 +89,7 @@ class PayrollCalculationService
     public function generate(array $filters): array
     {
         $preview = $this->preview($filters);
+        $this->ensureRequiredComponents();
         $components = PayrollComponent::query()->where('is_active', true)->get()->keyBy('nama');
         $result = ['generated' => 0, 'skipped' => []];
 
@@ -176,10 +195,14 @@ class PayrollCalculationService
         $bpjsCompany = $bpjsActive ? $this->bpjsCompany($basicSalary, (float) $profile->rate_jkk_percent) : ['jkn' => 0, 'jht' => 0, 'jp' => 0, 'jkk' => 0, 'jkm' => 0];
         $totalBpjsEmployee = array_sum($bpjsEmployee);
         $totalBpjsCompany = array_sum($bpjsCompany);
-        $payrollGroup = $this->payrollGroup($profile);
-        $tttFull = $payrollGroup === 'operator'
-            ? 750000
-            : max(((int) $profile->bruto_man_power * 0.25) - $totalBpjsCompany - $totalBpjsEmployee, 0);
+        $tttFull = max(
+            (int) $profile->bruto_man_power
+                - (int) $profile->gaji_pokok
+                - (int) $profile->tunjangan_jabatan
+                - $totalBpjsCompany
+                - $totalBpjsEmployee,
+            0
+        );
         $tttDailyRate = (int) round($tttFull / $periodWorkdays);
         $tttProrata = (int) round(($tttFull / $periodWorkdays) * $paidHariMasuk);
         $items = collect([
@@ -253,13 +276,6 @@ class PayrollCalculationService
         ];
     }
 
-    private function payrollGroup(EmployeePayrollProfile $profile): string
-    {
-        return strtolower((string) ($profile->payroll_group ?: 'staff')) === 'operator'
-            ? 'operator'
-            : 'staff';
-    }
-
     private function item(string $name, string $type, int|float $amount): array
     {
         return compact('name', 'type') + ['amount' => (int) round($amount)];
@@ -282,5 +298,15 @@ class PayrollCalculationService
             ->where('type', 'deduction')
             ->whereIn('name', $names)
             ->sum('amount');
+    }
+
+    private function ensureRequiredComponents(): void
+    {
+        foreach (self::REQUIRED_COMPONENTS as $component) {
+            PayrollComponent::query()->updateOrCreate(
+                ['nama' => $component['nama']],
+                $component + ['is_active' => true]
+            );
+        }
     }
 }

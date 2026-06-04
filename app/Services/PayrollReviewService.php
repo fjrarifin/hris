@@ -10,6 +10,10 @@ use Illuminate\Validation\ValidationException;
 
 class PayrollReviewService
 {
+    private const MANUAL_ADJUSTABLE_CALCULATED_COMPONENTS = [
+        'Lembur',
+    ];
+
     public function __construct(
         private readonly PayrollAttendanceReadinessService $readinessService,
         private readonly PayrollValidationService $validationService
@@ -22,7 +26,11 @@ class PayrollReviewService
         $this->ensureStatus($payroll, ['draft', 'reviewed']);
         $components = PayrollComponent::query()
             ->where('is_active', true)
-            ->where('input_mode', 'manual')
+            ->where(function ($query): void {
+                $query
+                    ->where('input_mode', 'manual')
+                    ->orWhereIn('nama', self::MANUAL_ADJUSTABLE_CALCULATED_COMPONENTS);
+            })
             ->get()
             ->keyBy('id');
 

@@ -48,6 +48,35 @@ class PayrollCalculationServiceTest extends TestCase
         $this->assertSame(7017999, $result['company_cost']);
     }
 
+    public function test_it_caps_paid_attendance_to_period_workdays_and_tracks_extra_off(): void
+    {
+        $service = new PayrollCalculationService(
+            Mockery::mock(PayrollAttendanceReadinessService::class),
+            Mockery::mock(PayrollValidationService::class),
+            Mockery::mock(PayrollPeriodService::class)
+        );
+        $profile = new EmployeePayrollProfile([
+            'gaji_pokok' => 3000000,
+            'tunjangan_jabatan' => 500000,
+            'bruto_man_power' => 5000000,
+            'payroll_group' => 'operator',
+            'rate_jkk_percent' => 0,
+        ]);
+
+        $result = $service->calculate($profile, false, [
+            'periode_hari_kerja' => 20,
+            'total_hari_masuk' => 23,
+            'overtime_minutes' => 0,
+            'permission_days' => 0,
+            'sick_without_document_days' => 0,
+        ]);
+
+        $this->assertSame(20, $result['paid_hari_masuk']);
+        $this->assertSame(3, $result['extra_off_days']);
+        $this->assertSame(1500000, $result['tunjangan_tidak_tetap_full']);
+        $this->assertSame(5000000, $result['gross_salary']);
+    }
+
     protected function tearDown(): void
     {
         Mockery::close();

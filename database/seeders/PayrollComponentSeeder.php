@@ -18,7 +18,7 @@ class PayrollComponentSeeder extends Seeder
             ['nama' => 'Gaji Pokok', 'type' => 'earning', 'input_mode' => 'calculated', 'is_active' => true],
             ['nama' => 'Tunjangan Jabatan', 'type' => 'earning', 'input_mode' => 'calculated', 'is_active' => true],
             ['nama' => 'Tunjangan Tidak Tetap', 'type' => 'earning', 'input_mode' => 'calculated', 'is_active' => true],
-            ['nama' => 'Lembur', 'type' => 'earning', 'input_mode' => 'manual', 'is_active' => true],
+            ['nama' => 'Lembur', 'type' => 'earning', 'input_mode' => 'calculated', 'is_active' => true],
             ['nama' => 'Kekurangan Bulan Sebelumnya', 'type' => 'earning', 'input_mode' => 'manual', 'is_active' => true],
             ['nama' => 'THR', 'type' => 'earning', 'input_mode' => 'manual', 'is_active' => true],
             ['nama' => 'Lain-lain', 'type' => 'earning', 'input_mode' => 'manual', 'is_active' => true],

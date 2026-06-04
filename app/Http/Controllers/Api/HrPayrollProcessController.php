@@ -64,11 +64,17 @@ class HrPayrollProcessController extends Controller
             'summary' => [
                 'total_payrolls' => $records->count(),
                 'total_net' => $records->sum('total_dibayarkan'),
+                'total_hari_masuk' => $records->sum('total_hari_masuk'),
+                'total_extra_off_days' => $records->sum('extra_off_days'),
                 'statuses' => $records->countBy('status'),
             ],
             'manual_components' => PayrollComponent::query()
                 ->where('is_active', true)
-                ->where('input_mode', 'manual')
+                ->where(function ($query): void {
+                    $query
+                        ->where('input_mode', 'manual')
+                        ->orWhere('nama', 'Lembur');
+                })
                 ->orderBy('type')
                 ->orderBy('nama')
                 ->get(['id', 'nama', 'type']),
