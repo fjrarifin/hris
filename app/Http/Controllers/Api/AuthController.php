@@ -52,7 +52,7 @@ class AuthController extends Controller
                 ]);
             }
 
-            $idleMinutes = (int) config('sanctum.idle_expiration', 30);
+            $idleMinutes = (int) config('sanctum.idle_expiration', 7 * 24 * 60);
 
             if ($idleMinutes > 0) {
                 $idleCutoff = now()->subMinutes($idleMinutes);
@@ -232,7 +232,7 @@ class AuthController extends Controller
             'can_change_password' => $this->mustChangePassword($user)
                 || ! $availableAt
                 || now()->greaterThanOrEqualTo($availableAt),
-            'session_idle_timeout_minutes' => (int) config('sanctum.idle_expiration', 30),
+            'session_idle_timeout_minutes' => (int) config('sanctum.idle_expiration', 7 * 24 * 60),
         ];
     }
 

@@ -182,7 +182,7 @@ class SingleDeviceLoginApiTest extends TestCase
             ->assertJsonPath('user.must_change_password', false);
     }
 
-    public function test_idle_session_is_removed_and_allows_login_on_another_device_after_thirty_minutes(): void
+    public function test_idle_session_is_removed_and_allows_login_on_another_device_after_seven_days(): void
     {
         Carbon::setTestNow('2026-05-27 08:00:00');
 
@@ -191,7 +191,7 @@ class SingleDeviceLoginApiTest extends TestCase
             'password' => 'password',
         ])->assertOk();
 
-        Carbon::setTestNow('2026-05-27 08:31:00');
+        Carbon::setTestNow('2026-06-03 08:01:00');
 
         $this->withHeader('User-Agent', 'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Version/18.0 Mobile Safari/604.1')
             ->postJson('/api/auth/login', [

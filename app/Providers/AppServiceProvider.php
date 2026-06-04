@@ -29,7 +29,7 @@ class AppServiceProvider extends ServiceProvider
                 return false;
             }
 
-            $idleMinutes = (int) config('sanctum.idle_expiration', 30);
+            $idleMinutes = (int) config('sanctum.idle_expiration', 7 * 24 * 60);
             $lastActivity = $token->last_used_at ?? $token->created_at;
 
             return $idleMinutes <= 0 || $lastActivity?->gt(now()->subMinutes($idleMinutes));
