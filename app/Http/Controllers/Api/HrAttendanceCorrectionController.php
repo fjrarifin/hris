@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AttendanceCorrection;
+use App\Services\HrdAuditLogService;
 use App\Services\IncompleteAttendanceWhatsAppReport;
 use Carbon\Carbon;
+use Carbon\CarbonPeriod;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -18,14 +20,30 @@ class HrAttendanceCorrectionController extends Controller
     {
         $validated = $request->validate([
             'date' => ['nullable', 'date'],
+            'start_date' => ['nullable', 'date'],
+            'end_date' => ['nullable', 'date', 'after_or_equal:start_date'],
             'q' => ['nullable', 'string', 'max:100'],
             'page' => ['nullable', 'integer', 'min:1'],
         ]);
-        $date = Carbon::parse($validated['date'] ?? now()->subDay()->toDateString())->startOfDay();
+        $start = Carbon::parse($validated['start_date'] ?? $validated['date'] ?? now()->subDay()->toDateString())->startOfDay();
+        $end = Carbon::parse($validated['end_date'] ?? $validated['date'] ?? $start->toDateString())->startOfDay();
+
+        if ($start->diffInDays($end) > 60) {
+            throw ValidationException::withMessages([
+                'end_date' => ['Rentang koreksi absensi maksimal 60 hari.'],
+            ]);
+        }
+
         $keyword = strtolower(trim((string) ($validated['q'] ?? '')));
-        $records = $this->report->recordsForDate($date, true)
+        $records = collect(CarbonPeriod::create($start, $end))
+            ->flatMap(fn (Carbon $date) => $this->report->recordsForDate($date, true)
+                ->map(fn (array $record): array => [
+                    ...$record,
+                    'date' => $date->toDateString(),
+                ]))
             ->when($keyword !== '', function ($items) use ($keyword) {
                 return $items->filter(fn (array $record): bool => collect([
+                    $record['date'],
                     $record['nik'],
                     $record['name'],
                     $record['position'],
@@ -37,7 +55,9 @@ class HrAttendanceCorrectionController extends Controller
         $page = max((int) ($validated['page'] ?? 1), 1);
 
         return response()->json([
-            'date' => $date->toDateString(),
+            'date' => $start->toDateString(),
+            'start_date' => $start->toDateString(),
+            'end_date' => $end->toDateString(),
             'records' => $records->forPage($page, $perPage)->values(),
             'pagination' => [
                 'current_page' => $page,
@@ -78,7 +98,12 @@ class HrAttendanceCorrectionController extends Controller
             ]);
         }
 
-        AttendanceCorrection::query()->updateOrCreate(
+        $existingCorrection = AttendanceCorrection::query()
+            ->where('nik', $nik)
+            ->whereDate('attendance_date', $date)
+            ->first();
+        $beforeAudit = $existingCorrection ? app(HrdAuditLogService::class)->snapshot($existingCorrection) : null;
+        $correction = AttendanceCorrection::query()->updateOrCreate(
             ['nik' => $nik, 'attendance_date' => $date->toDateString()],
             [
                 'corrected_scan_in' => $record['raw_scan_in'] ? null : $validated['corrected_scan_in'],
@@ -88,10 +113,23 @@ class HrAttendanceCorrectionController extends Controller
                 'corrected_by' => $request->user()->id,
             ]
         );
+        app(HrdAuditLogService::class)->record(
+            $request,
+            'Koreksi Absensi',
+            $existingCorrection ? 'updated' : 'created',
+            "{$nik} - {$date->toDateString()}",
+            $beforeAudit,
+            $correction->fresh(),
+            AttendanceCorrection::class,
+            $correction->id
+        );
 
         return response()->json([
             'message' => 'Koreksi absensi berhasil disimpan.',
-            'data' => $this->report->recordsForDate($date, true)->firstWhere('nik', $nik),
+            'data' => [
+                ...$this->report->recordsForDate($date, true)->firstWhere('nik', $nik),
+                'date' => $date->toDateString(),
+            ],
         ]);
     }
 }

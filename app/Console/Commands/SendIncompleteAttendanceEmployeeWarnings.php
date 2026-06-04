@@ -3,7 +3,9 @@
 namespace App\Console\Commands;
 
 use App\Services\IncompleteAttendanceWhatsAppReport;
+use App\Services\PayrollPeriodService;
 use Carbon\Carbon;
+use Carbon\CarbonPeriod;
 use Illuminate\Console\Command;
 use InvalidArgumentException;
 
@@ -16,7 +18,7 @@ class SendIncompleteAttendanceEmployeeWarnings extends Command
 
     protected $description = 'Kirim peringatan pribadi kepada karyawan dan atasan langsung terkait scan absensi tidak lengkap.';
 
-    public function handle(IncompleteAttendanceWhatsAppReport $report): int
+    public function handle(IncompleteAttendanceWhatsAppReport $report, PayrollPeriodService $periodService): int
     {
         try {
             $date = $this->reportDate();
@@ -24,6 +26,12 @@ class SendIncompleteAttendanceEmployeeWarnings extends Command
             $this->error($exception->getMessage());
 
             return self::FAILURE;
+        }
+
+        if (! $this->option('preview') && ! app()->environment('production')) {
+            $this->warn('Pengiriman WhatsApp dilewati karena environment bukan production.');
+
+            return self::SUCCESS;
         }
 
         if ($this->option('preview')) {
@@ -60,6 +68,7 @@ class SendIncompleteAttendanceEmployeeWarnings extends Command
             return self::SUCCESS;
         }
 
+        $periodAppNotificationCount = $this->storePeriodAppNotifications($report, $periodService, $date);
         $result = $report->sendEmployeeWarningsForDate($date, (bool) $this->option('test'));
         $supervisorResult = $report->sendSupervisorWarningsForDate($date, (bool) $this->option('test'));
 
@@ -77,7 +86,33 @@ class SendIncompleteAttendanceEmployeeWarnings extends Command
             $result['skipped_count']
         ));
 
+        if ($periodAppNotificationCount > 0 || ($result['app_notification_count'] ?? 0) > 0) {
+            $this->info(sprintf(
+                'Notifikasi aplikasi tersimpan: %d temuan periode berjalan.',
+                $periodAppNotificationCount + ($result['app_notification_count'] ?? 0)
+            ));
+        }
+
         return self::SUCCESS;
+    }
+
+    private function storePeriodAppNotifications(
+        IncompleteAttendanceWhatsAppReport $report,
+        PayrollPeriodService $periodService,
+        Carbon $untilDate
+    ): int {
+        if ($this->option('date')) {
+            return 0;
+        }
+
+        $period = $periodService->periodFor($untilDate->toDateString());
+        $count = 0;
+
+        foreach (CarbonPeriod::create($period['start_date'], $untilDate) as $date) {
+            $count += $report->storeEmployeeAppNotificationsForDate($date->copy()->startOfDay(), (bool) $this->option('test'));
+        }
+
+        return $count;
     }
 
     private function reportDate(): Carbon

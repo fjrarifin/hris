@@ -27,7 +27,7 @@ class LeaveApprovedNotification extends Notification
             'title' => 'Cuti Disetujui',
             'message' => 'Pengajuan cuti Anda telah disetujui.',
             'leave_id' => $this->leave->id,
-            'url' => route('staff.leave.index'),
+            'url' => rtrim((string) config('services.frontend.base_url'), '/').'/staff/leave',
         ];
     }
 }

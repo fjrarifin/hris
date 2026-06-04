@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Karyawan;
+use App\Services\HrdAuditLogService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -130,10 +131,21 @@ class HrContractController extends Controller
             throw $exception;
         }
         $this->syncEmployeeStatus($employee->nik);
+        $createdContract = DB::table('t_kontrak_karyawan')->find($id);
+        app(HrdAuditLogService::class)->record(
+            $request,
+            'Kontrak Karyawan',
+            'created',
+            "{$employee->nik} - kontrak {$createdContract->kontrak_ke}",
+            null,
+            $createdContract,
+            't_kontrak_karyawan',
+            $id
+        );
 
         return response()->json([
             'message' => 'Kontrak baru berhasil ditambahkan.',
-            'data' => $this->serializeContract(DB::table('t_kontrak_karyawan')->find($id), now()->startOfDay()),
+            'data' => $this->serializeContract($createdContract, now()->startOfDay()),
         ], 201);
     }
 
@@ -147,15 +159,27 @@ class HrContractController extends Controller
             $this->ensureNoActiveContract((string) $contract->nik, $contractId);
         }
 
+        $beforeAudit = app(HrdAuditLogService::class)->snapshot($contract);
         DB::table('t_kontrak_karyawan')->where('id', $contractId)->update([
             ...$validated,
             'updated_at' => now(),
         ]);
         $this->syncEmployeeStatus((string) $contract->nik);
+        $updatedContract = DB::table('t_kontrak_karyawan')->find($contractId);
+        app(HrdAuditLogService::class)->record(
+            $request,
+            'Kontrak Karyawan',
+            'updated',
+            "{$updatedContract->nik} - kontrak {$updatedContract->kontrak_ke}",
+            $beforeAudit,
+            $updatedContract,
+            't_kontrak_karyawan',
+            $contractId
+        );
 
         return response()->json([
             'message' => 'Kontrak berhasil diperbarui.',
-            'data' => $this->serializeContract(DB::table('t_kontrak_karyawan')->find($contractId), now()->startOfDay()),
+            'data' => $this->serializeContract($updatedContract, now()->startOfDay()),
         ]);
     }
 

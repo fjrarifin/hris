@@ -84,4 +84,9 @@ class Karyawan extends Model
     {
         return $this->hasMany(EmployeeDailySchedule::class, 'karyawan_nik', 'nik');
     }
+
+    public function payrollProfile()
+    {
+        return $this->hasOne(EmployeePayrollProfile::class, 'karyawan_nik', 'nik');
+    }
 }

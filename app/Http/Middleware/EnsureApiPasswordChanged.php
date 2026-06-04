@@ -11,7 +11,7 @@ class EnsureApiPasswordChanged
 {
     public function handle(Request $request, Closure $next): Response|JsonResponse
     {
-        if ($request->user()?->must_change_password) {
+        if ((int) $request->user()?->level === 3 && $request->user()?->must_change_password) {
             return response()->json([
                 'message' => 'Anda wajib mengganti password sebelum mengakses fitur HRIS.',
             ], 403);

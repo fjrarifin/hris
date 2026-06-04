@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\FrontendMenu;
 use App\Models\FrontendMenuUserAccess;
 use App\Models\User;
+use App\Services\HrdAuditLogService;
 use App\Support\FrontendNavigation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -77,10 +78,21 @@ class NavigationController extends Controller
             $validated['is_active'] = true;
         }
 
+        $beforeAudit = app(HrdAuditLogService::class)->snapshot($frontendMenu);
         $frontendMenu->update([
             'allowed_levels' => implode(',', array_unique($validated['allowed_levels'])),
             'is_active' => $validated['is_active'],
         ]);
+        app(HrdAuditLogService::class)->record(
+            $request,
+            'Akses Menu',
+            'updated',
+            $frontendMenu->label,
+            $beforeAudit,
+            $frontendMenu->fresh(),
+            FrontendMenu::class,
+            $frontendMenu->id
+        );
 
         return response()->json([
             'message' => 'Akses menu berhasil diperbarui.',
@@ -94,6 +106,11 @@ class NavigationController extends Controller
         $validated = $request->validate([
             'is_allowed' => ['nullable', 'boolean'],
         ]);
+
+        $beforeAccess = FrontendMenuUserAccess::query()
+            ->where('frontend_menu_id', $frontendMenu->id)
+            ->where('user_id', $user->id)
+            ->first();
 
         if (! array_key_exists('is_allowed', $validated) || $validated['is_allowed'] === null) {
             FrontendMenuUserAccess::query()
@@ -109,6 +126,20 @@ class NavigationController extends Controller
                 ['is_allowed' => $validated['is_allowed']]
             );
         }
+        $afterAccess = FrontendMenuUserAccess::query()
+            ->where('frontend_menu_id', $frontendMenu->id)
+            ->where('user_id', $user->id)
+            ->first();
+        app(HrdAuditLogService::class)->record(
+            $request,
+            'Akses Menu User',
+            $afterAccess ? ($beforeAccess ? 'updated' : 'created') : 'deleted',
+            "{$user->username} - {$frontendMenu->label}",
+            $beforeAccess,
+            $afterAccess,
+            FrontendMenuUserAccess::class,
+            $user->id
+        );
 
         return response()->json([
             'message' => 'Akses khusus user berhasil diperbarui.',

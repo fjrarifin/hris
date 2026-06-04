@@ -9,7 +9,8 @@ class PayrollPdfService
 {
     public function generate(Payroll $payroll, string $password): string
     {
-        $pdf = Pdf::loadView('hr.payroll.pdf', compact('payroll'))
+        $view = $payroll->karyawan?->bpjs ? 'hr.payroll.pdf_bpjs' : 'hr.payroll.pdf';
+        $pdf = Pdf::loadView($view, compact('payroll'))
             ->setPaper('a5', 'landscape');
 
         $pdf->render();

@@ -20,7 +20,7 @@ class IncompleteProfileNotification extends Notification
         return [
             'title' => 'Lengkapi Data Profil',
             'message' => 'Email atau Nomor HP Anda belum lengkap. Harap segera melengkapi data profil Anda.',
-            'url' => route('staff.profile.index'),
+            'url' => rtrim((string) config('services.frontend.base_url'), '/').'/staff/profile',
         ];
     }
 }

@@ -7,6 +7,8 @@ use App\Models\AttendanceCorrection;
 use App\Models\EmployeeDailySchedule;
 use App\Models\FingerspotAttendanceLog;
 use App\Models\Karyawan;
+use App\Models\User;
+use App\Notifications\IncompleteAttendanceNotification;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -178,6 +180,7 @@ class IncompleteAttendanceWhatsAppReport
                 'recipient_nik' => $overrideRecipient['nik'] ?? $record['nik'],
                 'recipient_name' => $overrideRecipient['name'] ?? $record['name'],
                 'is_redirected' => $overrideRecipient !== null,
+                'record' => $record,
                 'message' => $this->employeeWarningMessage($record, $date, $test),
             ])
             ->values();
@@ -186,12 +189,14 @@ class IncompleteAttendanceWhatsAppReport
     public function sendEmployeeWarningsForDate(Carbon $date, bool $test = false): array
     {
         $notifications = $this->employeeMessagesForDate($date, $test);
+        $appNotificationCount = $this->storeEmployeeAppNotificationsForDate($date, $test);
 
         if (! config('services.whatsapp.url') || ! config('services.whatsapp.device_id')) {
             return [
                 'ok' => false,
                 'sent_count' => 0,
                 'skipped_count' => $notifications->count(),
+                'app_notification_count' => $appNotificationCount,
                 'notifications' => $notifications,
                 'reason' => 'Konfigurasi WhatsApp belum lengkap.',
             ];
@@ -209,9 +214,49 @@ class IncompleteAttendanceWhatsAppReport
             'ok' => $ok,
             'sent_count' => $notifications->count(),
             'skipped_count' => $this->recordsForDate($date)->count() - $notifications->count(),
+            'app_notification_count' => $appNotificationCount,
             'notifications' => $notifications,
             'reason' => $ok ? null : 'Pengiriman WhatsApp pribadi gagal.',
         ];
+    }
+
+    public function storeEmployeeAppNotificationsForDate(Carbon $date, bool $test = false): int
+    {
+        if ($test || trim((string) config('services.whatsapp.attendance_warning_override_nik')) !== '') {
+            return 0;
+        }
+
+        $count = 0;
+
+        foreach ($this->recordsForDate($date) as $record) {
+            $count += $this->storeEmployeeAppNotification($record, $date);
+        }
+
+        return $count;
+    }
+
+    private function storeEmployeeAppNotification(array $record, Carbon $date): int
+    {
+        $user = User::query()
+            ->where('username', $record['nik'])
+            ->first();
+
+        if (! $user) {
+            return 0;
+        }
+
+        $alreadyExists = $user->notifications()
+            ->where('type', IncompleteAttendanceNotification::class)
+            ->where('data->date', $date->toDateString())
+            ->exists();
+
+        if ($alreadyExists) {
+            return 0;
+        }
+
+        $user->notify(new IncompleteAttendanceNotification($record, $date));
+
+        return 1;
     }
 
     public function supervisorMessagesForDate(Carbon $date, bool $test = false): Collection

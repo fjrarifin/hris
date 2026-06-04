@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\EmployeeChangeLog;
 use App\Models\Karyawan;
 use App\Services\FingerspotUserinfoService;
+use App\Services\HrdAuditLogService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -117,6 +118,16 @@ class EmployeeController extends Controller
 
             return $employee;
         });
+        app(HrdAuditLogService::class)->record(
+            $request,
+            'Data Karyawan',
+            'created',
+            "{$employee->nik} - {$employee->nama_karyawan}",
+            null,
+            $employee->fresh(),
+            Karyawan::class,
+            $employee->nik
+        );
 
         return response()->json([
             'message' => 'Data karyawan berhasil ditambahkan.',
@@ -190,6 +201,8 @@ class EmployeeController extends Controller
         $payload = $this->validatedPayload($request, $employee);
         $payload = $this->preparePayload($request, $payload, $employee);
 
+        $beforeAudit = app(HrdAuditLogService::class)->snapshot($employee);
+
         DB::transaction(function () use ($request, $employee, $payload): void {
             $profilePayload = $this->profilePayload($payload);
             $auditPayload = $this->employeeAuditPayload($profilePayload);
@@ -200,6 +213,17 @@ class EmployeeController extends Controller
             $this->saveContract($employee, $payload);
             $this->syncEmployeeStatus($employee);
         });
+        $employee->refresh();
+        app(HrdAuditLogService::class)->record(
+            $request,
+            'Data Karyawan',
+            'updated',
+            "{$employee->nik} - {$employee->nama_karyawan}",
+            $beforeAudit,
+            $employee,
+            Karyawan::class,
+            $employee->nik
+        );
 
         return response()->json([
             'message' => 'Data karyawan berhasil diperbarui.',
@@ -209,7 +233,20 @@ class EmployeeController extends Controller
 
     public function destroy(Karyawan $employee): JsonResponse
     {
+        $beforeAudit = app(HrdAuditLogService::class)->snapshot($employee);
+        $subjectLabel = "{$employee->nik} - {$employee->nama_karyawan}";
+        $subjectId = $employee->nik;
         $employee->delete();
+        app(HrdAuditLogService::class)->record(
+            request(),
+            'Data Karyawan',
+            'deleted',
+            $subjectLabel,
+            $beforeAudit,
+            null,
+            Karyawan::class,
+            $subjectId
+        );
 
         return response()->json(null, 204);
     }

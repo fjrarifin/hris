@@ -20,6 +20,7 @@ class SlipGajiMail extends Mailable
     public string  $fileName;
     public string  $password;
     public ?string $emailSubject;
+    public ?string $emailBody;
 
     public function __construct(
         Payroll $payroll,
@@ -27,6 +28,7 @@ class SlipGajiMail extends Mailable
         string $fileName,
         string $password,
         ?string $emailSubject = null,
+        ?string $emailBody = null,
     )
     {
         $this->payroll    = $payroll;
@@ -34,6 +36,7 @@ class SlipGajiMail extends Mailable
         $this->fileName   = $fileName;
         $this->password   = $password;
         $this->emailSubject = $emailSubject;
+        $this->emailBody = $emailBody;
     }
 
     public function envelope(): Envelope
@@ -52,6 +55,7 @@ class SlipGajiMail extends Mailable
             with: [
                 'payroll'  => $this->payroll,
                 'password' => $this->password,
+                'emailBody' => $this->emailBody,
             ]
         );
     }

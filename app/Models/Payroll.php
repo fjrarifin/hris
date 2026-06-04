@@ -24,6 +24,12 @@ class Payroll extends Model
         'cuti_normatif',
         'libur_nasional',
         'ph',
+        'basic_salary',
+        'bruto_man_power',
+        'total_hari_masuk',
+        'extra_off_days',
+        'tunjangan_tidak_tetap_full',
+        'formula_version',
         'approval_status',
         'submitted_by',
         'submitted_at',
@@ -48,6 +54,11 @@ class Payroll extends Model
         'locked_at' => 'datetime',
         'validation_warnings' => 'array',
         'validated_at' => 'datetime',
+        'basic_salary' => 'integer',
+        'bruto_man_power' => 'integer',
+        'total_hari_masuk' => 'integer',
+        'extra_off_days' => 'integer',
+        'tunjangan_tidak_tetap_full' => 'integer',
     ];
 
     public function karyawan()
@@ -88,6 +99,11 @@ class Payroll extends Model
     public function deductions()
     {
         return $this->items()->where('type', 'deduction');
+    }
+
+    public function employerContributions()
+    {
+        return $this->items()->where('type', 'employer_contribution');
     }
 
     private function normalizeComponentName($value): string

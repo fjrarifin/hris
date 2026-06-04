@@ -15,7 +15,7 @@ use App\Models\OvertimeRequest;
 use App\Models\PublicHoliday;
 use App\Models\PublicHolidayRequest;
 use App\Models\User;
-use App\Notifications\MinimumAttendanceWarningNotification;
+use App\Services\HrAttendanceReportService;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use Illuminate\Database\Eloquent\Builder;
@@ -35,6 +35,10 @@ class HrAttendanceController extends Controller
     private const IDEAL_MONTHLY_ATTENDANCE_DAYS = 25;
 
     private const APPROVED_PAID_ABSENCE_MINUTES = 8 * 60;
+
+    public function __construct(private readonly HrAttendanceReportService $attendanceReportService)
+    {
+    }
 
     public function options(): JsonResponse
     {
@@ -71,7 +75,7 @@ class HrAttendanceController extends Controller
             'page' => ['nullable', 'integer', 'min:1'],
         ]);
 
-        $report = $this->report($validated);
+        $report = $this->attendanceReportService->report($validated);
         $perPage = 10;
         $total = $report['records']->count();
         $lastPage = max((int) ceil($total / $perPage), 1);
@@ -107,7 +111,7 @@ class HrAttendanceController extends Controller
             'format' => ['nullable', 'in:detail,summary'],
         ]);
 
-        $report = $this->report($validated);
+        $report = $this->attendanceReportService->report($validated);
         $withDailyBreakdown = ($validated['format'] ?? 'detail') === 'detail';
         $suffix = $withDailyBreakdown ? 'Detail' : 'Ringkas';
         $fileName = 'Rekap_Absensi_HRD_'.$suffix.'_'.$report['filters']['start_date'].'_'.$report['filters']['end_date'].'.xlsx';
@@ -283,7 +287,7 @@ class HrAttendanceController extends Controller
             ];
         }
 
-        $report = $this->report([
+        $report = $this->attendanceReportService->report([
             'start_date' => $asOfDate->copy()->startOfMonth()->toDateString(),
             'end_date' => $asOfDate->toDateString(),
         ]);
@@ -329,7 +333,7 @@ class HrAttendanceController extends Controller
         $periodMonth = Carbon::createFromFormat('Y-m-d', $validated['period_month'].'-01')->startOfDay();
         $periodStart = $periodMonth->copy()->subMonthNoOverflow()->day(25);
         $periodEnd = $periodMonth->copy()->day(24);
-        $report = $this->report([
+        $report = $this->attendanceReportService->report([
             ...$validated,
             'start_date' => $periodStart->toDateString(),
             'end_date' => $periodEnd->toDateString(),
@@ -413,8 +417,6 @@ class HrAttendanceController extends Controller
         string $periodLabel,
         array $targets
     ): void {
-        $user?->notify(new MinimumAttendanceWarningNotification($record, $periodLabel, $targets));
-
         if (! filled($employee->no_hp)) {
             return;
         }

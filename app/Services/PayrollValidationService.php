@@ -12,7 +12,7 @@ class PayrollValidationService
 
     private const WARNING_TOTAL_LIMIT = 50000000;
 
-    public function validate(Payroll $payroll, bool $forSending = false): array
+    public function validate(Payroll $payroll, bool $forSending = false, bool $requireLock = true): array
     {
         $payroll->loadMissing(['karyawan', 'items.component']);
 
@@ -31,12 +31,28 @@ class PayrollValidationService
             $critical[] = 'Payroll belum disetujui.';
         }
 
-        if ($forSending && !$payroll->is_locked) {
+        if ($forSending && $requireLock && !$payroll->is_locked) {
             $critical[] = 'Payroll belum dikunci.';
         }
 
         if (!$payroll->periode_start || !$payroll->periode_end) {
             $critical[] = 'Periode payroll belum lengkap.';
+        }
+
+        if (! $payroll->formula_version) {
+            $warnings[] = 'Formula payroll belum memiliki versi snapshot.';
+        }
+
+        if ((int) $payroll->basic_salary <= 0) {
+            $warnings[] = 'Basic salary belum tersedia.';
+        }
+
+        if ((int) $payroll->bruto_man_power <= 0) {
+            $critical[] = 'Bruto man power belum tersedia.';
+        }
+
+        if ((int) $payroll->total_hari_masuk === 0) {
+            $warnings[] = 'Total hari masuk bernilai nol.';
         }
 
         if ((int) $payroll->total_dibayarkan < 0) {
@@ -109,9 +125,9 @@ class PayrollValidationService
         ];
     }
 
-    public function validateAndStore(Payroll $payroll, ?int $userId = null, bool $forSending = false): array
+    public function validateAndStore(Payroll $payroll, ?int $userId = null, bool $forSending = false, bool $requireLock = true): array
     {
-        $result = $this->validate($payroll, $forSending);
+        $result = $this->validate($payroll, $forSending, $requireLock);
 
         $payroll->forceFill([
             'validation_status' => $result['status'],

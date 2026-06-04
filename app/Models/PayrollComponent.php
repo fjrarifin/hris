@@ -13,6 +13,11 @@ class PayrollComponent extends Model
         'header',
         'nama',
         'type',
+        'input_mode',
         'is_active'
+    ];
+
+    protected $casts = [
+        'is_active' => 'boolean',
     ];
 }

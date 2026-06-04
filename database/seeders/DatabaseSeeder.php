@@ -16,5 +16,7 @@ class DatabaseSeeder extends Seeder
     {
         $this->call(PublicHolidaysSeeder::class);
         $this->call(CashierSupervisorHierarchySeeder::class);
+        $this->call(CommonTalentJobdeskKpiSeeder::class);
+        $this->call(June2026PerformanceReviewSeeder::class);
     }
 }

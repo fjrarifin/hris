@@ -3,15 +3,27 @@
 use App\Http\Controllers\Api\AuthController as ApiAuthController;
 use App\Http\Controllers\Api\EmployeeController;
 use App\Http\Controllers\Api\ForgotPasswordController;
+use App\Http\Controllers\Api\HrdAuditLogController;
 use App\Http\Controllers\Api\HrApprovalController;
 use App\Http\Controllers\Api\HrAttendanceController;
 use App\Http\Controllers\Api\HrAttendanceCorrectionController;
 use App\Http\Controllers\Api\HrContractController;
 use App\Http\Controllers\Api\HrDashboardController;
+use App\Http\Controllers\Api\HrJobdeskController;
+use App\Http\Controllers\Api\HrKpiTemplateController;
+use App\Http\Controllers\Api\HrPerformancePeriodController;
+use App\Http\Controllers\Api\HrPerformanceReviewController;
+use App\Http\Controllers\Api\HrPayrollMasterController;
+use App\Http\Controllers\Api\HrPayrollProcessController;
 use App\Http\Controllers\Api\HrScheduleController;
+use App\Http\Controllers\Api\HrTalentOptionsController;
+use App\Http\Controllers\Api\ItUserController;
 use App\Http\Controllers\Api\NavigationController;
+use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\OnlineUserController;
+use App\Http\Controllers\Api\StaffPerformanceReviewController;
 use App\Http\Controllers\Api\StaffPortalController;
+use App\Http\Controllers\Api\StaffTalentController;
 use App\Http\Controllers\Api\StaffTeamScheduleController;
 use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\AttendanceWebhookController;
@@ -65,6 +77,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::middleware('password.changed.api')->group(function () {
         Route::get('/navigation', [NavigationController::class, 'index']);
+        Route::get('/notifications', [NotificationController::class, 'index']);
+        Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead']);
+        Route::post('/notifications/{notificationId}/read', [NotificationController::class, 'markRead']);
         Route::get('/online-users', [OnlineUserController::class, 'index']);
         Route::post('/online-users/heartbeat', [OnlineUserController::class, 'heartbeat']);
         Route::prefix('navigation/access')->middleware('level:0')->group(function () {
@@ -72,6 +87,18 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::put('/{frontendMenu}', [NavigationController::class, 'update']);
             Route::put('/{frontendMenu}/users/{user}', [NavigationController::class, 'updateUserAccess']);
         });
+        Route::get('/audit-logs', [HrdAuditLogController::class, 'index'])
+            ->middleware(['level:0', 'frontend.menu:audit-logs']);
+        Route::prefix('it/users')
+            ->middleware(['level:0', 'frontend.menu:user-management'])
+            ->group(function () {
+                Route::get('/', [ItUserController::class, 'index']);
+                Route::put('/{user}', [ItUserController::class, 'update']);
+                Route::post('/{user}/reset-password', [ItUserController::class, 'resetPassword']);
+                Route::post('/{user}/reset-photo-limit', [ItUserController::class, 'resetPhotoLimit']);
+                Route::post('/{user}/reset-email-limit', [ItUserController::class, 'resetEmailLimit']);
+                Route::post('/{user}/reset-password-limit', [ItUserController::class, 'resetPasswordLimit']);
+            });
 
         Route::middleware('frontend.menu:employees')->group(function () {
             Route::get('/employee/fingerspot/clouds', [EmployeeController::class, 'fingerspotClouds']);
@@ -104,6 +131,18 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('/schedules/upload', [HrScheduleController::class, 'upload']);
             Route::get('/schedules/employees/{nik}', [HrScheduleController::class, 'employee']);
             Route::put('/schedules/employees/{nik}', [HrScheduleController::class, 'store']);
+            Route::prefix('talent')->group(function () {
+                Route::get('/options', HrTalentOptionsController::class);
+                Route::apiResource('jobdesks', HrJobdeskController::class)->except(['show']);
+                Route::get('/jobdesks/{jobdesk}/pdf-preview', [HrJobdeskController::class, 'previewPdf']);
+                Route::post('/kpis/jabatans/{jabatan}/sync-active', [HrKpiTemplateController::class, 'syncActive']);
+                Route::apiResource('kpis', HrKpiTemplateController::class)->parameters(['kpis' => 'kpiTemplate'])->except(['show']);
+                Route::apiResource('periods', HrPerformancePeriodController::class)->parameters(['periods' => 'performancePeriod'])->only(['index', 'store', 'update']);
+                Route::get('/reviews', [HrPerformanceReviewController::class, 'index']);
+                Route::post('/reviews', [HrPerformanceReviewController::class, 'store']);
+                Route::get('/reviews/{performanceReview}', [HrPerformanceReviewController::class, 'show']);
+                Route::patch('/reviews/{performanceReview}/status', [HrPerformanceReviewController::class, 'updateStatus']);
+            });
         });
 
         Route::get('/hr/attendance', [HrAttendanceController::class, 'index'])
@@ -120,6 +159,30 @@ Route::middleware('auth:sanctum')->group(function () {
             ->middleware(['level:2', 'frontend.menu:hr-attendance-minimum']);
         Route::post('/hr/attendance/minimum-monitoring/notify-bulk', [HrAttendanceController::class, 'notifyMinimumMonitoringEmployees'])
             ->middleware(['level:2', 'frontend.menu:hr-attendance-minimum']);
+        Route::prefix('hr/payroll')->middleware(['level:1,2', 'frontend.menu:hr-payroll-master'])->group(function () {
+            Route::get('/master', [HrPayrollMasterController::class, 'index']);
+            Route::get('/master/components', [HrPayrollMasterController::class, 'components']);
+            Route::put('/master/components/{payrollComponent}', [HrPayrollMasterController::class, 'updateComponent']);
+            Route::get('/master/{nik}', [HrPayrollMasterController::class, 'show']);
+            Route::put('/master/{nik}', [HrPayrollMasterController::class, 'update']);
+        });
+        Route::prefix('hr/payroll/process')->middleware(['level:1,2', 'frontend.menu:hr-payroll-process'])->group(function () {
+            Route::get('/periods', [HrPayrollProcessController::class, 'periods']);
+            Route::get('/preview', [HrPayrollProcessController::class, 'preview']);
+            Route::post('/generate', [HrPayrollProcessController::class, 'generate']);
+            Route::get('/drafts', [HrPayrollProcessController::class, 'drafts']);
+            Route::get('/drafts/{payroll}', [HrPayrollProcessController::class, 'show']);
+            Route::put('/drafts/{payroll}/adjustments', [HrPayrollProcessController::class, 'updateAdjustments']);
+            Route::post('/drafts/{payroll}/submit', [HrPayrollProcessController::class, 'submit']);
+            Route::post('/drafts/{payroll}/approve', [HrPayrollProcessController::class, 'approve']);
+            Route::post('/drafts/{payroll}/cancel-submit', [HrPayrollProcessController::class, 'cancelSubmit']);
+            Route::post('/drafts/{payroll}/cancel-approve', [HrPayrollProcessController::class, 'cancelApprove']);
+            Route::post('/drafts/{payroll}/lock', [HrPayrollProcessController::class, 'lock']);
+            Route::post('/drafts/{payroll}/artifact', [HrPayrollProcessController::class, 'downloadSlip']);
+            Route::get('/drafts/{payroll}/pdf-download', [HrPayrollProcessController::class, 'downloadSlip']);
+            Route::get('/drafts/{payroll}/slip', [HrPayrollProcessController::class, 'downloadSlip']);
+            Route::post('/drafts/{payroll}/send-slip', [HrPayrollProcessController::class, 'sendSlip']);
+        });
 
         Route::prefix('staff')->middleware('level:3')->group(function () {
             Route::get('/dashboard', [StaffPortalController::class, 'dashboard']);
@@ -170,6 +233,18 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::post('/upload', [StaffTeamScheduleController::class, 'upload']);
                 Route::get('/employees/{nik}', [StaffTeamScheduleController::class, 'employee']);
                 Route::put('/employees/{nik}', [StaffTeamScheduleController::class, 'store']);
+            });
+
+            Route::prefix('performance-reviews')->middleware('frontend.menu:staff-performance-reviews')->group(function () {
+                Route::get('/', [StaffPerformanceReviewController::class, 'index']);
+                Route::get('/{performanceReview}', [StaffPerformanceReviewController::class, 'show']);
+                Route::put('/{performanceReview}', [StaffPerformanceReviewController::class, 'update']);
+                Route::post('/{performanceReview}/submit', [StaffPerformanceReviewController::class, 'submit']);
+            });
+
+            Route::prefix('talent')->middleware('frontend.menu:staff-talent')->group(function () {
+                Route::get('/', [StaffTalentController::class, 'index']);
+                Route::get('/jobdesks/{jobdesk}/pdf-preview', [StaffTalentController::class, 'previewPdf']);
             });
         });
     });

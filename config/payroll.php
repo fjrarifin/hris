@@ -7,6 +7,6 @@ return [
 
     'allowed_usernames' => array_values(array_filter(array_map(
         'trim',
-        explode(',', env('PAYROLL_ALLOWED_USERNAMES', 'hrd0002'))
+        explode(',', env('PAYROLL_ALLOWED_USERNAMES', 'hrd0002,hrpayroll'))
     ))),
 ];

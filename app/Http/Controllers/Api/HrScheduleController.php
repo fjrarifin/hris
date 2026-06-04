@@ -7,6 +7,7 @@ use App\Imports\RawRowsImport;
 use App\Models\AttendanceScheduleCategory;
 use App\Models\EmployeeDailySchedule;
 use App\Models\Karyawan;
+use App\Services\HrdAuditLogService;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use Illuminate\Database\Eloquent\Builder;
@@ -205,6 +206,16 @@ class HrScheduleController extends Controller
                 $saved++;
             }
         });
+        app(HrdAuditLogService::class)->record(
+            $request,
+            'Jadwal Karyawan',
+            'updated',
+            "{$nik} {$start->toDateString()} - {$end->toDateString()}",
+            ['saved' => 0, 'cleared' => 0],
+            ['saved' => $saved, 'cleared' => $cleared],
+            EmployeeDailySchedule::class,
+            $nik
+        );
 
         return response()->json([
             'message' => "Jadwal tersimpan: {$saved}; dikosongkan: {$cleared}.",
@@ -265,6 +276,16 @@ class HrScheduleController extends Controller
                 }
             }
         });
+        app(HrdAuditLogService::class)->record(
+            $request,
+            'Jadwal Karyawan',
+            'updated',
+            "Upload {$validated['department']} {$start->toDateString()} - {$end->toDateString()}",
+            ['saved' => 0, 'skipped' => 0],
+            ['saved' => $saved, 'skipped' => $skipped],
+            EmployeeDailySchedule::class,
+            $validated['department']
+        );
 
         return response()->json([
             'message' => "Upload jadwal selesai. Tersimpan: {$saved}; dilewati: {$skipped}.",

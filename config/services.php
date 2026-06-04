@@ -51,6 +51,15 @@ return [
         'timeout' => (int) env('OLLAMA_TIMEOUT', 60),
     ],
 
+    'public_approval' => [
+        'base_url' => env('PUBLIC_APPROVAL_BASE_URL', 'https://hris.hompimplay.id'),
+        'expires_hours' => (int) env('PUBLIC_APPROVAL_EXPIRES_HOURS', 18),
+    ],
+
+    'frontend' => [
+        'base_url' => env('FRONTEND_URL', 'https://hr.hompimplay.id'),
+    ],
+
     'hris_agent' => [
         'enabled' => env('HRIS_AGENT_ENABLED', true),
         'created_date' => env('HRIS_AGENT_CREATED_DATE', '2026-05-28'),

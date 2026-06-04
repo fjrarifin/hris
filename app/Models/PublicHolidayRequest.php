@@ -27,6 +27,7 @@ class PublicHolidayRequest extends Model
         'manager_approved_at' => 'datetime',
         'hr_approved_at' => 'datetime',
         'holiday_date' => 'date',
+        'approval_token_expires_at' => 'datetime',
     ];
 
     public function user()

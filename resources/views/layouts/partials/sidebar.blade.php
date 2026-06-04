@@ -70,8 +70,8 @@
 
 				@if (punyaBawahan())
 					<li class="nav-item">
-						<a href="{{ route('staff.approval.leave.index') }}"
-							class="nav-link {{ request()->routeIs('staff.approval.leave.*') ? 'active' : '' }}">
+						<a href="{{ rtrim(config('services.frontend.base_url'), '/') }}/staff/approvals"
+							class="nav-link">
 							<i class="nav-icon fas fa-check-circle"></i>
 							<p>Approval Cuti / PH</p>
 						</a>

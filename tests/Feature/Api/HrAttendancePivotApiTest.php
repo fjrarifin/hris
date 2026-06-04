@@ -14,6 +14,7 @@ use App\Models\OvertimeRequest;
 use App\Models\PublicHoliday;
 use App\Models\PublicHolidayRequest;
 use App\Models\User;
+use App\Services\HrAttendanceReportService;
 use Carbon\Carbon;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -180,10 +181,7 @@ class HrAttendancePivotApiTest extends TestCase
 
     public function test_export_headings_follow_the_pivot_dates(): void
     {
-        $controller = app(HrAttendanceController::class);
-        $reportMethod = (new \ReflectionClass($controller))->getMethod('report');
-        $reportMethod->setAccessible(true);
-        $report = $reportMethod->invoke($controller, [
+        $report = app(HrAttendanceReportService::class)->report([
             'start_date' => '2026-05-24',
             'end_date' => '2026-05-26',
         ]);

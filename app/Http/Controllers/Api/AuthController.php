@@ -46,6 +46,12 @@ class AuthController extends Controller
                 ]);
             }
 
+            if (! $user->is_active) {
+                throw ValidationException::withMessages([
+                    'username' => ['Akun ini sedang dinonaktifkan. Hubungi IT.'],
+                ]);
+            }
+
             $idleMinutes = (int) config('sanctum.idle_expiration', 30);
 
             if ($idleMinutes > 0) {
@@ -106,7 +112,11 @@ class AuthController extends Controller
     {
         $validated = $request->validate([
             'current_password' => ['required', 'string'],
-            'password' => ['required', 'string', 'min:8', 'confirmed'],
+            'password' => ['required', 'string', 'min:8', 'regex:/[A-Za-z]/', 'regex:/[0-9]/', 'confirmed'],
+        ], [
+            'password.min' => 'Password baru minimal 8 karakter.',
+            'password.regex' => 'Password baru harus memiliki minimal 1 huruf dan 1 angka.',
+            'password.confirmed' => 'Konfirmasi password harus sama dengan password baru.',
         ]);
 
         $user = DB::transaction(function () use ($request, $validated): User {
@@ -166,7 +176,7 @@ class AuthController extends Controller
                 'level_label' => $this->navigation->levelLabel($user),
                 'photo' => $user->photo,
                 'photo_url' => $this->publicFileUrl($user->photo),
-                'must_change_password' => (bool) $user->must_change_password,
+                'must_change_password' => $this->mustChangePassword($user),
                 ...$this->passwordChangeAvailability($user),
             ],
             'dashboard_path' => $this->navigation->dashboardPath($user),
@@ -219,11 +229,16 @@ class AuthController extends Controller
             'password_changed_at' => $user->password_changed_at?->toIso8601String(),
             'password_change_available_at' => $availableAt?->toIso8601String(),
             'password_change_available_label' => $availableAt?->format('d/m/Y H:i').' WIB',
-            'can_change_password' => (bool) $user->must_change_password
+            'can_change_password' => $this->mustChangePassword($user)
                 || ! $availableAt
                 || now()->greaterThanOrEqualTo($availableAt),
             'session_idle_timeout_minutes' => (int) config('sanctum.idle_expiration', 30),
         ];
+    }
+
+    private function mustChangePassword(User $user): bool
+    {
+        return (int) $user->level === 3 && (bool) $user->must_change_password;
     }
 
     private function serializeActiveSession(PersonalAccessToken $token): array

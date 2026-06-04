@@ -2,10 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Services\ApprovalNotificationService;
+use App\Models\EmployeePermission;
+use App\Models\FingerspotAttendanceLog;
 use App\Models\LeaveRequest;
 use App\Models\PublicHolidayRequest;
-use App\Models\EmployeePermission;
-use App\Http\Services\ApprovalNotificationService;
 use App\Notifications\LeaveStatusNotification;
 use App\Notifications\PublicHolidayStatusNotification;
 use App\Notifications\RequestStatusNotification;
@@ -13,21 +14,21 @@ use Illuminate\Http\Request;
 
 class PublicApprovalController extends Controller
 {
-    public function __construct(private ApprovalNotificationService $approvalNotificationService)
-    {
-    }
+    public function __construct(private ApprovalNotificationService $approvalNotificationService) {}
 
     /*
     |--------------------------------------------------------------------------
     | SHOW APPROVAL PAGE
     |--------------------------------------------------------------------------
     */
-    public function show($token)
+    private const PUBLIC_HOLIDAY_ATTENDANCE_REQUIRED_FROM = '2026-05-27';
+
+    public function show(string $token)
     {
         $request = $this->findRequestByToken($token);
 
-        if (!$request) {
-            abort(404);
+        if (! $request) {
+            return view('approval.invalid');
         }
 
         if ($request->status !== 'pending') {
@@ -35,7 +36,7 @@ class PublicApprovalController extends Controller
         }
 
         if (
-            !$request->approval_token_expires_at ||
+            ! $request->approval_token_expires_at ||
             now()->greaterThan($request->approval_token_expires_at)
         ) {
             return view('approval.expired');
@@ -43,7 +44,7 @@ class PublicApprovalController extends Controller
 
         return view('approval.show', [
             'request' => $request,
-            'type'    => $this->detectType($request)
+            'type' => $this->detectType($request),
         ]);
     }
 
@@ -52,12 +53,12 @@ class PublicApprovalController extends Controller
     | APPROVE
     |--------------------------------------------------------------------------
     */
-    public function approve($token)
+    public function approve(string $token)
     {
         $request = $this->findRequestByToken($token);
 
-        if (!$request) {
-            abort(404);
+        if (! $request) {
+            return view('approval.invalid');
         }
 
         if ($request->status !== 'pending') {
@@ -65,10 +66,14 @@ class PublicApprovalController extends Controller
         }
 
         if (
-            !$request->approval_token_expires_at ||
+            ! $request->approval_token_expires_at ||
             now()->greaterThan($request->approval_token_expires_at)
         ) {
             return view('approval.expired');
+        }
+
+        if ($request instanceof PublicHolidayRequest && ! $this->hasWorkedOnPublicHoliday($request)) {
+            return view('approval.ph-attendance-required');
         }
 
         $request->update([
@@ -100,12 +105,12 @@ class PublicApprovalController extends Controller
     | REJECT
     |--------------------------------------------------------------------------
     */
-    public function reject($token)
+    public function reject(string $token)
     {
         $request = $this->findRequestByToken($token);
 
-        if (!$request) {
-            abort(404);
+        if (! $request) {
+            return view('approval.invalid');
         }
 
         if ($request->status !== 'pending') {
@@ -113,7 +118,7 @@ class PublicApprovalController extends Controller
         }
 
         if (
-            !$request->approval_token_expires_at ||
+            ! $request->approval_token_expires_at ||
             now()->greaterThan($request->approval_token_expires_at)
         ) {
             return view('approval.expired');
@@ -150,11 +155,11 @@ class PublicApprovalController extends Controller
             ->where('approval_token', $token)
             ->first()
             ?? PublicHolidayRequest::with('user', 'holiday')
-            ->where('approval_token', $token)
-            ->first()
+                ->where('approval_token', $token)
+                ->first()
             ?? EmployeePermission::with('user')
-            ->where('approval_token', $token)
-            ->first();
+                ->where('approval_token', $token)
+                ->first();
     }
 
     /*
@@ -214,5 +219,20 @@ class PublicApprovalController extends Controller
             );
         }
 
+    }
+
+    private function hasWorkedOnPublicHoliday(PublicHolidayRequest $request): bool
+    {
+        $holiday = $request->holiday;
+        $employee = $request->user?->karyawan;
+
+        return $holiday
+            && $holiday->is_active
+            && ($holiday->holiday_date->lt(self::PUBLIC_HOLIDAY_ATTENDANCE_REQUIRED_FROM)
+                || ($employee?->pin
+                    && FingerspotAttendanceLog::query()
+                        ->where('pin', $employee->pin)
+                        ->whereDate('scan_date', $holiday->holiday_date)
+                        ->exists()));
     }
 }

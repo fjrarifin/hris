@@ -155,7 +155,7 @@
 				</div>
 
 				{{-- MENU --}}
-				<a href="{{ route('staff.profile.index') }}" class="dropdown-item rounded-lg">
+				<a href="{{ rtrim(config('services.frontend.base_url'), '/') }}/staff/profile" class="dropdown-item rounded-lg">
 					<i class="fas fa-user mr-2"></i>
 					Profil
 				</a>

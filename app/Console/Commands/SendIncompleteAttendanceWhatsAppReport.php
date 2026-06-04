@@ -26,6 +26,12 @@ class SendIncompleteAttendanceWhatsAppReport extends Command
             return self::FAILURE;
         }
 
+        if (! $this->option('preview') && ! app()->environment('production')) {
+            $this->warn('Pengiriman WhatsApp dilewati karena environment bukan production.');
+
+            return self::SUCCESS;
+        }
+
         if ($this->option('preview')) {
             foreach ($report->messagesForDate($date, (bool) $this->option('test')) as $message) {
                 $this->line($message);

@@ -11,13 +11,18 @@ class FrontendNavigation
     public function menusFor(User $user): Collection
     {
         $menus = FrontendMenu::query()
-            ->where(fn ($query) => $query->where('is_active', true)->orWhere('key', 'dashboard'))
+            ->when((int) $user->level !== 0, fn ($query) => $query
+                ->where(fn ($inner) => $inner->where('is_active', true)->orWhere('key', 'dashboard')))
             ->with(['userAccess' => fn ($query) => $query->where('user_id', $user->id)])
             ->orderBy('sort_order')
             ->get()
             ->filter(fn (FrontendMenu $menu) => $this->isAllowed($user, $menu))
             ->map(fn (FrontendMenu $menu) => $this->serializeMenu($menu, $user))
             ->values();
+
+        if ((int) $user->level === 0) {
+            return $this->groupItMenus($menus);
+        }
 
         if ((int) $user->level === 2) {
             return $this->groupHrMenus($menus);
@@ -30,8 +35,20 @@ class FrontendNavigation
         return $menus;
     }
 
+    private function groupItMenus(Collection $menus): Collection
+    {
+        return $this->groupHrMenus(
+            $menus
+                ->reject(fn (array $menu) => $this->isStaffMenuKey($menu['key']))
+                ->values()
+        );
+    }
+
     private function groupHrMenus(Collection $menus): Collection
     {
+        $payrollKeys = ['payroll', 'hr-payroll-master', 'hr-payroll-process'];
+        $payrollChildren = $menus->whereIn('key', $payrollKeys)->values()->all();
+        $payrollAnchor = $payrollChildren[0]['key'] ?? null;
         $employeeKeys = ['employees', 'hr-contracts'];
         $employeeAnchor = $menus
             ->first(fn (array $menu) => in_array($menu['key'], $employeeKeys, true))['key'] ?? null;
@@ -67,6 +84,9 @@ class FrontendNavigation
         $approvalKeys = ['hr-approval-leave', 'hr-approval-overtime', 'hr-approval-ph', 'hr-approval-permission'];
         $children = $menus->whereIn('key', $approvalKeys)->values()->all();
         $approvalAnchor = $children[0]['key'] ?? null;
+        $talentKeys = ['hr-talent-jobdesks', 'hr-talent-kpis', 'hr-talent-periods', 'hr-talent-reviews'];
+        $talentChildren = $menus->whereIn('key', $talentKeys)->values()->all();
+        $talentAnchor = $talentChildren[0]['key'] ?? null;
 
         return $menus->flatMap(function (array $menu) use (
             $employeeKeys,
@@ -77,8 +97,27 @@ class FrontendNavigation
             $attendanceAnchor,
             $approvalKeys,
             $children,
-            $approvalAnchor
+            $approvalAnchor,
+            $talentKeys,
+            $talentChildren,
+            $talentAnchor,
+            $payrollKeys,
+            $payrollChildren,
+            $payrollAnchor
         ): array {
+            if ($menu['key'] === $payrollAnchor && $payrollChildren) {
+                return [[
+                    'key' => 'hr-payroll',
+                    'label' => 'Payroll',
+                    'icon' => 'i-lucide-wallet-cards',
+                    'children' => $payrollChildren,
+                ]];
+            }
+
+            if (in_array($menu['key'], $payrollKeys, true)) {
+                return [];
+            }
+
             if ($menu['key'] === $employeeAnchor && $employeeChildren) {
                 return [[
                     'key' => 'hr-employees',
@@ -102,6 +141,19 @@ class FrontendNavigation
             }
 
             if (in_array($menu['key'], $attendanceKeys, true)) {
+                return [];
+            }
+
+            if ($menu['key'] === $talentAnchor && $talentChildren) {
+                return [[
+                    'key' => 'hr-talent',
+                    'label' => 'Talent',
+                    'icon' => 'i-lucide-chart-no-axes-combined',
+                    'children' => $talentChildren,
+                ]];
+            }
+
+            if (in_array($menu['key'], $talentKeys, true)) {
                 return [];
             }
 
@@ -179,11 +231,17 @@ class FrontendNavigation
         })->values();
     }
 
+    private function isStaffMenuKey(string $key): bool
+    {
+        return str_starts_with($key, 'staff-');
+    }
+
     public function canAccess(User $user, string $key): bool
     {
         $menu = FrontendMenu::query()
             ->where('key', $key)
-            ->where(fn ($query) => $query->where('is_active', true)->orWhere('key', 'dashboard'))
+            ->when((int) $user->level !== 0, fn ($query) => $query
+                ->where(fn ($inner) => $inner->where('is_active', true)->orWhere('key', 'dashboard')))
             ->with(['userAccess' => fn ($query) => $query->where('user_id', $user->id)])
             ->first();
 
@@ -216,7 +274,7 @@ class FrontendNavigation
             return true;
         }
 
-        if ((int) $user->level === 0 && $menu->key === 'menu-access') {
+        if ((int) $user->level === 0) {
             return true;
         }
 
@@ -225,6 +283,10 @@ class FrontendNavigation
         }
 
         if ($menu->key === 'staff-team-schedules' && ! $this->hasScheduleSubordinates($user)) {
+            return false;
+        }
+
+        if ($menu->key === 'staff-performance-reviews' && ! \App\Models\PerformanceReview::query()->where('reviewer_id', $user->id)->exists()) {
             return false;
         }
 

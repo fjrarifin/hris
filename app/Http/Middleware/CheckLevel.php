@@ -17,6 +17,10 @@ class CheckLevel
 
         $userLevel = (string) Auth::user()->level;
 
+        if ($userLevel === '0') {
+            return $next($request);
+        }
+
         if (!in_array($userLevel, $levels)) {
             abort(403);
         }
