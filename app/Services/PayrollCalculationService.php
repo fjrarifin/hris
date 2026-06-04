@@ -20,7 +20,6 @@ class PayrollCalculationService
         ['nama' => 'Tunjangan Jabatan', 'type' => 'earning', 'input_mode' => 'calculated'],
         ['nama' => 'Tunjangan Tidak Tetap', 'type' => 'earning', 'input_mode' => 'calculated'],
         ['nama' => 'Lembur', 'type' => 'earning', 'input_mode' => 'calculated'],
-        ['nama' => 'Potongan Alpha', 'type' => 'deduction', 'input_mode' => 'calculated'],
         ['nama' => 'Potongan Izin', 'type' => 'deduction', 'input_mode' => 'calculated'],
         ['nama' => 'Potongan Sakit Tanpa Surat', 'type' => 'deduction', 'input_mode' => 'calculated'],
         ['nama' => 'Pot. JKN Karyawan', 'type' => 'deduction', 'input_mode' => 'calculated'],
@@ -125,7 +124,7 @@ class PayrollCalculationService
                         'izin' => $record['permission_days'],
                         'sakit_surat' => $record['sick_with_document_days'],
                         'sakit_tanpa_surat' => $record['sick_without_document_days'],
-                        'tanpa_keterangan' => $calculation['alpha_days'],
+                        'tanpa_keterangan' => 0,
                         'cuti_tahunan' => $record['leave_days'],
                         'cuti_normatif' => 0,
                         'libur_nasional' => $record['period_public_holidays'],
@@ -188,7 +187,7 @@ class PayrollCalculationService
         $paidHariMasuk = min($totalHariMasuk, $periodWorkdays);
         $permissionDays = (int) ($attendance['permission_days'] ?? 0);
         $sickWithoutDocumentDays = (int) ($attendance['sick_without_document_days'] ?? 0);
-        $alphaDays = max($periodWorkdays - $totalHariMasuk - $permissionDays - $sickWithoutDocumentDays, 0);
+        $alphaDays = 0;
         $extraOffDays = max($totalHariMasuk - $periodWorkdays, 0);
         $basicSalary = (int) $profile->gaji_pokok + (int) $profile->tunjangan_jabatan;
         $bpjsEmployee = $bpjsActive ? $this->bpjsEmployee($basicSalary) : ['jkn' => 0, 'jht' => 0, 'jp' => 0];
@@ -210,7 +209,6 @@ class PayrollCalculationService
             $this->item('Tunjangan Jabatan', 'earning', $profile->tunjangan_jabatan),
             $this->item('Tunjangan Tidak Tetap', 'earning', $tttProrata),
             $this->item('Lembur', 'earning', round(($profile->gaji_pokok / 173) * (((int) $attendance['overtime_minutes']) / 60) * 1.5)),
-            $this->item('Potongan Alpha', 'deduction', $alphaDays * $tttDailyRate),
             $this->item('Potongan Izin', 'deduction', $permissionDays * $tttDailyRate),
             $this->item('Potongan Sakit Tanpa Surat', 'deduction', $sickWithoutDocumentDays * $tttDailyRate),
         ]);

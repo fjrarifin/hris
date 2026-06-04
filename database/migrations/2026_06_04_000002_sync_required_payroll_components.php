@@ -10,7 +10,6 @@ return new class extends Migration
         ['nama' => 'Tunjangan Jabatan', 'type' => 'earning', 'input_mode' => 'calculated'],
         ['nama' => 'Tunjangan Tidak Tetap', 'type' => 'earning', 'input_mode' => 'calculated'],
         ['nama' => 'Lembur', 'type' => 'earning', 'input_mode' => 'calculated'],
-        ['nama' => 'Potongan Alpha', 'type' => 'deduction', 'input_mode' => 'calculated'],
         ['nama' => 'Potongan Izin', 'type' => 'deduction', 'input_mode' => 'calculated'],
         ['nama' => 'Potongan Sakit Tanpa Surat', 'type' => 'deduction', 'input_mode' => 'calculated'],
         ['nama' => 'Pot. JKN Karyawan', 'type' => 'deduction', 'input_mode' => 'calculated'],
@@ -46,6 +45,10 @@ return new class extends Migration
                 ->where('nama', $component['nama'])
                 ->update($values);
         }
+
+        DB::table('payroll_components')
+            ->where('nama', 'Potongan Alpha')
+            ->update(['is_active' => false, 'updated_at' => $now]);
     }
 
     public function down(): void

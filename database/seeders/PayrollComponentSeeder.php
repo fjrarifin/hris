@@ -23,7 +23,7 @@ class PayrollComponentSeeder extends Seeder
             ['nama' => 'THR', 'type' => 'earning', 'input_mode' => 'manual', 'is_active' => true],
             ['nama' => 'Lain-lain', 'type' => 'earning', 'input_mode' => 'manual', 'is_active' => true],
             ['nama' => 'Potongan Izin', 'type' => 'deduction', 'input_mode' => 'calculated', 'is_active' => true],
-            ['nama' => 'Potongan Alpha', 'type' => 'deduction', 'input_mode' => 'calculated', 'is_active' => true],
+            ['nama' => 'Potongan Alpha', 'type' => 'deduction', 'input_mode' => 'calculated', 'is_active' => false],
             ['nama' => 'Potongan Kasbon', 'type' => 'deduction', 'input_mode' => 'manual', 'is_active' => true],
             ['nama' => 'Potongan Lain-lain', 'type' => 'deduction', 'input_mode' => 'manual', 'is_active' => true],
             ['nama' => 'PPh21', 'type' => 'deduction', 'input_mode' => 'manual', 'is_active' => true],

@@ -46,6 +46,7 @@ class PayrollCalculationServiceTest extends TestCase
         $this->assertSame(6440934, $result['take_home_pay']);
         $this->assertSame(577065, $result['employer_contribution']);
         $this->assertSame(7017999, $result['company_cost']);
+        $this->assertNotContains('Potongan Alpha', array_column($result['items'], 'name'));
     }
 
     public function test_it_caps_paid_attendance_to_period_workdays_and_tracks_extra_off(): void

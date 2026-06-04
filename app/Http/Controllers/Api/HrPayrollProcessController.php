@@ -30,7 +30,9 @@ class HrPayrollProcessController extends Controller
 
     public function generate(Request $request): JsonResponse
     {
-        $result = $this->calculationService->generate($this->filters($request));
+        $filters = $this->filters($request);
+        $this->periodService->assertCompletedPayrollPeriod($filters);
+        $result = $this->calculationService->generate($filters);
         app(HrdAuditLogService::class)->record(
             $request,
             'Proses Payroll',
@@ -83,22 +85,29 @@ class HrPayrollProcessController extends Controller
 
     public function periods(): JsonResponse
     {
-        $defaultPeriod = $this->periodService->periodFor(now()->toDateString());
+        $completedPeriods = collect($this->periodService->completedPeriods(12));
+        $generatedPeriods = Payroll::query()
+            ->select('periode_start', 'periode_end')
+            ->distinct()
+            ->orderByDesc('periode_end')
+            ->orderByDesc('periode_start')
+            ->get()
+            ->map(fn (Payroll $payroll) => [
+                'start_date' => $payroll->periode_start->toDateString(),
+                'end_date' => $payroll->periode_end->toDateString(),
+                'label' => $payroll->periode_start->format('d M Y').' - '.$payroll->periode_end->format('d M Y'),
+                'can_generate' => $payroll->periode_end->lt(now()->startOfDay()),
+            ]);
+
+        $periods = $completedPeriods
+            ->concat($generatedPeriods)
+            ->unique(fn (array $period) => $period['start_date'].'|'.$period['end_date'])
+            ->sortByDesc('end_date')
+            ->values();
 
         return response()->json([
-            'default_period' => $defaultPeriod,
-            'data' => Payroll::query()
-                ->select('periode_start', 'periode_end')
-                ->distinct()
-                ->orderByDesc('periode_end')
-                ->orderByDesc('periode_start')
-                ->get()
-                ->map(fn (Payroll $payroll) => [
-                    'start_date' => $payroll->periode_start->toDateString(),
-                    'end_date' => $payroll->periode_end->toDateString(),
-                    'label' => $payroll->periode_start->format('d M Y').' - '.$payroll->periode_end->format('d M Y'),
-                ])
-                ->values(),
+            'default_period' => $periods->first(),
+            'data' => $periods,
         ]);
     }
 
