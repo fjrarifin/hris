@@ -20,16 +20,20 @@ class PayrollCalculationService
         ['nama' => 'Tunjangan Jabatan', 'type' => 'earning', 'input_mode' => 'calculated'],
         ['nama' => 'Tunjangan Tidak Tetap', 'type' => 'earning', 'input_mode' => 'calculated'],
         ['nama' => 'Lembur', 'type' => 'earning', 'input_mode' => 'calculated'],
-        ['nama' => 'Potongan Izin', 'type' => 'deduction', 'input_mode' => 'calculated'],
+        ['nama' => 'Kekurangan bulan sebelumnya', 'type' => 'earning', 'input_mode' => 'manual'],
+        ['nama' => 'Lain-lain', 'type' => 'earning', 'input_mode' => 'manual'],
         ['nama' => 'Potongan Sakit Tanpa Surat', 'type' => 'deduction', 'input_mode' => 'calculated'],
-        ['nama' => 'Pot. JKN Karyawan', 'type' => 'deduction', 'input_mode' => 'calculated'],
-        ['nama' => 'Pot. JHT Karyawan', 'type' => 'deduction', 'input_mode' => 'calculated'],
-        ['nama' => 'Pot. JP Karyawan', 'type' => 'deduction', 'input_mode' => 'calculated'],
-        ['nama' => 'JKN Perusahaan', 'type' => 'employer_contribution', 'input_mode' => 'calculated'],
-        ['nama' => 'JHT Perusahaan', 'type' => 'employer_contribution', 'input_mode' => 'calculated'],
-        ['nama' => 'JP Perusahaan', 'type' => 'employer_contribution', 'input_mode' => 'calculated'],
-        ['nama' => 'JKK Perusahaan', 'type' => 'employer_contribution', 'input_mode' => 'calculated'],
-        ['nama' => 'JKM Perusahaan', 'type' => 'employer_contribution', 'input_mode' => 'calculated'],
+        ['nama' => 'Potongan Izin', 'type' => 'deduction', 'input_mode' => 'calculated'],
+        ['nama' => 'Potongan Kasbon', 'type' => 'deduction', 'input_mode' => 'manual'],
+        ['nama' => 'Potongan Lain-lain', 'type' => 'deduction', 'input_mode' => 'manual'],
+        ['nama' => 'Potongan Denda Kehilangan Aset', 'type' => 'deduction', 'input_mode' => 'manual'],
+        ['nama' => 'Kelebihan Gaji', 'type' => 'deduction', 'input_mode' => 'manual'],
+        ['nama' => 'Tunjangan BPJS Kesehatan Karyawan', 'type' => 'earning', 'input_mode' => 'calculated'],
+        ['nama' => 'Tunjangan JHT Karyawan', 'type' => 'earning', 'input_mode' => 'calculated'],
+        ['nama' => 'Tunjangan JP Karyawan', 'type' => 'earning', 'input_mode' => 'calculated'],
+        ['nama' => 'Tunjangan JKK Karyawan', 'type' => 'employer_contribution', 'input_mode' => 'calculated'],
+        ['nama' => 'Tunjangan JKM Karyawan', 'type' => 'employer_contribution', 'input_mode' => 'calculated'],
+        ['nama' => 'PPh 21', 'type' => 'deduction', 'input_mode' => 'manual'],
     ];
 
     public function __construct(
@@ -49,7 +53,9 @@ class PayrollCalculationService
             ->get()
             ->keyBy('nik');
 
-        $records = $audit['records']->map(function (array $attendance) use ($employees): array {
+        $records = $audit['records']->filter(function (array $attendance) {
+            return ($attendance['total_hari_masuk'] ?? 0) > 0;
+        })->map(function (array $attendance) use ($employees): array {
             $employee = $employees->get($attendance['nik']);
             $profile = $employee?->payrollProfile;
             $errors = [];
@@ -79,6 +85,14 @@ class PayrollCalculationService
                 ...$audit['summary'],
                 'can_generate' => $records->where('can_generate', true)->count(),
                 'master_incomplete' => $records->where('can_generate', false)->count(),
+                'total_net_estimation' => $records->sum('calculation.take_home_pay'),
+                'total_gross' => $records->sum('calculation.gross_salary'),
+                'total_lembur' => $records->sum(function ($r) {
+                    $lembur = collect($r['calculation']['items'] ?? [])->firstWhere('name', 'Lembur');
+                    return $lembur ? $lembur['amount'] : 0;
+                }),
+                'total_bpjs_perusahaan' => $records->sum('calculation.employer_contribution'),
+                'total_bpjs_karyawan' => $records->sum('calculation.employee_bpjs_contribution'),
             ],
             'can_submit' => $audit['can_submit'],
             'records' => $records,
@@ -215,14 +229,19 @@ class PayrollCalculationService
 
         if ($bpjsActive) {
             $bpjsItems = [
-                ['Pot. JKN Karyawan', 'deduction', $bpjsEmployee['jkn']],
-                ['Pot. JHT Karyawan', 'deduction', $bpjsEmployee['jht']],
-                ['Pot. JP Karyawan', 'deduction', $bpjsEmployee['jp']],
-                ['JKN Perusahaan', 'employer_contribution', $bpjsCompany['jkn']],
-                ['JHT Perusahaan', 'employer_contribution', $bpjsCompany['jht']],
-                ['JP Perusahaan', 'employer_contribution', $bpjsCompany['jp']],
-                ['JKK Perusahaan', 'employer_contribution', $bpjsCompany['jkk']],
-                ['JKM Perusahaan', 'employer_contribution', $bpjsCompany['jkm']],
+                // BPJS Employee items act as Net Neutral (added as earning, then deducted as deduction)
+                ['Tunjangan BPJS Kesehatan Karyawan', 'earning', $bpjsEmployee['jkn']],
+                ['Tunjangan JHT Karyawan', 'earning', $bpjsEmployee['jht']],
+                ['Tunjangan JP Karyawan', 'earning', $bpjsEmployee['jp']],
+                ['Tunjangan BPJS Kesehatan Karyawan', 'deduction', $bpjsEmployee['jkn']],
+                ['Tunjangan JHT Karyawan', 'deduction', $bpjsEmployee['jht']],
+                ['Tunjangan JP Karyawan', 'deduction', $bpjsEmployee['jp']],
+                // Employer contribution items
+                ['Tunjangan BPJS Kesehatan Karyawan', 'employer_contribution', $bpjsCompany['jkn']],
+                ['Tunjangan JHT Karyawan', 'employer_contribution', $bpjsCompany['jht']],
+                ['Tunjangan JP Karyawan', 'employer_contribution', $bpjsCompany['jp']],
+                ['Tunjangan JKK Karyawan', 'employer_contribution', $bpjsCompany['jkk']],
+                ['Tunjangan JKM Karyawan', 'employer_contribution', $bpjsCompany['jkm']],
             ];
             $items = $items->concat(collect($bpjsItems)->map(fn (array $item) => $this->item(...$item)));
         }
@@ -230,7 +249,6 @@ class PayrollCalculationService
         $items = $items->filter(fn (array $item) => $item['amount'] > 0)->values();
         $gross = $this->totalByType($items, 'earning');
         $deductions = $this->totalByType($items, 'deduction');
-        $netDeductions = $deductions - $this->netNeutralEmployeeBpjs($items);
         $employer = $this->totalByType($items, 'employer_contribution');
 
         return [
@@ -246,10 +264,11 @@ class PayrollCalculationService
             'daily_rate' => $tttDailyRate,
             'gross_salary' => $gross,
             'total_deduction' => $deductions,
-            'net_deduction' => $netDeductions,
-            'take_home_pay' => $gross - $netDeductions,
+            'net_deduction' => $deductions,
+            'take_home_pay' => $gross - $deductions,
             'employer_contribution' => $employer,
-            'company_cost' => $gross - $netDeductions + $employer,
+            'employee_bpjs_contribution' => $totalBpjsEmployee,
+            'company_cost' => $gross - $deductions + $employer,
             'items' => $items->all(),
         ];
     }
@@ -282,20 +301,6 @@ class PayrollCalculationService
     private function totalByType(Collection $items, string $type): int
     {
         return (int) $items->where('type', $type)->sum('amount');
-    }
-
-    private function netNeutralEmployeeBpjs(Collection $items): int
-    {
-        $names = [
-            'Pot. JKN Karyawan',
-            'Pot. JHT Karyawan',
-            'Pot. JP Karyawan',
-        ];
-
-        return (int) $items
-            ->where('type', 'deduction')
-            ->whereIn('name', $names)
-            ->sum('amount');
     }
 
     private function ensureRequiredComponents(): void

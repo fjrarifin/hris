@@ -42,23 +42,7 @@ Route::post('/whatsapp/ai-agent/webhook', WhatsAppAiAgentWebhookController::clas
     ->middleware('throttle:30,1')
     ->withoutMiddleware(['auth']);
 
-Route::get('/attendance/pull', [AttendanceController::class, 'pull']);
-
-Route::get('/profile-photos/{filename}', [StaffPortalController::class, 'profilePhoto'])
-    ->where('filename', '[A-Za-z0-9_-]+\.(?:jpg|jpeg|png)')
-    ->name('profile-photos.show');
-
 Route::prefix('fingerspot')->group(function () {
-    Route::post('/get-attlog', [FingerspotController::class, 'getAttlog']);
-    Route::post('/get-userinfo', [FingerspotController::class, 'getUserinfo']);
-    Route::post('/set-userinfo', [FingerspotController::class, 'setUserinfo']);
-    Route::post('/delete-userinfo', [FingerspotController::class, 'deleteUserinfo']);
-    Route::post('/get-all-pin', [FingerspotController::class, 'getAllPin']);
-    Route::post('/set-time', [FingerspotController::class, 'setTime']);
-    Route::post('/register-online', [FingerspotController::class, 'registerOnline']);
-    Route::post('/restart-machine', [FingerspotController::class, 'restartMachine']);
-    Route::post('/get-device', [FingerspotController::class, 'getDevice']);
-
     Route::post('/webhook', [FingerspotController::class, 'webhook']);
 });
 
@@ -71,6 +55,24 @@ Route::post('/auth/forgot-password/reset', [ForgotPasswordController::class, 're
     ->middleware('throttle:10,1');
 
 Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/attendance/pull', [AttendanceController::class, 'pull'])->middleware('level:0,1,2');
+
+    Route::get('/profile-photos/{filename}', [StaffPortalController::class, 'profilePhoto'])
+        ->where('filename', '[A-Za-z0-9_-]+\.(?:jpg|jpeg|png)')
+        ->name('profile-photos.show');
+
+    Route::prefix('fingerspot')->middleware('level:0,2')->group(function () {
+        Route::post('/get-attlog', [FingerspotController::class, 'getAttlog']);
+        Route::post('/get-userinfo', [FingerspotController::class, 'getUserinfo']);
+        Route::post('/set-userinfo', [FingerspotController::class, 'setUserinfo']);
+        Route::post('/delete-userinfo', [FingerspotController::class, 'deleteUserinfo']);
+        Route::post('/get-all-pin', [FingerspotController::class, 'getAllPin']);
+        Route::post('/set-time', [FingerspotController::class, 'setTime']);
+        Route::post('/register-online', [FingerspotController::class, 'registerOnline']);
+        Route::post('/restart-machine', [FingerspotController::class, 'restartMachine']);
+        Route::post('/get-device', [FingerspotController::class, 'getDevice']);
+    });
+
     Route::get('/auth/me', [ApiAuthController::class, 'me']);
     Route::post('/auth/change-password', [ApiAuthController::class, 'changePassword']);
     Route::post('/auth/logout', [ApiAuthController::class, 'logout']);
@@ -169,8 +171,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::prefix('hr/payroll/process')->middleware(['level:1,2', 'frontend.menu:hr-payroll-process'])->group(function () {
             Route::get('/periods', [HrPayrollProcessController::class, 'periods']);
             Route::get('/preview', [HrPayrollProcessController::class, 'preview']);
+            Route::post('/preview/auto-correct', [HrPayrollProcessController::class, 'autoCorrect']);
             Route::post('/generate', [HrPayrollProcessController::class, 'generate']);
             Route::get('/drafts', [HrPayrollProcessController::class, 'drafts']);
+            Route::get('/drafts/export', [HrPayrollProcessController::class, 'exportDrafts']);
             Route::get('/drafts/{payroll}', [HrPayrollProcessController::class, 'show']);
             Route::put('/drafts/{payroll}/adjustments', [HrPayrollProcessController::class, 'updateAdjustments']);
             Route::post('/drafts/{payroll}/submit', [HrPayrollProcessController::class, 'submit']);

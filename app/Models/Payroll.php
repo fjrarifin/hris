@@ -68,7 +68,58 @@ class Payroll extends Model
 
     public function items()
     {
-        return $this->hasMany(PayrollItem::class);
+        return $this->hasMany(PayrollItem::class, 'payroll_id');
+    }
+
+    public function getFormattedItemsAttribute()
+    {
+        $items = $this->items;
+        if (!$items) {
+            return collect();
+        }
+
+        $penyesuaian = $items->firstWhere('nama_item', 'Penyesuaian Pembulatan') ?? $items->firstWhere('component.nama', 'Penyesuaian Pembulatan');
+        $potongan = $items->firstWhere('nama_item', 'Potongan Pembulatan') ?? $items->firstWhere('component.nama', 'Potongan Pembulatan');
+        
+        if (!$penyesuaian && !$potongan) {
+            return $items;
+        }
+
+        $penyesuaianAmount = $penyesuaian ? $penyesuaian->amount : 0;
+        $potonganAmount = $potongan ? $potongan->amount : 0;
+
+        return $items->map(function ($item) use ($penyesuaianAmount, $potonganAmount) {
+            $name = $item->component?->nama ?? $item->nama_item;
+            if ($name === 'Tunjangan Tidak Tetap') {
+                $newItem = clone $item;
+                $newItem->amount = $item->amount + $penyesuaianAmount - $potonganAmount;
+                return $newItem;
+            }
+            return $item;
+        })->filter(function ($item) {
+            $name = $item->component?->nama ?? $item->nama_item;
+            return !in_array($name, ['Penyesuaian Pembulatan', 'Potongan Pembulatan']);
+        })->values();
+    }
+
+    public function getTotalPendapatanAttribute($value)
+    {
+        if (!$this->relationLoaded('items')) return $value;
+        $potongan = $this->items->firstWhere('nama_item', 'Potongan Pembulatan') ?? $this->items->firstWhere('component.nama', 'Potongan Pembulatan');
+        if ($potongan) {
+            return $value - $potongan->amount;
+        }
+        return $value;
+    }
+
+    public function getTotalPotonganAttribute($value)
+    {
+        if (!$this->relationLoaded('items')) return $value;
+        $potongan = $this->items->firstWhere('nama_item', 'Potongan Pembulatan') ?? $this->items->firstWhere('component.nama', 'Potongan Pembulatan');
+        if ($potongan) {
+            return $value - $potongan->amount;
+        }
+        return $value;
     }
 
     public function emailLogs()
@@ -112,10 +163,10 @@ class Payroll extends Model
             return '';
         }
 
-        return strtolower(preg_replace('/[^a-z0-9]/', '', (string) $value));
+        return preg_replace('/[^a-z0-9]/', '', strtolower((string) $value));
     }
 
-    public function getItemByComponentName($componentName)
+    public function getItemByComponentName($componentName, $type = null)
     {
         if ($componentName === null || $componentName === '') {
             return null;
@@ -123,7 +174,11 @@ class Payroll extends Model
 
         $target = $this->normalizeComponentName($componentName);
 
-        return $this->items->first(function ($item) use ($target) {
+        return $this->formatted_items->first(function ($item) use ($target, $type) {
+            if ($type !== null && $item->type !== $type) {
+                return false;
+            }
+
             if ($item->component) {
                 $normalized = $this->normalizeComponentName($item->component->nama ?? '');
                 if ($normalized === $target) {

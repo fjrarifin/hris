@@ -313,7 +313,7 @@
 	@endphp
 
 	@php
-		$itemMap = $payroll->items->keyBy(function ($item) {
+		$itemMap = $payroll->formatted_items->keyBy(function ($item) {
 		    return $item->component->nama ?? $item->nama_item;
 		});
 	@endphp
@@ -510,31 +510,31 @@
 							</td>
 						</tr>
 						<tr>
-							<td class="item-name">Tunjangan BPJS Kesehatan</td>
+							<td class="item-name">Tunjangan BPJS Kesehatan Karyawan</td>
 							<td class="item-cur">Rp</td>
 							<td class="item-amt">
-								{{ isset($itemMap['Pot. JKN Karyawan']) ? number_format($itemMap['Pot. JKN Karyawan']->amount, 0, ',', '.') : '-' }}
+								{{ ($item = $payroll->getItemByComponentName('Tunjangan BPJS Kesehatan Karyawan', 'earning')) ? number_format($item->amount, 0, ',', '.') : '-' }}
 							</td>
 						</tr>
 						<tr>
 							<td class="item-name">Tunjangan JHT Karyawan</td>
 							<td class="item-cur">Rp</td>
 							<td class="item-amt">
-								{{ isset($itemMap['Pot. JHT Karyawan']) ? number_format($itemMap['Pot. JHT Karyawan']->amount, 0, ',', '.') : '-' }}
+								{{ ($item = $payroll->getItemByComponentName('Tunjangan JHT Karyawan', 'earning')) ? number_format($item->amount, 0, ',', '.') : '-' }}
 							</td>
 						</tr>
 						<tr>
 							<td class="item-name">Tunjangan JP Karyawan</td>
 							<td class="item-cur">Rp</td>
 							<td class="item-amt">
-								{{ isset($itemMap['Pot. JP Karyawan']) ? number_format($itemMap['Pot. JP Karyawan']->amount, 0, ',', '.') : '-' }}
+								{{ ($item = $payroll->getItemByComponentName('Tunjangan JP Karyawan', 'earning')) ? number_format($item->amount, 0, ',', '.') : '-' }}
 							</td>
 						</tr>
 						<tr>
 							<td class="item-name">PPh 21</td>
 							<td class="item-cur">Rp</td>
 							<td class="item-amt">
-								{{ isset($itemMap['PPh21']) ? number_format($itemMap['PPh21']->amount, 0, ',', '.') : '-' }}
+								{{ ($item = $payroll->getItemByComponentName('PPh 21', 'earning')) ? number_format($item->amount, 0, ',', '.') : '-' }}
 							</td>
 						</tr>
 					</table>
@@ -545,70 +545,70 @@
 							<td class="item-name">Potongan Sakit Tanpa Surat</td>
 							<td class="item-cur">Rp</td>
 							<td class="item-amt">
-								{{ isset($itemMap['Potongan Sakit Tanpa Surat']) ? number_format($itemMap['Potongan Sakit Tanpa Surat']->amount, 0, ',', '.') : '-' }}
+								{{ ($item = $payroll->getItemByComponentName('Potongan Sakit Tanpa Surat', 'deduction')) ? number_format($item->amount, 0, ',', '.') : '-' }}
 							</td>
 						</tr>
 						<tr>
 							<td class="item-name">Potongan Izin</td>
 							<td class="item-cur">Rp</td>
 							<td class="item-amt">
-								{{ isset($itemMap['Potongan Izin']) ? number_format($itemMap['Potongan Izin']->amount, 0, ',', '.') : '-' }}
+								{{ ($item = $payroll->getItemByComponentName('Potongan Izin', 'deduction')) ? number_format($item->amount, 0, ',', '.') : '-' }}
 							</td>
 						</tr>
 						<tr>
 							<td class="item-name">Potongan Kasbon</td>
 							<td class="item-cur">Rp</td>
 							<td class="item-amt">
-								{{ isset($itemMap['Potongan Kasbon']) ? number_format($itemMap['Potongan Kasbon']->amount, 0, ',', '.') : '-' }}
+								{{ ($item = $payroll->getItemByComponentName('Potongan Kasbon', 'deduction')) ? number_format($item->amount, 0, ',', '.') : '-' }}
 							</td>
 						</tr>
 						<tr>
 							<td class="item-name">Potongan Lain-lain</td>
 							<td class="item-cur">Rp</td>
 							<td class="item-amt">
-								{{ isset($itemMap['Lain-lain']) ? number_format($itemMap['Lain-lain']->amount, 0, ',', '.') : '-' }}
+								{{ ($item = $payroll->getItemByComponentName('Potongan Lain-lain', 'deduction')) ? number_format($item->amount, 0, ',', '.') : '-' }}
 							</td>
 						</tr>
 						<tr>
 							<td class="item-name">Potongan Denda Kehilangan Aset</td>
 							<td class="item-cur">Rp</td>
 							<td class="item-amt">
-								{{ isset($itemMap['Pot. Denda Kehilangan Aset']) ? number_format($itemMap['Pot. Denda Kehilangan Aset']->amount, 0, ',', '.') : '-' }}
+								{{ ($item = $payroll->getItemByComponentName('Potongan Denda Kehilangan Aset', 'deduction')) ? number_format($item->amount, 0, ',', '.') : '-' }}
 							</td>
 						</tr>
 						<tr>
 							<td class="item-name">Kelebihan Gaji</td>
 							<td class="item-cur">Rp</td>
 							<td class="item-amt">
-								{{ isset($itemMap['Kelebihan Gaji']) ? number_format($itemMap['Kelebihan Gaji']->amount, 0, ',', '.') : '-' }}
+								{{ ($item = $payroll->getItemByComponentName('Kelebihan Gaji', 'deduction')) ? number_format($item->amount, 0, ',', '.') : '-' }}
 							</td>
 						</tr>
 						<tr>
-							<td class="item-name">Pot. BPJS Karyawan</td>
+							<td class="item-name">Tunjangan BPJS Kesehatan Karyawan</td>
 							<td class="item-cur">Rp</td>
 							<td class="item-amt">
-								{{ isset($itemMap['Pot. JKN Karyawan']) ? number_format($itemMap['Pot. JKN Karyawan']->amount, 0, ',', '.') : '-' }}
+								{{ ($item = $payroll->getItemByComponentName('Tunjangan BPJS Kesehatan Karyawan', 'deduction')) ? number_format($item->amount, 0, ',', '.') : '-' }}
 							</td>
 						</tr>
 						<tr>
-							<td class="item-name">Pot. JHT Karyawan</td>
+							<td class="item-name">Tunjangan JHT Karyawan</td>
 							<td class="item-cur">Rp</td>
 							<td class="item-amt">
-								{{ isset($itemMap['Pot. JHT Karyawan']) ? number_format($itemMap['Pot. JHT Karyawan']->amount, 0, ',', '.') : '-' }}
+								{{ ($item = $payroll->getItemByComponentName('Tunjangan JHT Karyawan', 'deduction')) ? number_format($item->amount, 0, ',', '.') : '-' }}
 							</td>
 						</tr>
 						<tr>
-							<td class="item-name">Pot. JP Karyawan</td>
+							<td class="item-name">Tunjangan JP Karyawan</td>
 							<td class="item-cur">Rp</td>
 							<td class="item-amt">
-								{{ isset($itemMap['Pot. JP Karyawan']) ? number_format($itemMap['Pot. JP Karyawan']->amount, 0, ',', '.') : '-' }}
+								{{ ($item = $payroll->getItemByComponentName('Tunjangan JP Karyawan', 'deduction')) ? number_format($item->amount, 0, ',', '.') : '-' }}
 							</td>
 						</tr>
 						<tr>
 							<td class="item-name">PPh 21</td>
 							<td class="item-cur">Rp</td>
 							<td class="item-amt">
-								{{ isset($itemMap['PPh21']) ? number_format($itemMap['PPh21']->amount, 0, ',', '.') : '-' }}
+								{{ ($item = $payroll->getItemByComponentName('PPh 21', 'deduction')) ? number_format($item->amount, 0, ',', '.') : '-' }}
 							</td>
 						</tr>
 					</table>
@@ -616,19 +616,19 @@
 			</tr>
 
 			{{-- ===== SUDAH DIBAYARKAN ===== --}}
-			@if ($payroll->items->where('type', 'sudah_dibayarkan')->isNotEmpty() || (isset($payroll->thr) && $payroll->thr > 0))
+			@if ($payroll->formatted_items->where('type', 'sudah_dibayarkan')->isNotEmpty() || (isset($payroll->thr) && $payroll->thr > 0))
 				<tr>
 					<td class="br bb" style="vertical-align: top; padding: 0;">
 						<div class="paid-title">S u d a h &nbsp; D i b a y a r k a n</div>
 						<table class="tbl-item" style="margin-top: 2pt;">
-							@foreach ($payroll->items->where('type', 'sudah_dibayarkan') as $item)
+							@foreach ($payroll->formatted_items->where('type', 'sudah_dibayarkan') as $item)
 								<tr>
 									<td class="item-name">{{ $item->component->nama }}</td>
 									<td class="item-cur">Rp</td>
 									<td class="item-amt">{{ number_format($item->amount, 0, ',', '.') }}</td>
 								</tr>
 							@endforeach
-							@if ($payroll->items->where('type', 'sudah_dibayarkan')->isEmpty())
+							@if ($payroll->formatted_items->where('type', 'sudah_dibayarkan')->isEmpty())
 								@if (isset($payroll->thr) && $payroll->thr > 0)
 									<tr>
 										<td class="item-name">THR</td>
@@ -710,33 +710,33 @@
 				<td colspan="2">B E N E F I T &nbsp; L A I N N Y A</td>
 			</tr>
 			<tr>
-				<td width="70%">Tunjangan BPJS Kesehatan Perusahaan</td>
+				<td width="70%">Tunjangan BPJS Kesehatan Karyawan</td>
 				<td width="30%" style="text-align: right;">
-					{{ isset($itemMap['JKN Perusahaan']) ? number_format($itemMap['JKN Perusahaan']->amount, 0, ',', '.') : '—' }}
+					{{ ($item = $payroll->getItemByComponentName('Tunjangan BPJS Kesehatan Karyawan', 'employer_contribution')) ? number_format($item->amount, 0, ',', '.') : '—' }}
 				</td>
 			</tr>
 			<tr>
-				<td>Tunjangan JHT Perusahaan</td>
+				<td>Tunjangan JHT Karyawan</td>
 				<td style="text-align: right;">
-					{{ isset($itemMap['JHT Perusahaan']) ? number_format($itemMap['JHT Perusahaan']->amount, 0, ',', '.') : '—' }}
+					{{ ($item = $payroll->getItemByComponentName('Tunjangan JHT Karyawan', 'employer_contribution')) ? number_format($item->amount, 0, ',', '.') : '—' }}
 				</td>
 			</tr>
 			<tr>
-				<td>Tunjangan JP Perusahaan</td>
+				<td>Tunjangan JP Karyawan</td>
 				<td style="text-align: right;">
-					{{ isset($itemMap['JP Perusahaan']) ? number_format($itemMap['JP Perusahaan']->amount, 0, ',', '.') : '—' }}
+					{{ ($item = $payroll->getItemByComponentName('Tunjangan JP Karyawan', 'employer_contribution')) ? number_format($item->amount, 0, ',', '.') : '—' }}
 				</td>
 			</tr>
 			<tr>
-				<td>Tunjangan JKK Perusahaan</td>
+				<td>Tunjangan JKK Karyawan</td>
 				<td style="text-align: right;">
-					{{ isset($itemMap['JKK Perusahaan']) ? number_format($itemMap['JKK Perusahaan']->amount, 0, ',', '.') : '—' }}
+					{{ ($item = $payroll->getItemByComponentName('Tunjangan JKK Karyawan', 'employer_contribution')) ? number_format($item->amount, 0, ',', '.') : '—' }}
 				</td>
 			</tr>
 			<tr>
-				<td>Tunjangan JKM Perusahaan</td>
+				<td>Tunjangan JKM Karyawan</td>
 				<td style="text-align: right;">
-					{{ isset($itemMap['JKM Perusahaan']) ? number_format($itemMap['JKM Perusahaan']->amount, 0, ',', '.') : '—' }}
+					{{ ($item = $payroll->getItemByComponentName('Tunjangan JKM Karyawan', 'employer_contribution')) ? number_format($item->amount, 0, ',', '.') : '—' }}
 				</td>
 			</tr>
 		</table>

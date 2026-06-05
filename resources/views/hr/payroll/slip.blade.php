@@ -238,7 +238,7 @@
 	</style>
 
 	@php
-		$itemMap = $payroll->items->keyBy(function ($item) {
+		$itemMap = $payroll->formatted_items->keyBy(function ($item) {
 		    return $item->component->nama ?? $item->nama_item;
 		});
 		$critical = $validation['critical'] ?? [];
@@ -601,19 +601,19 @@
 			</tr>
 
 			{{-- ===== SUDAH DIBAYARKAN ===== --}}
-			@if ($payroll->items->where('type', 'sudah_dibayarkan')->isNotEmpty() || (isset($payroll->thr) && $payroll->thr > 0))
+			@if ($payroll->formatted_items->where('type', 'sudah_dibayarkan')->isNotEmpty() || (isset($payroll->thr) && $payroll->thr > 0))
 				<tr>
 					<td class="br bb" style="vertical-align: top; padding: 0;">
 						<div class="paid-title">S u d a h &nbsp; D i b a y a r k a n</div>
 						<table class="tbl-item" style="margin-top: 2pt;">
-							@foreach ($payroll->items->where('type', 'sudah_dibayarkan') as $item)
+							@foreach ($payroll->formatted_items->where('type', 'sudah_dibayarkan') as $item)
 								<tr>
 									<td class="item-name">{{ $item->component->nama }}</td>
 									<td class="item-cur">Rp</td>
 									<td class="item-amt">{{ number_format($item->amount, 0, ',', '.') }}</td>
 								</tr>
 							@endforeach
-							@if ($payroll->items->where('type', 'sudah_dibayarkan')->isEmpty())
+							@if ($payroll->formatted_items->where('type', 'sudah_dibayarkan')->isEmpty())
 								@if (isset($payroll->thr) && $payroll->thr > 0)
 									<tr>
 										<td class="item-name">THR</td>

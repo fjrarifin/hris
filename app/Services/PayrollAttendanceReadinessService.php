@@ -131,7 +131,7 @@ class PayrollAttendanceReadinessService
 
             if ($status === 'A') {
                 $summary['unresolved_workdays']++;
-                $issues->push($this->issue($date, 'unresolved_workday', 'Hari kerja belum memiliki scan atau absence approved.'));
+                // Issue unresolved_workday dihapus karena status Alpha/TM bukan blocker.
                 continue;
             }
 

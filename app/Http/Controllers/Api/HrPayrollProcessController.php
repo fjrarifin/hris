@@ -3,13 +3,16 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Services\PayrollCalculationService;
+use App\Models\AttendanceCorrection;
 use App\Models\Payroll;
 use App\Models\PayrollComponent;
+use App\Services\HrAttendanceReportService;
 use App\Services\HrdAuditLogService;
-use App\Services\PayrollReviewService;
+use App\Services\PayrollCalculationService;
 use App\Services\PayrollPeriodService;
+use App\Services\PayrollReviewService;
 use App\Services\PayrollSlipService;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -50,6 +53,74 @@ class HrPayrollProcessController extends Controller
         ]);
     }
 
+    public function autoCorrect(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'start_date' => ['required', 'date'],
+            'end_date' => ['required', 'date', 'after_or_equal:start_date'],
+            'nik' => ['nullable', 'string'],
+        ]);
+
+        $normalizedFilters = [
+            'start_date' => $validated['start_date'],
+            'end_date' => $validated['end_date'],
+        ];
+
+        if (!empty($validated['nik'])) {
+            $normalizedFilters['employee_niks'] = [$validated['nik']];
+        }
+
+        $filters = $this->periodService->normalizeFilters($normalizedFilters);
+
+        $report = app(HrAttendanceReportService::class)->report($filters);
+        $employees = !empty($validated['nik']) 
+            ? collect($report['records'])->filter(fn($e) => $e['nik'] === $validated['nik']) 
+            : collect($report['records']);
+
+        if ($employees->isEmpty()) {
+            return response()->json(['message' => 'Karyawan tidak ditemukan.'], 404);
+        }
+
+        $correctedCount = 0;
+        foreach ($employees as $employee) {
+            foreach ($employee['days'] as $date => $day) {
+                if ($day['status'] === 'M' && (blank($day['scan_in']) || blank($day['scan_out']))) {
+                    if (!blank($day['scan_in']) && blank($day['scan_out'])) {
+                        $in = Carbon::createFromFormat('H:i:s', $day['scan_in']);
+                        $out = $in->copy()->addHours(8);
+                        AttendanceCorrection::updateOrCreate(
+                            ['nik' => $employee['nik'], 'attendance_date' => $date],
+                            [
+                                'corrected_scan_in' => $in->format('H:i:s'),
+                                'corrected_scan_out' => $out->format('H:i:s'),
+                                'notes' => 'Diperbaiki otomatis oleh HRD (Lupa scan pulang)',
+                                'corrected_by' => $request->user()?->id,
+                                'has_missing_attendance_form' => false,
+                            ]
+                        );
+                        $correctedCount++;
+                    } elseif (blank($day['scan_in']) && !blank($day['scan_out'])) {
+                        $out = Carbon::createFromFormat('H:i:s', $day['scan_out']);
+                        $in = $out->copy()->subHours(8);
+                        AttendanceCorrection::updateOrCreate(
+                            ['nik' => $employee['nik'], 'attendance_date' => $date],
+                            [
+                                'corrected_scan_in' => $in->format('H:i:s'),
+                                'corrected_scan_out' => $out->format('H:i:s'),
+                                'notes' => 'Diperbaiki otomatis oleh HRD (Lupa scan masuk)',
+                                'corrected_by' => $request->user()?->id,
+                                'has_missing_attendance_form' => false,
+                            ]
+                        );
+                        $correctedCount++;
+                    }
+                }
+            }
+        }
+
+        return response()->json(['message' => "{$correctedCount} hari absensi berhasil dikoreksi otomatis."]);
+    }
+
     public function drafts(Request $request): JsonResponse
     {
         $filters = $this->filters($request);
@@ -65,7 +136,19 @@ class HrPayrollProcessController extends Controller
             'records' => $records,
             'summary' => [
                 'total_payrolls' => $records->count(),
+                'total_gross' => $records->sum('total_pendapatan'),
                 'total_net' => $records->sum('total_dibayarkan'),
+                'total_lembur' => $records->sum(function ($r) {
+                    $lembur = collect($r['items'])->firstWhere('name', 'Lembur');
+                    return $lembur ? $lembur['amount'] : 0;
+                }),
+                'total_bpjs_perusahaan' => $records->sum('employer_contribution'),
+                'total_bpjs_karyawan' => $records->sum(function ($r) {
+                    $jkn = collect($r['items'])->where('type', 'deduction')->firstWhere('name', 'Tunjangan BPJS Kesehatan Karyawan');
+                    $jht = collect($r['items'])->where('type', 'deduction')->firstWhere('name', 'Tunjangan JHT Karyawan');
+                    $jp = collect($r['items'])->where('type', 'deduction')->firstWhere('name', 'Tunjangan JP Karyawan');
+                    return ($jkn ? $jkn['amount'] : 0) + ($jht ? $jht['amount'] : 0) + ($jp ? $jp['amount'] : 0);
+                }),
                 'total_hari_masuk' => $records->sum('total_hari_masuk'),
                 'total_extra_off_days' => $records->sum('extra_off_days'),
                 'statuses' => $records->countBy('status'),
@@ -244,7 +327,7 @@ class HrPayrollProcessController extends Controller
 
     private function payrollData(Payroll $payroll): array
     {
-        $items = $payroll->items->map(fn ($item) => [
+        $items = $payroll->formatted_items->map(fn ($item) => [
             'id' => $item->id,
             'component_id' => $item->component_id,
             'name' => $item->component?->nama ?? $item->nama_item,
@@ -276,5 +359,19 @@ class HrPayrollProcessController extends Controller
             'formula_version' => $payroll->formula_version,
             'items' => $items,
         ];
+    }
+
+    public function exportDrafts(Request $request)
+    {
+        $filters = $this->filters($request);
+        $fileName = 'Report_Payroll_' . ($filters['start_date'] ?? 'all') . '.xlsx';
+
+        return \Maatwebsite\Excel\Facades\Excel::download(
+            new \App\Exports\PayrollExport([
+                'periode_start' => $filters['start_date'] ?? null,
+                'periode_end' => $filters['end_date'] ?? null,
+            ]),
+            $fileName
+        );
     }
 }
