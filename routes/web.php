@@ -24,7 +24,7 @@ Route::post('/logout', [AuthController::class, 'logout'])
     ->middleware('auth')
     ->name('logout');
 
-Route::prefix('approval')->group(function () {
+Route::prefix('api/approval')->group(function () {
     Route::get('{token}', [PublicApprovalController::class, 'show'])
         ->name('approval.show');
 
