@@ -73,12 +73,12 @@ class HrAttendanceCorrectionController extends Controller
                             'status_code' => $day['status'],
                             'correction' => $day['correction'] ?? null,
                         ];
-                    });
+                    })->values();
             })
             ->filter(function (array $record) use ($keyword, $statusFilter) {
                 if ($statusFilter === 'alpha_only') {
-                    // Only show Alpha (M) or Incomplete (H)
-                    if (!in_array($record['status_code'], ['M', 'H'], true)) {
+                    // Only show pure Alpha (A) or Incomplete (M)
+                    if (!in_array($record['status_code'], ['A', 'M'], true)) {
                         return false;
                     }
                 }
