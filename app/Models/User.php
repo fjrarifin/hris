@@ -32,6 +32,7 @@ class User extends Authenticatable
         'online_location_updated_at',
         'level',
         'is_active',
+        'allow_mobile_attendance',
         'must_change_password',
         'password_changed_at',
         'email_updated_at',
@@ -63,6 +64,7 @@ class User extends Authenticatable
             'online_longitude' => 'decimal:7',
             'online_location_updated_at' => 'datetime',
             'is_active' => 'boolean',
+            'allow_mobile_attendance' => 'boolean',
             'password_changed_at' => 'datetime',
             'password' => 'hashed',
         ];

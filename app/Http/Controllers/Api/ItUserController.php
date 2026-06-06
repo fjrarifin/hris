@@ -67,6 +67,7 @@ class ItUserController extends Controller
             'email' => ['nullable', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
             'level' => ['required', 'integer', 'in:0,1,2,3'],
             'is_active' => ['required', 'boolean'],
+            'allow_mobile_attendance' => ['required', 'boolean'],
         ]);
 
         DB::transaction(function () use ($user, $validated): void {
@@ -128,6 +129,7 @@ class ItUserController extends Controller
             'level' => (int) $user->level,
             'level_label' => $this->levelLabel((int) $user->level),
             'is_active' => (bool) $user->is_active,
+            'allow_mobile_attendance' => (bool) $user->allow_mobile_attendance,
             'employee_name' => $employee?->nama_karyawan,
             'position' => $employee?->jabatan ?: $employee?->posisi,
             'department' => $employee?->departement ?: $employee?->divisi,

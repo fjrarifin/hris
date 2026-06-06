@@ -176,6 +176,7 @@ class AuthController extends Controller
                 'level_label' => $this->navigation->levelLabel($user),
                 'photo' => $user->photo,
                 'photo_url' => $this->publicFileUrl($user->photo),
+                'allow_mobile_attendance' => (bool) $user->allow_mobile_attendance,
                 'must_change_password' => $this->mustChangePassword($user),
                 ...$this->passwordChangeAvailability($user),
             ],
