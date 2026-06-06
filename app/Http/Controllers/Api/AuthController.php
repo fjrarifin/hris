@@ -218,6 +218,7 @@ class AuthController extends Controller
             'password' => Hash::make(self::DEFAULT_FIRST_LOGIN_PASSWORD),
             'level' => 3,
             'must_change_password' => true,
+            'is_active' => strtoupper($employee->status_karyawan) === 'AKTIF',
         ]);
     }
 

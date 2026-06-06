@@ -37,6 +37,12 @@ class AuthController extends Controller
 
         if ($user) {
 
+            if (! $user->is_active) {
+                return back()->withErrors([
+                    'username' => 'Akun ini sedang dinonaktifkan. Hubungi IT.',
+                ]);
+            }
+
             if (! Auth::attempt(['username' => $nik, 'password' => $password])) {
                 return back()->withErrors([
                     'username' => 'NIK atau password salah',
@@ -94,7 +100,14 @@ class AuthController extends Controller
             'password' => Hash::make(self::DEFAULT_FIRST_LOGIN_PASSWORD),
             'level' => 3, // STAFF
             'must_change_password' => true,
+            'is_active' => strtoupper($karyawan->status_karyawan) === 'AKTIF',
         ]);
+
+        if (! $newUser->is_active) {
+            return back()->withErrors([
+                'username' => 'Akun ini sedang dinonaktifkan. Hubungi IT.',
+            ]);
+        }
 
         Auth::login($newUser);
         $request->session()->regenerate();

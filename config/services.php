@@ -57,7 +57,7 @@ return [
     ],
 
     'frontend' => [
-        'base_url' => env('FRONTEND_URL', 'https://hr.hompimplay.id'),
+        'base_url' => 'https://hr.hompimplay.id',
     ],
 
     'hris_agent' => [
