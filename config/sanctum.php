@@ -59,7 +59,7 @@ return [
     |
     */
 
-    'idle_expiration' => (int) env('SANCTUM_IDLE_EXPIRATION', 7 * 24 * 60),
+    'idle_expiration' => (int) env('SANCTUM_IDLE_EXPIRATION', 30),
 
     /*
     |--------------------------------------------------------------------------

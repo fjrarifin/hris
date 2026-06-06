@@ -236,6 +236,8 @@ class HrAttendanceReportService
                     'overtime_scan_in' => null,
                     'overtime_scan_out' => null,
                 ]);
+                $attendance['raw_scan_in'] = $attendance['raw_scan_in'] ?? $attendance['scan_in'];
+                $attendance['raw_scan_out'] = $attendance['raw_scan_out'] ?? $attendance['scan_out'];
                 $attendance['scan_in'] = $correction->corrected_scan_in ?: $attendance['scan_in'];
                 $attendance['scan_out'] = $correction->corrected_scan_out ?: $attendance['scan_out'];
                 $attendance['is_corrected'] = true;
@@ -358,6 +360,8 @@ class HrAttendanceReportService
             'status' => $status,
             'scan_in' => $scanIn,
             'scan_out' => $scanOut,
+            'raw_scan_in' => $attendance['raw_scan_in'] ?? $scanIn,
+            'raw_scan_out' => $attendance['raw_scan_out'] ?? $scanOut,
             'duration_minutes' => $durationMinutes,
             'overtime_minutes' => $overtimeMinutes,
             'note' => $absence ? ($hasScan
