@@ -524,12 +524,42 @@ class StaffPortalController extends Controller
 
             return [
                 ...$record,
+                'status' => 'present',
+                'status_label' => 'Masuk',
+                'attendance_source' => 'scan',
+                'has_scan' => true,
                 'schedule_code' => $schedule?->schedule_code,
                 'schedule_label' => $schedule?->category?->name,
                 'schedule_start_time' => $schedule?->category?->start_time,
                 'schedule_end_time' => $schedule?->category?->end_time,
             ];
-        });
+        })->keyBy('date');
+
+        $this->approvedAbsenceRecords($request->user(), $start, $end)
+            ->each(function (array $absence, string $date) use ($records, $schedules): void {
+                $schedule = $schedules->get($date);
+                $record = $records->get($date, [
+                    'date' => $date,
+                    'scan_in' => null,
+                    'scan_out' => null,
+                    'total_scans' => 0,
+                    'is_complete' => false,
+                    'has_scan' => false,
+                    'schedule_code' => $schedule?->schedule_code,
+                    'schedule_label' => $schedule?->category?->name,
+                    'schedule_start_time' => $schedule?->category?->start_time,
+                    'schedule_end_time' => $schedule?->category?->end_time,
+                ]);
+
+                $records->put($date, [
+                    ...$record,
+                    ...$absence,
+                    'attendance_source' => 'approved_absence',
+                    'has_scan' => ($record['total_scans'] ?? 0) > 0,
+                ]);
+            });
+
+        $records = $records->sortByDesc('date')->values();
         $scheduleRecords = $schedules
             ->map(fn (EmployeeDailySchedule $schedule): array => [
                 'date' => $schedule->schedule_date->toDateString(),
@@ -553,13 +583,71 @@ class StaffPortalController extends Controller
                 'end_date' => $end->toDateString(),
             ],
             'summary' => [
-                'attendance_days' => $records->count(),
-                'complete_days' => $records->where('is_complete', true)->count(),
-                'incomplete_days' => $records->where('is_complete', false)->count(),
+                'attendance_days' => $records->where('has_scan', true)->count(),
+                'complete_days' => $records->where('has_scan', true)->where('is_complete', true)->count(),
+                'incomplete_days' => $records->where('has_scan', true)->where('is_complete', false)->count(),
             ],
             'records' => $records->values(),
             'schedules' => $scheduleRecords,
         ]);
+    }
+
+    private function approvedAbsenceRecords(User $user, Carbon $start, Carbon $end): Collection
+    {
+        $records = collect();
+
+        LeaveRequest::query()
+            ->where('user_id', $user->id)
+            ->where('status', 'approved')
+            ->whereNotNull('manager_approved_at')
+            ->whereDate('start_date', '<=', $end)
+            ->whereDate('end_date', '>=', $start)
+            ->get(['id', 'leave_type', 'start_date', 'end_date'])
+            ->each(function (LeaveRequest $request) use ($records, $start, $end): void {
+                $periodStart = Carbon::parse($request->start_date)->max($start->copy()->startOfDay());
+                $periodEnd = Carbon::parse($request->end_date)->min($end->copy()->startOfDay());
+
+                foreach (CarbonPeriod::create($periodStart, $periodEnd) as $date) {
+                    $records->put($date->toDateString(), [
+                        'status' => 'leave',
+                        'status_label' => LeaveRequest::LEAVE_TYPES[$request->leave_type] ?? 'Cuti',
+                        'approval_type' => 'leave',
+                        'approval_id' => $request->id,
+                    ]);
+                }
+            });
+
+        PublicHolidayRequest::query()
+            ->where('user_id', $user->id)
+            ->where('status', 'approved')
+            ->whereNotNull('manager_approved_at')
+            ->whereBetween('claim_date', [$start->toDateString(), $end->toDateString()])
+            ->get(['id', 'claim_date'])
+            ->each(function (PublicHolidayRequest $request) use ($records): void {
+                $records->put($request->claim_date->toDateString(), [
+                    'status' => 'public_holiday',
+                    'status_label' => 'PH',
+                    'approval_type' => 'ph',
+                    'approval_id' => $request->id,
+                ]);
+            });
+
+        ExtraOffRequest::query()
+            ->where('user_id', $user->id)
+            ->where('status', 'approved')
+            ->whereNotNull('manager_approved_at')
+            ->whereBetween('claim_date', [$start->toDateString(), $end->toDateString()])
+            ->get(['id', 'claim_date'])
+            ->each(function (ExtraOffRequest $request) use ($records): void {
+                $records->put($request->claim_date->toDateString(), [
+                    'status' => 'extra_off',
+                    'status_label' => 'Extra Off',
+                    'approval_type' => 'extra_off',
+                    'approval_id' => $request->id,
+                ]);
+            });
+
+        return $records;
     }
 
     public function storeSelfAttendance(Request $request): JsonResponse

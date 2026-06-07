@@ -2,10 +2,14 @@
 
 namespace Tests\Feature\Api;
 
+use App\Models\EmployeeDailySchedule;
 use App\Models\FingerspotAttendanceLog;
 use App\Models\FrontendMenu;
 use App\Models\Karyawan;
+use App\Models\PublicHoliday;
+use App\Models\PublicHolidayRequest;
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 use Laravel\Sanctum\Sanctum;
@@ -19,6 +23,12 @@ class StaffAttendanceApiTest extends TestCase
 
         Schema::dropIfExists('frontend_menu_user_access');
         Schema::dropIfExists('frontend_menus');
+        Schema::dropIfExists('extra_off_requests');
+        Schema::dropIfExists('public_holiday_requests');
+        Schema::dropIfExists('public_holidays');
+        Schema::dropIfExists('leave_requests');
+        Schema::dropIfExists('employee_daily_schedules');
+        Schema::dropIfExists('attendance_schedule_categories');
         Schema::dropIfExists('fingerspot_attendance_logs');
         Schema::dropIfExists('m_karyawan');
         Schema::dropIfExists('users');
@@ -47,6 +57,65 @@ class StaffAttendanceApiTest extends TestCase
             $table->string('pin');
             $table->dateTime('scan_date');
             $table->string('status_scan')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('attendance_schedule_categories', function (Blueprint $table): void {
+            $table->id();
+            $table->string('code')->unique();
+            $table->string('name');
+            $table->time('start_time')->nullable();
+            $table->time('end_time')->nullable();
+            $table->boolean('is_workday')->default(true);
+            $table->timestamps();
+        });
+
+        Schema::create('employee_daily_schedules', function (Blueprint $table): void {
+            $table->id();
+            $table->string('karyawan_nik');
+            $table->date('schedule_date');
+            $table->string('schedule_code');
+            $table->timestamps();
+        });
+
+        Schema::create('leave_requests', function (Blueprint $table): void {
+            $table->id();
+            $table->foreignId('user_id');
+            $table->string('leave_type')->default('lainnya');
+            $table->date('start_date');
+            $table->date('end_date');
+            $table->string('status');
+            $table->timestamp('manager_approved_at')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('public_holidays', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name');
+            $table->date('holiday_date');
+            $table->unsignedSmallInteger('year')->nullable();
+            $table->boolean('is_active')->default(true);
+            $table->timestamps();
+        });
+
+        Schema::create('public_holiday_requests', function (Blueprint $table): void {
+            $table->id();
+            $table->foreignId('user_id');
+            $table->foreignId('public_holiday_id');
+            $table->date('claim_date');
+            $table->string('status');
+            $table->timestamp('manager_approved_at')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('extra_off_requests', function (Blueprint $table): void {
+            $table->id();
+            $table->foreignId('user_id');
+            $table->date('source_period_start');
+            $table->date('source_period_end');
+            $table->date('claim_date');
+            $table->string('status');
+            $table->timestamp('manager_approved_at')->nullable();
             $table->timestamps();
         });
 
@@ -131,6 +200,42 @@ class StaffAttendanceApiTest extends TestCase
             ->assertJsonPath('filters.end_date', '2026-05-20')
             ->assertJsonCount(1, 'records')
             ->assertJsonPath('records.0.date', '2026-05-20');
+    }
+
+    public function test_approved_public_holiday_overrides_calendar_status_without_removing_schedule(): void
+    {
+        $user = User::query()->where('username', 'HPP25120147')->firstOrFail();
+        $holiday = PublicHoliday::query()->create([
+            'name' => 'Hari Lahir Pancasila',
+            'holiday_date' => '2026-06-01',
+            'year' => 2026,
+            'is_active' => true,
+        ]);
+
+        EmployeeDailySchedule::query()->create([
+            'karyawan_nik' => $user->username,
+            'schedule_date' => '2026-06-08',
+            'schedule_code' => 'P1',
+        ]);
+
+        PublicHolidayRequest::query()->create([
+            'user_id' => $user->id,
+            'public_holiday_id' => $holiday->id,
+            'claim_date' => '2026-06-08',
+            'status' => 'approved',
+            'manager_approved_at' => Carbon::parse('2026-06-02 10:00:00'),
+        ]);
+
+        $this->getJson('/api/staff/attendance?start_date=2026-06-08&end_date=2026-06-08')
+            ->assertOk()
+            ->assertJsonCount(1, 'records')
+            ->assertJsonPath('records.0.date', '2026-06-08')
+            ->assertJsonPath('records.0.status', 'public_holiday')
+            ->assertJsonPath('records.0.status_label', 'PH')
+            ->assertJsonPath('records.0.attendance_source', 'approved_absence')
+            ->assertJsonPath('records.0.has_scan', false)
+            ->assertJsonPath('records.0.schedule_code', 'P1')
+            ->assertJsonPath('summary.attendance_days', 0);
     }
 
     private function createLog(string $pin, string $scanDate): void
