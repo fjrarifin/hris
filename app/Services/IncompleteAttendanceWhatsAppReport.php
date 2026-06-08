@@ -172,6 +172,7 @@ class IncompleteAttendanceWhatsAppReport
         $overrideRecipient = $this->employeeWarningOverrideRecipient();
 
         return $this->recordsForDate($date)
+            ->filter(fn (array $record): bool => $this->shouldReceiveIncompleteAttendanceWarning($record))
             ->filter(fn (array $record): bool => $overrideRecipient !== null || $record['phone'] !== '')
             ->map(fn (array $record): array => [
                 'nik' => $record['nik'],
@@ -229,6 +230,10 @@ class IncompleteAttendanceWhatsAppReport
         $count = 0;
 
         foreach ($this->recordsForDate($date) as $record) {
+            if (! $this->shouldReceiveIncompleteAttendanceWarning($record)) {
+                continue;
+            }
+
             $count += $this->storeEmployeeAppNotification($record, $date);
         }
 
@@ -263,6 +268,7 @@ class IncompleteAttendanceWhatsAppReport
     {
         $overrideRecipient = $this->employeeWarningOverrideRecipient();
         $records = $this->recordsForDate($date)
+            ->filter(fn (array $record): bool => $this->shouldReceiveIncompleteAttendanceWarning($record))
             ->filter(fn (array $record): bool => $record['direct_supervisor_name'] !== '');
 
         $supervisors = Karyawan::query()
@@ -347,6 +353,11 @@ class IncompleteAttendanceWhatsAppReport
             'name' => $employee->nama_karyawan,
             'phone' => trim((string) $employee->no_hp),
         ];
+    }
+
+    private function shouldReceiveIncompleteAttendanceWarning(array $record): bool
+    {
+        return strtoupper(trim((string) ($record['position'] ?? ''))) !== 'MANAGER';
     }
 
     private function recordMessage(array $record, int $number): string

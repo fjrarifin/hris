@@ -7,6 +7,7 @@ use App\Models\AttendanceScheduleCategory;
 use App\Models\EmployeeDailySchedule;
 use App\Models\FingerspotAttendanceLog;
 use App\Models\Karyawan;
+use App\Models\User;
 use App\Services\IncompleteAttendanceWhatsAppReport;
 use Carbon\Carbon;
 use Illuminate\Database\Schema\Blueprint;
@@ -25,6 +26,27 @@ class IncompleteAttendanceWhatsAppReportTest extends TestCase
         Schema::dropIfExists('employee_daily_schedules');
         Schema::dropIfExists('attendance_schedule_categories');
         Schema::dropIfExists('m_karyawan');
+        Schema::dropIfExists('notifications');
+        Schema::dropIfExists('users');
+
+        Schema::create('users', function (Blueprint $table): void {
+            $table->id();
+            $table->string('username')->nullable();
+            $table->string('name');
+            $table->string('email')->unique();
+            $table->string('password');
+            $table->unsignedTinyInteger('level')->default(3);
+            $table->timestamps();
+        });
+
+        Schema::create('notifications', function (Blueprint $table): void {
+            $table->uuid('id')->primary();
+            $table->string('type');
+            $table->morphs('notifiable');
+            $table->text('data');
+            $table->timestamp('read_at')->nullable();
+            $table->timestamps();
+        });
 
         Schema::create('m_karyawan', function (Blueprint $table): void {
             $table->string('nik')->primary();
@@ -244,6 +266,38 @@ class IncompleteAttendanceWhatsAppReportTest extends TestCase
         $this->assertSame(1, $result['sent_count']);
     }
 
+    public function test_it_skips_manager_records_for_employee_app_and_supervisor_warnings(): void
+    {
+        $supervisor = $this->employee('SPV001', 'Supervisor Satu', 'PIN-S', 'Supervisor', 'Finance', '081111111111');
+        $manager = $this->employee('MGR001', 'Manajer Operasional', 'PIN-M', 'MANAGER', 'Operations', '082222222222');
+        $staff = $this->employee('EMP001', 'Ayu Pertiwi', 'PIN-1', 'Staff', 'Finance', '083333333333');
+
+        $manager->update(['nama_atasan_langsung' => $supervisor->nama_karyawan]);
+        $staff->update(['nama_atasan_langsung' => $supervisor->nama_karyawan]);
+
+        $this->user($manager->nik, $manager->nama_karyawan);
+        $staffUser = $this->user($staff->nik, $staff->nama_karyawan);
+
+        $this->log('PIN-M', '2026-05-25 08:07:00', '0');
+        $this->log('PIN-1', '2026-05-25 08:10:00', '0');
+
+        $report = app(IncompleteAttendanceWhatsAppReport::class);
+
+        $employeeWarnings = $report->employeeMessagesForDate(Carbon::parse('2026-05-25'));
+        $this->assertSame(1, $employeeWarnings->count());
+        $this->assertSame($staff->nik, $employeeWarnings->first()['nik']);
+
+        $appNotificationCount = $report->storeEmployeeAppNotificationsForDate(Carbon::parse('2026-05-25'));
+        $this->assertSame(1, $appNotificationCount);
+        $this->assertSame(1, $staffUser->notifications()->count());
+        $this->assertSame(0, User::query()->where('username', $manager->nik)->first()->notifications()->count());
+
+        $supervisorWarnings = $report->supervisorMessagesForDate(Carbon::parse('2026-05-25'));
+        $this->assertSame(1, $supervisorWarnings->count());
+        $this->assertStringContainsString('Ayu Pertiwi', $supervisorWarnings->first()['message']);
+        $this->assertStringNotContainsString('Manajer Operasional', $supervisorWarnings->first()['message']);
+    }
+
     private function employee(
         string $nik,
         string $name,
@@ -268,6 +322,16 @@ class IncompleteAttendanceWhatsAppReportTest extends TestCase
             'pin' => $pin,
             'scan_date' => $scanDate,
             'status_scan' => $status,
+        ]);
+    }
+
+    private function user(string $username, string $name): User
+    {
+        return User::query()->create([
+            'username' => $username,
+            'name' => $name,
+            'email' => strtolower($username).'@example.test',
+            'password' => 'password',
         ]);
     }
 }

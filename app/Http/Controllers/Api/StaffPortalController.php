@@ -479,14 +479,27 @@ class StaffPortalController extends Controller
     public function attendance(Request $request): JsonResponse
     {
         $validated = $request->validate([
+            'range' => ['nullable', Rule::in(['7d', '30d', 'month', 'custom'])],
             'start_date' => ['nullable', 'date'],
             'end_date' => ['nullable', 'date', 'after_or_equal:start_date'],
         ]);
 
         $employee = $this->employeeFor($request->user());
         [$periodStart, $periodEnd] = $this->attendancePeriod(now()->startOfDay());
-        $startDate = $validated['start_date'] ?? $validated['end_date'] ?? $periodStart->toDateString();
-        $endDate = $validated['end_date'] ?? $validated['start_date'] ?? $periodEnd->toDateString();
+        $range = $validated['range'] ?? null;
+        $today = now()->startOfDay();
+
+        [$startDate, $endDate, $range] = match ($range) {
+            '7d' => [$today->copy()->subDays(6)->toDateString(), $today->toDateString(), '7d'],
+            '30d' => [$today->copy()->subDays(29)->toDateString(), $today->toDateString(), '30d'],
+            'month' => [$today->copy()->startOfMonth()->toDateString(), $today->copy()->endOfMonth()->toDateString(), 'month'],
+            default => [
+                $validated['start_date'] ?? $validated['end_date'] ?? $periodStart->toDateString(),
+                $validated['end_date'] ?? $validated['start_date'] ?? $periodEnd->toDateString(),
+                $range ?: 'custom',
+            ],
+        };
+
         $start = Carbon::parse($startDate)->startOfDay();
         $end = Carbon::parse($endDate)->endOfDay();
         $schedules = EmployeeDailySchedule::query()
@@ -579,6 +592,7 @@ class StaffPortalController extends Controller
                 'pin' => $employee->pin,
             ],
             'filters' => [
+                'range' => $range,
                 'start_date' => $start->toDateString(),
                 'end_date' => $end->toDateString(),
             ],

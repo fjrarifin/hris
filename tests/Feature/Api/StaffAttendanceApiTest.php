@@ -165,6 +165,13 @@ class StaffAttendanceApiTest extends TestCase
         Sanctum::actingAs($user);
     }
 
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+
+        parent::tearDown();
+    }
+
     public function test_employee_can_view_daily_attendance_using_first_and_last_scan(): void
     {
         $this->createLog('PIN-001', '2026-05-20 08:11:00');
@@ -200,6 +207,37 @@ class StaffAttendanceApiTest extends TestCase
             ->assertJsonPath('filters.end_date', '2026-05-20')
             ->assertJsonCount(1, 'records')
             ->assertJsonPath('records.0.date', '2026-05-20');
+    }
+
+    public function test_employee_can_filter_attendance_by_quick_range(): void
+    {
+        Carbon::setTestNow('2026-06-08 10:00:00');
+
+        $this->createLog('PIN-001', '2026-06-01 08:00:00');
+        $this->createLog('PIN-001', '2026-06-02 08:00:00');
+        $this->createLog('PIN-001', '2026-06-08 08:00:00');
+
+        $this->getJson('/api/staff/attendance?range=7d')
+            ->assertOk()
+            ->assertJsonPath('filters.range', '7d')
+            ->assertJsonPath('filters.start_date', '2026-06-02')
+            ->assertJsonPath('filters.end_date', '2026-06-08')
+            ->assertJsonCount(2, 'records');
+    }
+
+    public function test_employee_can_filter_attendance_by_current_month(): void
+    {
+        Carbon::setTestNow('2026-06-08 10:00:00');
+
+        $this->createLog('PIN-001', '2026-05-31 08:00:00');
+        $this->createLog('PIN-001', '2026-06-08 08:00:00');
+
+        $this->getJson('/api/staff/attendance?range=month')
+            ->assertOk()
+            ->assertJsonPath('filters.range', 'month')
+            ->assertJsonPath('filters.start_date', '2026-06-01')
+            ->assertJsonPath('filters.end_date', '2026-06-30')
+            ->assertJsonCount(1, 'records');
     }
 
     public function test_approved_public_holiday_overrides_calendar_status_without_removing_schedule(): void
