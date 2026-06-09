@@ -80,6 +80,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('password.changed.api')->group(function () {
         Route::get('/navigation', [NavigationController::class, 'index']);
         Route::get('/notifications', [NotificationController::class, 'index']);
+        Route::post('/notifications/mobile-token', [NotificationController::class, 'registerMobileToken']);
+        Route::delete('/notifications/mobile-token', [NotificationController::class, 'unregisterMobileToken']);
         Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead']);
         Route::post('/notifications/{notificationId}/read', [NotificationController::class, 'markRead']);
         Route::get('/online-users', [OnlineUserController::class, 'index']);

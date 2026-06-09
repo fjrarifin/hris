@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\MobileDeviceToken;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -49,5 +50,50 @@ class NotificationController extends Controller
         $notification->markAsRead();
 
         return response()->json(['message' => 'Notifikasi sudah dibaca.']);
+    }
+
+    public function registerMobileToken(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'token' => ['required', 'string', 'max:512'],
+            'platform' => ['nullable', 'string', 'max:30'],
+            'device_name' => ['nullable', 'string', 'max:120'],
+        ]);
+
+        MobileDeviceToken::query()
+            ->where('token', $data['token'])
+            ->where('platform', $data['platform'] ?? 'android')
+            ->where('user_id', '!=', $request->user()->id)
+            ->delete();
+
+        MobileDeviceToken::query()->updateOrCreate(
+            [
+                'user_id' => $request->user()->id,
+                'platform' => $data['platform'] ?? 'android',
+                'token' => $data['token'],
+            ],
+            [
+                'device_name' => $data['device_name'] ?? null,
+                'last_seen_at' => now(),
+            ]
+        );
+
+        return response()->json(['message' => 'Token notifikasi berhasil disimpan.']);
+    }
+
+    public function unregisterMobileToken(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'token' => ['required', 'string', 'max:512'],
+            'platform' => ['nullable', 'string', 'max:30'],
+        ]);
+
+        MobileDeviceToken::query()
+            ->where('user_id', $request->user()->id)
+            ->where('platform', $data['platform'] ?? 'android')
+            ->where('token', $data['token'])
+            ->delete();
+
+        return response()->json(['message' => 'Token notifikasi berhasil dihapus.']);
     }
 }

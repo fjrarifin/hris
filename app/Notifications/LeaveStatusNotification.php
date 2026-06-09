@@ -2,6 +2,7 @@
 
 namespace App\Notifications;
 
+use App\Notifications\Channels\MobilePushChannel;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Notification;
 
@@ -24,7 +25,7 @@ class LeaveStatusNotification extends Notification
 
     public function via($notifiable)
     {
-        return ['database'];
+        return ['database', MobilePushChannel::class];
     }
 
     public function toDatabase($notifiable)

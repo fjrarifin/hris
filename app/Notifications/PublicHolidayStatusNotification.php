@@ -2,6 +2,7 @@
 
 namespace App\Notifications;
 
+use App\Notifications\Channels\MobilePushChannel;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -22,7 +23,7 @@ class PublicHolidayStatusNotification extends Notification
 
     public function via(object $notifiable): array
     {
-        return ['database'];
+        return ['database', MobilePushChannel::class];
     }
 
     public function toArray(object $notifiable): array

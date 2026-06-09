@@ -60,6 +60,12 @@ return [
         'base_url' => 'https://hr.hompimplay.id',
     ],
 
+    'firebase' => [
+        'project_id' => env('FIREBASE_PROJECT_ID'),
+        'credentials_file' => env('FIREBASE_CREDENTIALS_FILE'),
+        'credentials_json' => env('FIREBASE_CREDENTIALS_JSON'),
+    ],
+
     'hris_agent' => [
         'enabled' => env('HRIS_AGENT_ENABLED', true),
         'created_date' => env('HRIS_AGENT_CREATED_DATE', '2026-05-28'),

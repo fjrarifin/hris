@@ -2,6 +2,7 @@
 
 namespace App\Notifications;
 
+use App\Notifications\Channels\MobilePushChannel;
 use App\Models\LeaveRequest;
 use App\Models\PublicHolidayRequest;
 use App\Models\EmployeePermission;
@@ -20,7 +21,7 @@ class DirectManagerDecisionNotification extends Notification
 
     public function via(object $notifiable): array
     {
-        return ['database'];
+        return ['database', MobilePushChannel::class];
     }
 
     public function toArray(object $notifiable): array
