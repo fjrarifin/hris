@@ -29,7 +29,9 @@ class AppServiceProvider extends ServiceProvider
                 return false;
             }
 
-            $idleMinutes = (int) config('sanctum.idle_expiration', 7 * 24 * 60);
+            $idleMinutes = $token->name === 'hris-mobile'
+                ? (int) config('sanctum.mobile_idle_expiration', 3 * 24 * 60)
+                : (int) config('sanctum.idle_expiration', 30);
             $lastActivity = $token->last_used_at ?? $token->created_at;
 
             return $idleMinutes <= 0 || $lastActivity?->gt(now()->subMinutes($idleMinutes));

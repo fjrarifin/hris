@@ -20,6 +20,7 @@ class AuthController extends Controller
     private const PASSWORD_CHANGE_INTERVAL_DAYS = 30;
 
     private const PORTAL_TOKEN_NAME = 'hris-fe';
+    private const MOBILE_TOKEN_NAME = 'hris-mobile';
 
     public function __construct(private readonly FrontendNavigation $navigation) {}
 
@@ -28,9 +29,13 @@ class AuthController extends Controller
         $credentials = $request->validate([
             'username' => ['required', 'string'],
             'password' => ['required', 'string'],
+            'client' => ['nullable', 'string', 'in:web,mobile'],
         ]);
 
         $result = DB::transaction(function () use ($credentials, $request): array {
+            $tokenName = ($credentials['client'] ?? 'web') === 'mobile'
+                ? self::MOBILE_TOKEN_NAME
+                : self::PORTAL_TOKEN_NAME;
             $user = User::query()
                 ->where('username', trim($credentials['username']))
                 ->lockForUpdate()
@@ -52,11 +57,12 @@ class AuthController extends Controller
                 ]);
             }
 
-            $idleMinutes = (int) config('sanctum.idle_expiration', 7 * 24 * 60);
+            $idleMinutes = $this->tokenIdleMinutes($tokenName);
 
             if ($idleMinutes > 0) {
                 $idleCutoff = now()->subMinutes($idleMinutes);
                 $user->tokens()
+                    ->where('name', $tokenName)
                     ->where(fn ($query) => $query->whereNull('expires_at')->orWhere('expires_at', '>', now()))
                     ->where(fn ($query) => $query
                         ->where(fn ($inner) => $inner->whereNull('last_used_at')->where('created_at', '<=', $idleCutoff))
@@ -65,6 +71,7 @@ class AuthController extends Controller
             }
 
             $activeToken = $user->tokens()
+                ->where('name', $tokenName)
                 ->where(fn ($query) => $query->whereNull('expires_at')->orWhere('expires_at', '>', now()))
                 ->orderByDesc('last_used_at')
                 ->orderByDesc('created_at')
@@ -76,7 +83,10 @@ class AuthController extends Controller
                 ];
             }
 
-            $token = $user->createToken(self::PORTAL_TOKEN_NAME);
+            $expiresAt = $tokenName === self::MOBILE_TOKEN_NAME && (int) config('sanctum.mobile_expiration', 0) > 0
+                ? now()->addMinutes((int) config('sanctum.mobile_expiration'))
+                : null;
+            $token = $user->createToken($tokenName, ['*'], $expiresAt);
             $token->accessToken->forceFill([
                 'device_name' => $this->deviceName($request->userAgent()),
                 'ip_address' => $request->ip(),
@@ -234,7 +244,7 @@ class AuthController extends Controller
             'can_change_password' => $this->mustChangePassword($user)
                 || ! $availableAt
                 || now()->greaterThanOrEqualTo($availableAt),
-            'session_idle_timeout_minutes' => (int) config('sanctum.idle_expiration', 7 * 24 * 60),
+            'session_idle_timeout_minutes' => (int) config('sanctum.mobile_idle_expiration', 3 * 24 * 60),
         ];
     }
 
@@ -276,6 +286,13 @@ class AuthController extends Controller
         };
 
         return "{$browser} di {$platform}";
+    }
+
+    private function tokenIdleMinutes(string $tokenName): int
+    {
+        return $tokenName === self::MOBILE_TOKEN_NAME
+            ? (int) config('sanctum.mobile_idle_expiration', 3 * 24 * 60)
+            : (int) config('sanctum.idle_expiration', 30);
     }
 
     private function maskedIp(?string $ipAddress): ?string

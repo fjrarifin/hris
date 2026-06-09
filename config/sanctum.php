@@ -60,6 +60,8 @@ return [
     */
 
     'idle_expiration' => (int) env('SANCTUM_IDLE_EXPIRATION', 30),
+    'mobile_idle_expiration' => (int) env('SANCTUM_MOBILE_IDLE_EXPIRATION', 3 * 24 * 60),
+    'mobile_expiration' => (int) env('SANCTUM_MOBILE_EXPIRATION', 3 * 24 * 60),
 
     /*
     |--------------------------------------------------------------------------

@@ -31,6 +31,7 @@ class ApprovalRequestNotification extends Notification
             'message' => $this->buildMessage(),
             'request_id' => $this->request->id,
             'type' => $this->type,
+            'mobile_path' => '/team-approvals',
         ];
     }
 

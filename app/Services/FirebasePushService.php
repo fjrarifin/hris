@@ -9,22 +9,27 @@ use Illuminate\Support\Facades\Log;
 
 class FirebasePushService
 {
-    public function sendToUser(int $userId, string $title, string $body, array $data = []): void
+    public function sendToUser(int $userId, string $title, string $body, array $data = []): int
     {
         $tokens = MobileDeviceToken::query()->where('user_id', $userId)->pluck('token');
+        $sent = 0;
 
         foreach ($tokens as $token) {
-            $this->send($token, $title, $body, $data);
+            if ($this->send($token, $title, $body, $data)) {
+                $sent++;
+            }
         }
+
+        return $sent;
     }
 
-    private function send(string $token, string $title, string $body, array $data): void
+    private function send(string $token, string $title, string $body, array $data): bool
     {
         $projectId = config('services.firebase.project_id');
         $accessToken = $this->accessToken();
 
         if (! $projectId || ! $accessToken) {
-            return;
+            return false;
         }
 
         $response = Http::withToken($accessToken)->post(
@@ -56,6 +61,8 @@ class FirebasePushService
                 'body' => $response->body(),
             ]);
         }
+
+        return $response->successful();
     }
 
     private function accessToken(): ?string

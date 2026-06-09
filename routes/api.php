@@ -82,6 +82,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/notifications', [NotificationController::class, 'index']);
         Route::post('/notifications/mobile-token', [NotificationController::class, 'registerMobileToken']);
         Route::delete('/notifications/mobile-token', [NotificationController::class, 'unregisterMobileToken']);
+        Route::post('/notifications/test-push', [NotificationController::class, 'testMobilePush']);
         Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead']);
         Route::post('/notifications/{notificationId}/read', [NotificationController::class, 'markRead']);
         Route::get('/online-users', [OnlineUserController::class, 'index']);

@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\MobileDeviceToken;
+use App\Services\FirebasePushService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 
 class NotificationController extends Controller
 {
@@ -54,6 +56,12 @@ class NotificationController extends Controller
 
     public function registerMobileToken(Request $request): JsonResponse
     {
+        if (! Schema::hasTable('mobile_device_tokens')) {
+            return response()->json([
+                'message' => 'Tabel token push mobile belum tersedia. Jalankan migration backend terlebih dahulu.',
+            ], 503);
+        }
+
         $data = $request->validate([
             'token' => ['required', 'string', 'max:512'],
             'platform' => ['nullable', 'string', 'max:30'],
@@ -83,6 +91,12 @@ class NotificationController extends Controller
 
     public function unregisterMobileToken(Request $request): JsonResponse
     {
+        if (! Schema::hasTable('mobile_device_tokens')) {
+            return response()->json([
+                'message' => 'Tabel token push mobile belum tersedia. Jalankan migration backend terlebih dahulu.',
+            ], 503);
+        }
+
         $data = $request->validate([
             'token' => ['required', 'string', 'max:512'],
             'platform' => ['nullable', 'string', 'max:30'],
@@ -95,5 +109,44 @@ class NotificationController extends Controller
             ->delete();
 
         return response()->json(['message' => 'Token notifikasi berhasil dihapus.']);
+    }
+
+    public function testMobilePush(Request $request, FirebasePushService $pushService): JsonResponse
+    {
+        if (! Schema::hasTable('mobile_device_tokens')) {
+            return response()->json([
+                'message' => 'Tabel token push mobile belum tersedia. Jalankan php artisan migrate di backend production.',
+            ], 503);
+        }
+
+        $tokenCount = MobileDeviceToken::query()
+            ->where('user_id', $request->user()->id)
+            ->count();
+
+        if ($tokenCount < 1) {
+            return response()->json([
+                'message' => 'Token push mobile belum terdaftar. Buka aplikasi Android dan izinkan notifikasi terlebih dahulu.',
+            ], 422);
+        }
+
+        $sent = $pushService->sendToUser(
+            (int) $request->user()->id,
+            'Test Notifikasi HRIS',
+            'Push notification Android berhasil terhubung.',
+            [
+                'title' => 'Test Notifikasi HRIS',
+                'message' => 'Push notification Android berhasil terhubung.',
+                'mobile_path' => '/notifications',
+                'type' => 'test_push',
+            ]
+        );
+
+        return response()->json([
+            'message' => $sent > 0
+                ? 'Test push notification sudah dikirim.'
+                : 'Token ditemukan, tetapi push belum berhasil dikirim. Cek log Firebase di backend.',
+            'sent' => $sent,
+            'registered_tokens' => $tokenCount,
+        ]);
     }
 }
