@@ -3,6 +3,7 @@
 namespace App\Notifications\Channels;
 
 use App\Services\FirebasePushService;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Notifications\Notification;
 
 class MobilePushChannel
@@ -19,9 +20,17 @@ class MobilePushChannel
             ? $notification->toDatabase($notifiable)
             : (method_exists($notification, 'toArray') ? $notification->toArray($notifiable) : []);
 
-        $this->pushService->sendToUser((int) $notifiable->getKey(), $data['title'] ?? 'Notifikasi HRIS', $data['message'] ?? '', [
-            ...$data,
-            'mobile_path' => $data['mobile_path'] ?? '/notifications',
-        ]);
+        try {
+            $this->pushService->sendToUser((int) $notifiable->getKey(), $data['title'] ?? 'Notifikasi HRIS', $data['message'] ?? '', [
+                ...$data,
+                'mobile_path' => $data['mobile_path'] ?? '/notifications',
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Mobile push notification failed', [
+                'notifiable_id' => $notifiable->getKey(),
+                'notification' => $notification::class,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 }

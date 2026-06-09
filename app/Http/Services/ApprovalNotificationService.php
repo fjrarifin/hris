@@ -32,12 +32,29 @@ class ApprovalNotificationService
             $karyawan = Karyawan::where('nik', $user->username)->first();
 
             if (! $karyawan || ! $karyawan->nama_atasan_langsung) {
+                Log::warning('Approval notification skipped: employee or direct supervisor name missing', [
+                    'type' => $type,
+                    'request_id' => $request->id ?? null,
+                    'user_id' => $user->id ?? null,
+                    'username' => $user->username ?? null,
+                    'employee_found' => (bool) $karyawan,
+                    'direct_supervisor_name' => $karyawan?->nama_atasan_langsung,
+                ]);
+
                 return;
             }
 
             $atasan = Karyawan::where('nama_karyawan', $karyawan->nama_atasan_langsung)->first();
 
             if (! $atasan) {
+                Log::warning('Approval notification skipped: direct supervisor employee not found', [
+                    'type' => $type,
+                    'request_id' => $request->id ?? null,
+                    'employee_nik' => $karyawan->nik,
+                    'employee_name' => $karyawan->nama_karyawan,
+                    'direct_supervisor_name' => $karyawan->nama_atasan_langsung,
+                ]);
+
                 return;
             }
 
@@ -53,13 +70,35 @@ class ApprovalNotificationService
 
                 $message = $this->buildMessage($request, $karyawan);
 
-                $this->whatsAppService->sendMessage(
+                $sent = $this->whatsAppService->sendMessage(
                     $this->normalizePhone($atasan->no_hp),
                     $message
                 );
+
+                if (! $sent) {
+                    Log::warning('Approval WhatsApp notification was not accepted by provider', [
+                        'type' => $type,
+                        'request_id' => $request->id ?? null,
+                        'employee_nik' => $karyawan->nik,
+                        'supervisor_nik' => $atasan->nik,
+                        'supervisor_phone' => $atasan->no_hp,
+                    ]);
+                }
+
+                return;
             }
+
+            Log::warning('Approval WhatsApp notification skipped: direct supervisor phone missing', [
+                'type' => $type,
+                'request_id' => $request->id ?? null,
+                'employee_nik' => $karyawan->nik,
+                'supervisor_nik' => $atasan->nik,
+                'supervisor_name' => $atasan->nama_karyawan,
+            ]);
         } catch (\Throwable $e) {
             Log::error('Approval notification failed', [
+                'type' => $type,
+                'request_id' => $request->id ?? null,
                 'error' => $e->getMessage(),
             ]);
         }
@@ -131,11 +170,11 @@ class ApprovalNotificationService
             $periodStart = Carbon::parse($request->source_period_start)->format('d M Y');
             $periodEnd = Carbon::parse($request->source_period_end)->format('d M Y');
 
-            return "Keputusan EO dari Atasan Langsung\n\n"
+            return "Pengajuan Extra Off baru membutuhkan persetujuan Anda.\n\n"
                 ."Nama: {$karyawan->nama_karyawan}\n"
                 ."Sumber EO: {$periodStart} - {$periodEnd}\n"
                 ."Tanggal Pengambilan: {$claim}\n\n"
-                ."Status: *{$statusLabel}* oleh atasan langsung.";
+                ."Silakan proses melalui tautan berikut:\n{$link}";
         }
 
         if ($request instanceof EmployeePermission) {

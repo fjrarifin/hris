@@ -98,8 +98,14 @@ class FirebasePushService
             return json_decode($json, true);
         }
 
-        if ($path && is_file($path)) {
+        if ($path && is_file($path) && is_readable($path)) {
             return json_decode(file_get_contents($path), true);
+        }
+
+        if ($path && is_file($path)) {
+            Log::error('Firebase credentials file is not readable', [
+                'path' => $path,
+            ]);
         }
 
         return null;
