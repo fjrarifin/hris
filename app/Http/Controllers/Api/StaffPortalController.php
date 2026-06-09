@@ -56,6 +56,7 @@ class StaffPortalController extends Controller
         $today = now()->startOfDay();
         [$periodStart, $periodEnd] = $this->attendancePeriod($today);
         $hasSubordinates = $this->hasDirectSubordinates($user);
+        $hasScheduleSubordinates = $this->hasScheduleSubordinates($user);
 
         $attendanceDays = $employee->pin
             ? FingerspotAttendanceLog::query()
@@ -83,6 +84,10 @@ class StaffPortalController extends Controller
                 'end' => $periodEnd->toDateString(),
             ],
             'has_subordinates' => $hasSubordinates,
+            'supervisor_tools' => [
+                'team_schedules' => $hasScheduleSubordinates,
+                'overtime' => $hasSubordinates,
+            ],
             'subordinates_today' => $this->subordinatesToday($user, $today),
             'weekly_attendance' => $this->weeklyAttendance($employee, $today),
             'pending_subordinate_approvals' => $hasSubordinates ? $this->pendingApprovalsFor($user) : collect(),
@@ -94,18 +99,51 @@ class StaffPortalController extends Controller
         $user = $request->user();
         $employee = $this->employeeFor($user);
 
-        return response()->json([
-            'user' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'username' => $user->username,
-                'email' => $user->email,
-                'photo_url' => $this->publicFileUrl($user->photo),
-                ...$this->photoChangeAvailability($user),
-                ...$this->contactChangeAvailability($user, $employee),
-            ],
-            'employee' => $employee,
+        return response()->json($this->profilePayload($employee, $user, true));
+    }
+
+    public function searchEmployees(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'q' => ['required', 'string', 'min:3', 'max:80'],
         ]);
+
+        $query = trim((string) $validated['q']);
+
+        $employees = Karyawan::query()
+            ->where(function ($builder) use ($query): void {
+                $builder
+                    ->where('nama_karyawan', 'like', '%'.$query.'%')
+                    ->orWhere('nik', 'like', '%'.$query.'%')
+                    ->orWhere('jabatan', 'like', '%'.$query.'%')
+                    ->orWhere('departement', 'like', '%'.$query.'%')
+                    ->orWhere('unit', 'like', '%'.$query.'%');
+            })
+            ->orderByRaw('CASE WHEN nama_karyawan LIKE ? THEN 0 ELSE 1 END', [$query.'%'])
+            ->orderBy('nama_karyawan')
+            ->limit(20)
+            ->get(['nik', 'nama_karyawan', 'jabatan', 'posisi', 'departement', 'divisi', 'unit', 'status_karyawan']);
+
+        return response()->json([
+            'records' => $employees->map(fn (Karyawan $employee): array => [
+                'nik' => $employee->nik,
+                'name' => $employee->nama_karyawan,
+                'position' => $employee->jabatan ?: $employee->posisi,
+                'department' => $employee->departement ?: $employee->divisi,
+                'unit' => $employee->unit,
+                'status' => $employee->status_karyawan,
+            ])->values(),
+        ]);
+    }
+
+    public function employeeProfile(Request $request, string $nik): JsonResponse
+    {
+        $employee = Karyawan::query()
+            ->with('user')
+            ->where('nik', $nik)
+            ->firstOrFail();
+
+        return response()->json($this->profilePayload($employee, $employee->user, $nik === $request->user()->username));
     }
 
     public function updateProfileContact(Request $request): JsonResponse
@@ -1300,6 +1338,37 @@ class StaffPortalController extends Controller
         ];
     }
 
+    private function profilePayload(Karyawan $employee, ?User $user, bool $editable): array
+    {
+        return [
+            'user' => [
+                'id' => $user?->id,
+                'name' => $user?->name ?: $employee->nama_karyawan,
+                'username' => $user?->username ?: $employee->nik,
+                'email' => $editable ? ($user?->email ?: $employee->email) : null,
+                'photo_url' => $this->publicFileUrl($user?->photo),
+                'can_change_photo' => $editable && $user ? $this->photoChangeAvailability($user)['can_change_photo'] : false,
+                'can_change_email' => $editable && $user ? $this->contactChangeAvailability($user, $employee)['can_change_email'] : false,
+                'can_change_phone' => $editable && $user ? $this->contactChangeAvailability($user, $employee)['can_change_phone'] : false,
+                ...($editable && $user ? $this->photoChangeAvailability($user) : []),
+                ...($editable && $user ? $this->contactChangeAvailability($user, $employee) : []),
+            ],
+            'employee' => $editable ? $employee : [
+                'nik' => $employee->nik,
+                'nama_karyawan' => $employee->nama_karyawan,
+                'jabatan' => $employee->jabatan,
+                'posisi' => $employee->posisi,
+                'departement' => $employee->departement,
+                'divisi' => $employee->divisi,
+                'unit' => $employee->unit,
+                'nama_atasan_langsung' => $employee->nama_atasan_langsung,
+                'atasan_tidak_langsung' => $employee->atasan_tidak_langsung,
+                'join_date' => $employee->join_date?->toDateString(),
+            ],
+            'editable' => $editable,
+        ];
+    }
+
     private function publicFileUrl(?string $path): ?string
     {
         return $path
@@ -1791,6 +1860,18 @@ class StaffPortalController extends Controller
     private function hasDirectSubordinates(User $user): bool
     {
         return $this->subordinateNiks($user)->isNotEmpty();
+    }
+
+    private function hasScheduleSubordinates(User $user): bool
+    {
+        $employee = Karyawan::query()->where('nik', $user->username)->first();
+
+        return $employee
+            ? Karyawan::query()
+                ->where('nama_atasan_langsung', $employee->nama_karyawan)
+                ->orWhere('atasan_tidak_langsung', $employee->nama_karyawan)
+                ->exists()
+            : false;
     }
 
     private function pendingApprovalsFor(User $user): Collection

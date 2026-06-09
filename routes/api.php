@@ -191,6 +191,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::prefix('staff')->middleware('level:3')->group(function () {
             Route::get('/dashboard', [StaffPortalController::class, 'dashboard']);
             Route::get('/profile', [StaffPortalController::class, 'profile']);
+            Route::get('/employees/search', [StaffPortalController::class, 'searchEmployees']);
+            Route::get('/employees/{nik}/profile', [StaffPortalController::class, 'employeeProfile']);
             Route::patch('/profile/contact', [StaffPortalController::class, 'updateProfileContact']);
             Route::post('/profile/contact/phone-otp', [StaffPortalController::class, 'requestProfilePhoneOtp'])
                 ->middleware('throttle:5,1');
