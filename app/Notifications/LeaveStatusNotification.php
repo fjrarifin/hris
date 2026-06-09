@@ -45,6 +45,8 @@ class LeaveStatusNotification extends Notification
 
             'leave_id' => $this->leave->id,
             'status' => $this->status,
+            'path' => '/staff/leave',
+            'mobile_path' => '/requests/leave',
         ];
     }
 }

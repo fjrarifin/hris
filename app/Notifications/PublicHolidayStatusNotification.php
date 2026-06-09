@@ -34,6 +34,8 @@ class PublicHolidayStatusNotification extends Notification
             'title' => $this->getTitle(),
             'message' => $this->getMessage($holidayName),
             'request_id' => $this->request->id,
+            'path' => '/staff/public-holiday',
+            'mobile_path' => '/requests/public-holiday',
         ];
     }
 

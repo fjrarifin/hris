@@ -2,6 +2,7 @@
 
 namespace App\Notifications;
 
+use App\Notifications\Channels\MobilePushChannel;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Notification;
 use Illuminate\Notifications\Messages\DatabaseMessage;
@@ -12,7 +13,7 @@ class IncompleteProfileNotification extends Notification
 
     public function via($notifiable)
     {
-        return ['database'];
+        return ['database', MobilePushChannel::class];
     }
 
     public function toDatabase($notifiable)
@@ -21,6 +22,8 @@ class IncompleteProfileNotification extends Notification
             'title' => 'Lengkapi Data Profil',
             'message' => 'Email atau Nomor HP Anda belum lengkap. Harap segera melengkapi data profil Anda.',
             'url' => rtrim((string) config('services.frontend.base_url'), '/').'/staff/profile',
+            'path' => '/staff/profile',
+            'mobile_path' => '/tabs/profile',
         ];
     }
 }

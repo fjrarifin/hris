@@ -2,6 +2,7 @@
 
 namespace App\Notifications;
 
+use App\Notifications\Channels\MobilePushChannel;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Notification;
 
@@ -17,7 +18,7 @@ class MinimumAttendanceWarningNotification extends Notification
 
     public function via(object $notifiable): array
     {
-        return ['database'];
+        return ['database', MobilePushChannel::class];
     }
 
     public function toArray(object $notifiable): array
@@ -30,6 +31,8 @@ class MinimumAttendanceWarningNotification extends Notification
             'attendance_diff' => $this->record['attendance_diff_label'],
             'work_duration_diff' => $this->record['work_duration_diff'],
             'status' => 'under',
+            'mobile_path' => '/tabs/attendance',
+            'path' => '/staff/attendance',
         ];
     }
 }

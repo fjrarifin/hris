@@ -13,12 +13,7 @@ class NotificationController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $visibleNotifications = $request->user()
-            ->notifications()
-            ->where(function ($query): void {
-                $query->whereNull('data->type')
-                    ->orWhere('data->type', '!=', 'attendance_minimum');
-            });
+        $visibleNotifications = $request->user()->notifications();
 
         $notifications = (clone $visibleNotifications)
             ->latest()

@@ -39,6 +39,30 @@ class RequestStatusNotification extends Notification
             'request_id' => $this->request->id,
             'type' => $this->type,
             'status' => $this->status,
+            'path' => $this->path(),
+            'mobile_path' => $this->mobilePath(),
         ];
+    }
+
+    private function path(): string
+    {
+        return match (strtoupper($this->type)) {
+            'LEMBUR' => '/staff/overtime',
+            'PH' => '/staff/public-holiday',
+            'EO' => '/staff/extra-off',
+            'IZIN' => '/staff/permission',
+            default => '/staff/leave',
+        };
+    }
+
+    private function mobilePath(): string
+    {
+        return match (strtoupper($this->type)) {
+            'LEMBUR' => '/requests/overtime',
+            'PH' => '/requests/public-holiday',
+            'EO' => '/requests/extra-off',
+            'IZIN' => '/requests/permission',
+            default => '/requests/leave',
+        };
     }
 }

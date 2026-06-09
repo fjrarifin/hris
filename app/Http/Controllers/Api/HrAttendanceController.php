@@ -16,6 +16,7 @@ use App\Models\OvertimeRequest;
 use App\Models\PublicHoliday;
 use App\Models\PublicHolidayRequest;
 use App\Models\User;
+use App\Notifications\MinimumAttendanceWarningNotification;
 use App\Services\HrAttendanceReportService;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
@@ -433,6 +434,8 @@ class HrAttendanceController extends Controller
                 'error' => $exception->getMessage(),
             ]);
         }
+
+        $user?->notify(new MinimumAttendanceWarningNotification($record, $periodLabel, $targets));
     }
 
     private function report(array $validated): array

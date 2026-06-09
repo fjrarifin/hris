@@ -4,6 +4,7 @@ namespace App\Notifications;
 
 use App\Models\Karyawan;
 use App\Models\User;
+use App\Notifications\Channels\MobilePushChannel;
 use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Notification;
@@ -22,7 +23,7 @@ class HrCancellationRequestNotification extends Notification
 
     public function via(object $notifiable): array
     {
-        return ['database'];
+        return ['database', MobilePushChannel::class];
     }
 
     public function toArray(object $notifiable): array
@@ -40,6 +41,8 @@ class HrCancellationRequestNotification extends Notification
             'reason' => $this->reason,
             'requested_by' => $this->supervisor->name,
             'requested_at' => Carbon::now()->toIso8601String(),
+            'path' => '/hr/approvals/leave',
+            'mobile_path' => '/notifications',
         ];
     }
 }

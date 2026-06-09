@@ -1061,7 +1061,10 @@ class StaffPortalController extends Controller
     {
         $data = $request->validate([
             'type' => ['required', Rule::in(['izin', 'sakit'])],
-            'date' => ['required', 'date', 'after_or_equal:today'],
+            'date' => ['required', 'date', Rule::when(
+                $request->input('type') === 'izin',
+                ['after_or_equal:today']
+            )],
             'reason' => ['required_if:type,izin', 'nullable', 'string', 'max:255'],
             'document' => ['required_if:type,sakit', 'nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:2048'],
         ]);
@@ -1128,7 +1131,12 @@ class StaffPortalController extends Controller
 
     public function approvals(Request $request): JsonResponse
     {
-        return response()->json(['requests' => $this->pendingApprovalsFor($request->user())]);
+        $requests = $this->subordinateApprovalsFor($request->user());
+
+        return response()->json([
+            'requests' => $requests,
+            'pending_count' => $requests->where('can_decide', true)->count(),
+        ]);
     }
 
     public function notifyHrAbsenceCancellation(Request $request): JsonResponse
@@ -1920,6 +1928,48 @@ class StaffPortalController extends Controller
             ->values();
     }
 
+    private function subordinateApprovalsFor(User $user): Collection
+    {
+        $subordinateUserIds = $this->subordinateUserIds($user);
+
+        if ($subordinateUserIds->isEmpty()) {
+            return collect();
+        }
+
+        return LeaveRequest::query()
+            ->with('user.karyawan')
+            ->whereIn('user_id', $subordinateUserIds)
+            ->latest()
+            ->get()
+            ->map(fn (LeaveRequest $item) => $this->serializeApproval('leave', $item))
+            ->concat(
+                PublicHolidayRequest::query()
+                    ->with(['user.karyawan', 'holiday'])
+                    ->whereIn('user_id', $subordinateUserIds)
+                    ->latest()
+                    ->get()
+                    ->map(fn (PublicHolidayRequest $item) => $this->serializeApproval('ph', $item))
+            )
+            ->concat(
+                ExtraOffRequest::query()
+                    ->with('user.karyawan')
+                    ->whereIn('user_id', $subordinateUserIds)
+                    ->latest()
+                    ->get()
+                    ->map(fn (ExtraOffRequest $item) => $this->serializeApproval('extra_off', $item))
+            )
+            ->concat(
+                EmployeePermission::query()
+                    ->with('user.karyawan')
+                    ->whereIn('user_id', $subordinateUserIds)
+                    ->latest()
+                    ->get()
+                    ->map(fn (EmployeePermission $item) => $this->serializeApproval('permission', $item))
+            )
+            ->sortByDesc('created_at')
+            ->values();
+    }
+
     private function isDirectSubordinateRequest(User $manager, object $approvalRequest): bool
     {
         return $approvalRequest->user
@@ -1936,6 +1986,8 @@ class StaffPortalController extends Controller
 
     private function serializeApproval(string $type, object $item): array
     {
+        $canDecide = $item->status === 'pending' && $item->manager_approved_at === null;
+
         return [
             'id' => $item->id,
             'type' => $type,
@@ -1956,6 +2008,10 @@ class StaffPortalController extends Controller
             'end_date' => $type === 'leave' ? $item->end_date : null,
             'reason' => $item->reason ?? null,
             'status' => $item->status,
+            'can_decide' => $canDecide,
+            'manager_approved_at' => $item->manager_approved_at,
+            'hr_approved_at' => $item->hr_approved_at ?? null,
+            'reject_reason' => $item->reject_reason ?? null,
             'created_at' => $item->created_at,
         ];
     }
