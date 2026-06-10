@@ -1061,47 +1061,68 @@ class StaffPortalController extends Controller
     {
         $data = $request->validate([
             'type' => ['required', Rule::in(['izin', 'sakit'])],
-            'date' => ['required', 'date', Rule::when(
-                $request->input('type') === 'izin',
-                ['after_or_equal:today']
-            )],
+            'start_date' => ['nullable', 'date', 'required_without:date'],
+            'end_date' => ['nullable', 'date', 'after_or_equal:start_date'],
+            'date' => ['nullable', 'date', 'required_without:start_date'],
             'reason' => ['required_if:type,izin', 'nullable', 'string', 'max:255'],
             'document' => ['required_if:type,sakit', 'nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:2048'],
         ]);
 
         $user = $request->user();
         $directToHr = $this->approvalRouting->requiresDirectHrApproval($user);
-        $date = Carbon::parse($data['date']);
+        $startDate = Carbon::parse($data['start_date'] ?? $data['date'])->startOfDay();
+        $endDate = Carbon::parse($data['end_date'] ?? $data['start_date'] ?? $data['date'])->startOfDay();
+
+        if ($data['type'] === 'izin' && $startDate->lt(now()->startOfDay())) {
+            throw ValidationException::withMessages(['start_date' => 'Tanggal izin tidak boleh backdate.']);
+        }
 
         if (EmployeePermission::query()
             ->where('user_id', $user->id)
             ->whereNotIn('status', ['rejected', 'cancelled'])
-            ->whereDate('date', $date)
+            ->whereDate('date', '<=', $endDate)
+            ->where(function ($query) use ($startDate): void {
+                $query->whereDate('end_date', '>=', $startDate)
+                    ->orWhere(function ($fallback) use ($startDate): void {
+                        $fallback->whereNull('end_date')->whereDate('date', '>=', $startDate);
+                    });
+            })
             ->exists()) {
-            throw ValidationException::withMessages(['date' => 'Tanggal izin/sakit sudah pernah diajukan.']);
+            throw ValidationException::withMessages(['start_date' => 'Periode izin/sakit sudah pernah diajukan.']);
         }
 
         if (LeaveRequest::query()
             ->where('user_id', $user->id)
             ->whereNotIn('status', ['rejected', 'cancelled'])
-            ->whereDate('start_date', '<=', $date)
-            ->whereDate('end_date', '>=', $date)
+            ->whereDate('start_date', '<=', $endDate)
+            ->whereDate('end_date', '>=', $startDate)
             ->exists()) {
-            throw ValidationException::withMessages(['date' => 'Tanggal izin bentrok dengan pengajuan cuti.']);
+            throw ValidationException::withMessages(['start_date' => 'Periode izin/sakit bentrok dengan pengajuan cuti.']);
         }
 
         if (PublicHolidayRequest::query()
             ->where('user_id', $user->id)
             ->whereNotIn('status', ['rejected', 'cancelled'])
-            ->whereDate('claim_date', $date)
+            ->whereDate('claim_date', '>=', $startDate)
+            ->whereDate('claim_date', '<=', $endDate)
             ->exists()) {
-            throw ValidationException::withMessages(['date' => 'Tanggal izin bentrok dengan pengajuan Hari Libur.']);
+            throw ValidationException::withMessages(['start_date' => 'Periode izin/sakit bentrok dengan pengajuan Hari Libur.']);
+        }
+
+        if (ExtraOffRequest::query()
+            ->where('user_id', $user->id)
+            ->whereNotIn('status', ['rejected', 'cancelled'])
+            ->whereDate('claim_date', '>=', $startDate)
+            ->whereDate('claim_date', '<=', $endDate)
+            ->exists()) {
+            throw ValidationException::withMessages(['start_date' => 'Periode izin/sakit bentrok dengan pengajuan Extra Off.']);
         }
 
         $permission = EmployeePermission::create([
             'user_id' => $user->id,
             'type' => $data['type'],
-            'date' => $date,
+            'date' => $startDate,
+            'end_date' => $endDate,
             'reason' => $data['reason'] ?? null,
             'document' => $request->file('document')?->store('permission-documents', 'public'),
             'status' => 'pending',
@@ -1498,7 +1519,13 @@ class StaffPortalController extends Controller
             || EmployeePermission::query()
                 ->where('user_id', $user->id)
                 ->whereNotIn('status', ['rejected', 'cancelled'])
-                ->whereDate('date', $date)
+                ->whereDate('date', '<=', $date)
+                ->where(function ($query) use ($date): void {
+                    $query->whereDate('end_date', '>=', $date)
+                        ->orWhere(function ($fallback) use ($date): void {
+                            $fallback->whereNull('end_date')->whereDate('date', '>=', $date);
+                        });
+                })
                 ->exists();
     }
 
@@ -1721,8 +1748,14 @@ class StaffPortalController extends Controller
             ->whereIn('user_id', $userIds)
             ->where('status', 'approved')
             ->whereNotNull('manager_approved_at')
-            ->whereDate('date', $date)
-            ->get(['id', 'user_id', 'type'])
+            ->whereDate('date', '<=', $date)
+            ->where(function ($query) use ($date): void {
+                $query->whereDate('end_date', '>=', $date)
+                    ->orWhere(function ($fallback) use ($date): void {
+                        $fallback->whereNull('end_date')->whereDate('date', '>=', $date);
+                    });
+            })
+            ->get(['id', 'user_id', 'type', 'date', 'end_date'])
             ->each(function (EmployeePermission $request) use ($users, $absences): void {
                 $nik = $users->get($request->user_id)?->username;
                 if ($nik) {
@@ -1980,6 +2013,8 @@ class StaffPortalController extends Controller
     {
         return [
             ...$permission->toArray(),
+            'start_date' => $permission->date?->toDateString(),
+            'end_date' => ($permission->end_date ?? $permission->date)?->toDateString(),
             'document_url' => $permission->document ? asset('storage/'.$permission->document) : null,
         ];
     }
@@ -2005,7 +2040,11 @@ class StaffPortalController extends Controller
                 'extra_off' => $item->claim_date?->toDateString(),
                 default => $item->date?->toDateString(),
             },
-            'end_date' => $type === 'leave' ? $item->end_date : null,
+            'end_date' => match ($type) {
+                'leave' => $item->end_date,
+                'permission' => ($item->end_date ?? $item->date)?->toDateString(),
+                default => null,
+            },
             'reason' => $item->reason ?? null,
             'status' => $item->status,
             'can_decide' => $canDecide,

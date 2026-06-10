@@ -617,18 +617,29 @@ class HrAttendanceController extends Controller
             ->with('user.karyawan')
             ->where('status', 'approved')
             ->whereNotNull('hr_approved_at')
-            ->whereBetween('date', [$start->toDateString(), $end->toDateString()])
+            ->whereDate('date', '<=', $end)
+            ->where(function ($query) use ($start): void {
+                $query->whereDate('end_date', '>=', $start)
+                    ->orWhere(function ($fallback) use ($start): void {
+                        $fallback->whereNull('end_date')->whereDate('date', '>=', $start);
+                    });
+            })
             ->get()
-            ->each(function (EmployeePermission $request) use ($absences, $selectedNiks): void {
+            ->each(function (EmployeePermission $request) use ($absences, $selectedNiks, $start, $end): void {
                 $employee = $request->user?->karyawan;
                 if ($employee && $selectedNiks->contains($employee->nik)) {
                     $sick = $request->type === 'sakit';
-                    $absences->put($this->recordKey($employee->nik, $request->date->toDateString()), [
-                        'code' => $sick ? 'S' : 'I',
-                        'label' => $sick ? 'Sakit' : 'Izin',
-                        'approval_type' => 'permission',
-                        'approval_id' => $request->id,
-                    ]);
+                    $periodStart = $request->date->copy()->max($start);
+                    $periodEnd = ($request->end_date ?? $request->date)->copy()->min($end);
+
+                    foreach (CarbonPeriod::create($periodStart, $periodEnd) as $date) {
+                        $absences->put($this->recordKey($employee->nik, $date->toDateString()), [
+                            'code' => $sick ? 'S' : 'I',
+                            'label' => $sick ? 'Sakit' : 'Izin',
+                            'approval_type' => 'permission',
+                            'approval_id' => $request->id,
+                        ]);
+                    }
                 }
             });
 

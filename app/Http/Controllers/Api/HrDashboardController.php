@@ -209,12 +209,19 @@ class HrDashboardController extends Controller
             ->with('user.karyawan')
             ->where('status', 'approved')
             ->whereNotNull('hr_approved_at')
-            ->whereDate('date', $date)
+            ->whereDate('date', '<=', $date)
+            ->where(function ($query) use ($date): void {
+                $query->whereDate('end_date', '>=', $date)
+                    ->orWhere(function ($fallback) use ($date): void {
+                        $fallback->whereNull('end_date')->whereDate('date', '>=', $date);
+                    });
+            })
             ->get()
             ->map(fn (EmployeePermission $permission) => [
                 ...$this->requestEmployeeRow($permission->user),
                 'type' => $permission->type,
                 'date' => $permission->date?->toDateString(),
+                'end_date' => ($permission->end_date ?? $permission->date)?->toDateString(),
             ])
             ->values();
     }

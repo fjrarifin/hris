@@ -21,10 +21,14 @@ class MobilePushChannel
             : (method_exists($notification, 'toArray') ? $notification->toArray($notifiable) : []);
 
         try {
-            $this->pushService->sendToUser((int) $notifiable->getKey(), $data['title'] ?? 'Notifikasi HRIS', $data['message'] ?? '', [
+            $sent = $this->pushService->sendToUser((int) $notifiable->getKey(), $data['title'] ?? 'Notifikasi HRIS', $data['message'] ?? '', [
                 ...$data,
                 'mobile_path' => $data['mobile_path'] ?? '/notifications',
             ]);
+
+            if ($sent > 0 && method_exists($notifiable, 'notifications')) {
+                $this->markPushSent($notifiable, $notification, $data);
+            }
         } catch (\Throwable $e) {
             Log::error('Mobile push notification failed', [
                 'notifiable_id' => $notifiable->getKey(),
@@ -32,5 +36,31 @@ class MobilePushChannel
                 'error' => $e->getMessage(),
             ]);
         }
+    }
+
+    private function markPushSent(object $notifiable, Notification $notification, array $data): void
+    {
+        $query = $notifiable->notifications()
+            ->where('type', $notification::class)
+            ->latest();
+
+        foreach (['type', 'date'] as $key) {
+            if (isset($data[$key]) && $data[$key] !== '') {
+                $query->where('data->'.$key, (string) $data[$key]);
+            }
+        }
+
+        $databaseNotification = $query->first();
+
+        if (! $databaseNotification) {
+            return;
+        }
+
+        $databaseNotification->forceFill([
+            'data' => [
+                ...$databaseNotification->data,
+                'mobile_push_sent_at' => now()->toIso8601String(),
+            ],
+        ])->save();
     }
 }

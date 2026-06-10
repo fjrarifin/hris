@@ -13,6 +13,7 @@ class EmployeePermission extends Model
         'user_id',
         'type',        // izin | sakit
         'date',
+        'end_date',
         'reason',
         'document',
         'status',
@@ -27,6 +28,7 @@ class EmployeePermission extends Model
 
     protected $casts = [
         'date' => 'date',
+        'end_date' => 'date',
         'manager_approved_at' => 'datetime',
         'hr_approved_at' => 'datetime',
         'approval_token_expires_at' => 'datetime',

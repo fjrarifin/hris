@@ -253,15 +253,53 @@ class IncompleteAttendanceWhatsAppReport
         $alreadyExists = $user->notifications()
             ->where('type', IncompleteAttendanceNotification::class)
             ->where('data->date', $date->toDateString())
-            ->exists();
+            ->first();
 
         if ($alreadyExists) {
+            $this->retryEmployeeAppPush($user, $alreadyExists, $record, $date);
+
             return 0;
         }
 
         $user->notify(new IncompleteAttendanceNotification($record, $date));
 
         return 1;
+    }
+
+    private function retryEmployeeAppPush(User $user, object $notification, array $record, Carbon $date): void
+    {
+        if ($notification->read_at) {
+            return;
+        }
+
+        $data = $notification->data ?? [];
+
+        if (! empty($data['mobile_push_sent_at'])) {
+            return;
+        }
+
+        $payload = [
+            ...(new IncompleteAttendanceNotification($record, $date))->toArray($user),
+            'mobile_path' => $data['mobile_path'] ?? '/tabs/attendance?start_date='.$date->toDateString().'&end_date='.$date->toDateString(),
+        ];
+
+        $sent = app(FirebasePushService::class)->sendToUser(
+            (int) $user->id,
+            $payload['title'] ?? 'Absensi Belum Lengkap',
+            $payload['message'] ?? '',
+            $payload
+        );
+
+        if ($sent < 1) {
+            return;
+        }
+
+        $notification->forceFill([
+            'data' => [
+                ...$data,
+                'mobile_push_sent_at' => now()->toIso8601String(),
+            ],
+        ])->save();
     }
 
     public function supervisorMessagesForDate(Carbon $date, bool $test = false): Collection

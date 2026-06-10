@@ -159,7 +159,11 @@ class HrApprovalController extends Controller
                 'extra_off' => $item->claim_date,
                 default => $item->date,
             },
-            'end_date' => $type === 'leave' ? $item->end_date : null,
+            'end_date' => match ($type) {
+                'leave' => $item->end_date,
+                'permission' => ($item->end_date ?? $item->date)?->toDateString(),
+                default => null,
+            },
             'time' => $type === 'overtime' ? "{$item->start_time} - {$item->end_time}" : null,
             'reason' => $item->reason ?? null,
             'document_url' => $type === 'permission' && $item->document
