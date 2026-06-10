@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\FrontendMenu;
+use App\Models\FrontendMenuUserAccess;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -57,6 +59,54 @@ class ItUserController extends Controller
                 'status' => $validated['status'] ?? '',
             ],
         ]);
+    }
+
+    public function store(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'username' => ['required', 'string', 'max:255', Rule::unique('users', 'username')],
+            'email' => ['nullable', 'email', 'max:255', Rule::unique('users', 'email')],
+            'level' => ['required', 'integer', 'in:0,1,2,3'],
+            'is_active' => ['required', 'boolean'],
+            'allow_mobile_attendance' => ['required', 'boolean'],
+            'menu_ids' => ['nullable', 'array'],
+            'menu_ids.*' => ['integer', 'exists:frontend_menus,id'],
+        ]);
+
+        $menuIds = collect($validated['menu_ids'] ?? [])
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+        unset($validated['menu_ids']);
+
+        $user = DB::transaction(function () use ($validated, $menuIds): User {
+            $user = User::query()->create([
+                ...$validated,
+                'password' => Hash::make(self::DEFAULT_PASSWORD),
+                'must_change_password' => true,
+                'password_changed_at' => null,
+            ]);
+
+            $menus = FrontendMenu::query()
+                ->where('key', '!=', 'dashboard')
+                ->get(['id']);
+
+            foreach ($menus as $menu) {
+                FrontendMenuUserAccess::query()->create([
+                    'frontend_menu_id' => $menu->id,
+                    'user_id' => $user->id,
+                    'is_allowed' => $menuIds->contains((int) $menu->id),
+                ]);
+            }
+
+            return $user;
+        });
+
+        return response()->json([
+            'message' => 'User berhasil dibuat. Password default: 12345678.',
+            'record' => $this->serializeUser($user->fresh('karyawan')),
+        ], 201);
     }
 
     public function update(Request $request, User $user): JsonResponse

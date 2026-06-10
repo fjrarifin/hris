@@ -280,10 +280,6 @@ class FrontendNavigation
             return true;
         }
 
-        if ((int) $user->level === 0) {
-            return true;
-        }
-
         if (in_array($menu->key, ['staff-approvals', 'staff-overtime'], true) && ! $this->hasDirectSubordinates($user)) {
             return false;
         }
@@ -300,6 +296,10 @@ class FrontendNavigation
 
         if ($override) {
             return $override->is_allowed;
+        }
+
+        if ((int) $user->level === 0) {
+            return true;
         }
 
         $levels = array_filter(

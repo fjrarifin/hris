@@ -98,6 +98,7 @@ Route::middleware('auth:sanctum')->group(function () {
             ->middleware(['level:0', 'frontend.menu:user-management'])
             ->group(function () {
                 Route::get('/', [ItUserController::class, 'index']);
+                Route::post('/', [ItUserController::class, 'store']);
                 Route::put('/{user}', [ItUserController::class, 'update']);
                 Route::post('/{user}/reset-password', [ItUserController::class, 'resetPassword']);
                 Route::post('/{user}/reset-photo-limit', [ItUserController::class, 'resetPhotoLimit']);
