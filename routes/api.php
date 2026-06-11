@@ -3,18 +3,18 @@
 use App\Http\Controllers\Api\AuthController as ApiAuthController;
 use App\Http\Controllers\Api\EmployeeController;
 use App\Http\Controllers\Api\ForgotPasswordController;
-use App\Http\Controllers\Api\HrdAuditLogController;
 use App\Http\Controllers\Api\HrApprovalController;
 use App\Http\Controllers\Api\HrAttendanceController;
 use App\Http\Controllers\Api\HrAttendanceCorrectionController;
 use App\Http\Controllers\Api\HrContractController;
 use App\Http\Controllers\Api\HrDashboardController;
+use App\Http\Controllers\Api\HrdAuditLogController;
 use App\Http\Controllers\Api\HrJobdeskController;
 use App\Http\Controllers\Api\HrKpiTemplateController;
-use App\Http\Controllers\Api\HrPerformancePeriodController;
-use App\Http\Controllers\Api\HrPerformanceReviewController;
 use App\Http\Controllers\Api\HrPayrollMasterController;
 use App\Http\Controllers\Api\HrPayrollProcessController;
+use App\Http\Controllers\Api\HrPerformancePeriodController;
+use App\Http\Controllers\Api\HrPerformanceReviewController;
 use App\Http\Controllers\Api\HrScheduleController;
 use App\Http\Controllers\Api\HrTalentOptionsController;
 use App\Http\Controllers\Api\ItUserController;
@@ -201,6 +201,7 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('/profile/contact/phone-otp', [StaffPortalController::class, 'requestProfilePhoneOtp'])
                 ->middleware('throttle:5,1');
             Route::post('/profile/photo', [StaffPortalController::class, 'updateProfilePhoto']);
+            Route::post('/profile/gate-qr-usage', [StaffPortalController::class, 'storeGateQrUsage']);
 
             Route::middleware('frontend.menu:staff-attendance')->group(function () {
                 Route::get('/attendance', [StaffPortalController::class, 'attendance']);

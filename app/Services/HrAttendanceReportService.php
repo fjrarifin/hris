@@ -251,11 +251,39 @@ class HrAttendanceReportService
                 ]);
                 $attendance['raw_scan_in'] = $attendance['raw_scan_in'] ?? $attendance['scan_in'];
                 $attendance['raw_scan_out'] = $attendance['raw_scan_out'] ?? $attendance['scan_out'];
-                $attendance['scan_in'] = $correction->corrected_scan_in ?: $attendance['scan_in'];
-                $attendance['scan_out'] = $correction->corrected_scan_out ?: $attendance['scan_out'];
+                if (in_array($correction->correction_type, ['leave', 'public_holiday', 'extra_off'], true)) {
+                    $attendance['scan_in'] = null;
+                    $attendance['scan_out'] = null;
+                    $attendance['force_absence'] = true;
+                } else {
+                    $attendance['scan_in'] = $correction->corrected_scan_in ?: $attendance['scan_in'];
+                    $attendance['scan_out'] = $correction->corrected_scan_out ?: $attendance['scan_out'];
+                }
                 $attendance['is_corrected'] = true;
                 $attendance['has_missing_attendance_form'] = $correction->has_missing_attendance_form;
                 $attendance['correction_notes'] = $correction->notes;
+                $correctionPayload = [
+                    'id' => $correction->id,
+                    'correction_type' => $correction->correction_type ?: 'time',
+                    'corrected_scan_in' => $correction->corrected_scan_in,
+                    'corrected_scan_out' => $correction->corrected_scan_out,
+                    'has_missing_attendance_form' => $correction->has_missing_attendance_form,
+                    'notes' => $correction->notes,
+                    'absence_type' => $correction->absence_type,
+                    'absence_id' => $correction->absence_id,
+                    'leave_accrual_id' => $correction->leave_accrual_id,
+                    'updated_at' => $correction->updated_at?->toIso8601String(),
+                ];
+                if ($correction->absence_type === PublicHolidayRequest::class && $correction->absence_id) {
+                    $request = PublicHolidayRequest::query()->find($correction->absence_id);
+                    $correctionPayload['public_holiday_id'] = $request?->public_holiday_id;
+                }
+                if ($correction->absence_type === ExtraOffRequest::class && $correction->absence_id) {
+                    $request = ExtraOffRequest::query()->find($correction->absence_id);
+                    $correctionPayload['extra_off_source_period_start'] = $request?->source_period_start?->toDateString();
+                    $correctionPayload['extra_off_source_period_end'] = $request?->source_period_end?->toDateString();
+                }
+                $attendance['correction'] = $correctionPayload;
                 $attendanceDays->put($key, $attendance);
             });
     }
@@ -354,7 +382,7 @@ class HrAttendanceReportService
     {
         $scanIn = $attendance['scan_in'] ?? null;
         $scanOut = $attendance['scan_out'] ?? null;
-        $hasScan = $attendance !== null;
+        $hasScan = $attendance !== null && ! ($attendance['force_absence'] ?? false);
         $status = $hasScan ? 'M' : 'A';
         $hasConflict = false;
 
@@ -401,6 +429,7 @@ class HrAttendanceReportService
             'permission_type' => $absence['permission_type'] ?? null,
             'has_document' => $absence['has_document'] ?? null,
             'has_approved_absence_conflict' => $hasConflict,
+            'correction' => $attendance['correction'] ?? null,
         ];
     }
 

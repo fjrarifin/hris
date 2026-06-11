@@ -38,9 +38,7 @@ class HrAttendanceController extends Controller
 
     private const APPROVED_PAID_ABSENCE_MINUTES = 8 * 60;
 
-    public function __construct(private readonly HrAttendanceReportService $attendanceReportService)
-    {
-    }
+    public function __construct(private readonly HrAttendanceReportService $attendanceReportService) {}
 
     public function options(): JsonResponse
     {
@@ -407,13 +405,13 @@ class HrAttendanceController extends Controller
     private function minimumMonitoringWhatsAppMessage(array $record, string $periodLabel, array $targets): string
     {
         return "*PERINGATAN MINIMUM ABSENSI*\n\n"
-            . "Halo {$record['name']},\n\n"
-            . "Pada periode payroll {$periodLabel}, data absensi Anda masih kurang dari target perusahaan.\n\n"
-            . "Target: {$targets['ideal_attendance_days']} hari dan {$targets['minimum_work_duration']}\n"
-            . "Kehadiran Anda: {$record['total_attendance']} hari ({$record['attendance_diff_label']})\n"
-            . "Durasi kerja Anda: {$record['total_work_duration']} ({$record['work_duration_diff']})\n\n"
-            . "Mohon segera cek data absensi Anda dan hubungi HRD jika ada data yang perlu dikoreksi.\n\n"
-            . 'Pesan ini dikirim otomatis oleh HRIS.';
+            ."Halo {$record['name']},\n\n"
+            ."Pada periode payroll {$periodLabel}, data absensi Anda masih kurang dari target perusahaan.\n\n"
+            ."Target: {$targets['ideal_attendance_days']} hari dan {$targets['minimum_work_duration']}\n"
+            ."Kehadiran Anda: {$record['total_attendance']} hari ({$record['attendance_diff_label']})\n"
+            ."Durasi kerja Anda: {$record['total_work_duration']} ({$record['work_duration_diff']})\n\n"
+            ."Mohon segera cek data absensi Anda dan hubungi HRD jika ada data yang perlu dikoreksi.\n\n"
+            .'Pesan ini dikirim otomatis oleh HRIS.';
     }
 
     private function sendMinimumMonitoringNotification(
@@ -672,11 +670,39 @@ class HrAttendanceController extends Controller
                     'overtime_scan_out' => null,
                 ]);
 
-                $attendance['scan_in'] = $correction->corrected_scan_in ?: $attendance['scan_in'];
-                $attendance['scan_out'] = $correction->corrected_scan_out ?: $attendance['scan_out'];
+                if (in_array($correction->correction_type, ['leave', 'public_holiday', 'extra_off'], true)) {
+                    $attendance['scan_in'] = null;
+                    $attendance['scan_out'] = null;
+                    $attendance['force_absence'] = true;
+                } else {
+                    $attendance['scan_in'] = $correction->corrected_scan_in ?: $attendance['scan_in'];
+                    $attendance['scan_out'] = $correction->corrected_scan_out ?: $attendance['scan_out'];
+                }
                 $attendance['is_corrected'] = true;
                 $attendance['has_missing_attendance_form'] = $correction->has_missing_attendance_form;
                 $attendance['correction_notes'] = $correction->notes;
+                $correctionPayload = [
+                    'id' => $correction->id,
+                    'correction_type' => $correction->correction_type ?: 'time',
+                    'corrected_scan_in' => $correction->corrected_scan_in,
+                    'corrected_scan_out' => $correction->corrected_scan_out,
+                    'has_missing_attendance_form' => $correction->has_missing_attendance_form,
+                    'notes' => $correction->notes,
+                    'absence_type' => $correction->absence_type,
+                    'absence_id' => $correction->absence_id,
+                    'leave_accrual_id' => $correction->leave_accrual_id,
+                    'updated_at' => $correction->updated_at?->toIso8601String(),
+                ];
+                if ($correction->absence_type === PublicHolidayRequest::class && $correction->absence_id) {
+                    $request = PublicHolidayRequest::query()->find($correction->absence_id);
+                    $correctionPayload['public_holiday_id'] = $request?->public_holiday_id;
+                }
+                if ($correction->absence_type === ExtraOffRequest::class && $correction->absence_id) {
+                    $request = ExtraOffRequest::query()->find($correction->absence_id);
+                    $correctionPayload['extra_off_source_period_start'] = $request?->source_period_start?->toDateString();
+                    $correctionPayload['extra_off_source_period_end'] = $request?->source_period_end?->toDateString();
+                }
+                $attendance['correction'] = $correctionPayload;
                 $attendanceDays->put($key, $attendance);
             });
     }
@@ -805,7 +831,7 @@ class HrAttendanceController extends Controller
     ): array {
         $scanIn = $attendance['scan_in'] ?? null;
         $scanOut = $attendance['scan_out'] ?? null;
-        $hasScan = $attendance !== null;
+        $hasScan = $attendance !== null && ! ($attendance['force_absence'] ?? false);
         $isHoliday = $holiday !== null;
         $status = 'A';
         $note = null;
@@ -844,6 +870,7 @@ class HrAttendanceController extends Controller
             'approval_id' => $absence['approval_id'] ?? null,
             'approval_label' => $absence['label'] ?? null,
             'has_approved_absence_conflict' => $hasConflict,
+            'correction' => $attendance['correction'] ?? null,
         ];
     }
 

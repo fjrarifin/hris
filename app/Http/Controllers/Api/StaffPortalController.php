@@ -12,6 +12,7 @@ use App\Models\EmployeeExtraOff;
 use App\Models\EmployeePermission;
 use App\Models\ExtraOffRequest;
 use App\Models\FingerspotAttendanceLog;
+use App\Models\GateQrUsageLog;
 use App\Models\Karyawan;
 use App\Models\LeaveAccrual;
 use App\Models\LeaveRequest;
@@ -19,6 +20,7 @@ use App\Models\OvertimeRequest;
 use App\Models\PublicHoliday;
 use App\Models\PublicHolidayRequest;
 use App\Models\User;
+use App\Notifications\GateQrUsageNotification;
 use App\Notifications\LeaveStatusNotification;
 use App\Notifications\PublicHolidayStatusNotification;
 use App\Notifications\RequestStatusNotification;
@@ -100,6 +102,34 @@ class StaffPortalController extends Controller
         $employee = $this->employeeFor($user);
 
         return response()->json($this->profilePayload($employee, $user, true));
+    }
+
+    public function storeGateQrUsage(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $employee = $this->employeeFor($user);
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'min:5', 'max:500'],
+        ]);
+
+        $log = GateQrUsageLog::query()->create([
+            'user_id' => $user->id,
+            'nik' => $employee->nik,
+            'employee_name' => $employee->nama_karyawan ?: $user->name,
+            'reason' => trim((string) $validated['reason']),
+            'used_at' => now(),
+        ]);
+
+        User::query()
+            ->where('level', 2)
+            ->where('is_active', true)
+            ->get()
+            ->each(fn (User $hrd): mixed => $hrd->notify(new GateQrUsageNotification($log)));
+
+        return response()->json([
+            'message' => 'Alasan penggunaan QR gate berhasil disimpan.',
+            'log_id' => $log->id,
+        ], 201);
     }
 
     public function searchEmployees(Request $request): JsonResponse
