@@ -123,6 +123,6 @@ class MobileAppReleaseController extends Controller
 
     private function apkUrl(MobileAppRelease $release): string
     {
-        return request()->getSchemeAndHttpHost() . '/mobile-app-releases/' . rawurlencode($release->file_name);
+        return 'https://' . request()->getHost() . '/mobile-app-releases/' . rawurlencode($release->file_name);
     }
 }
