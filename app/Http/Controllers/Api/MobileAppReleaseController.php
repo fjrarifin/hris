@@ -108,7 +108,7 @@ class MobileAppReleaseController extends Controller
             'id' => $release->id,
             'version_code' => $release->version_code,
             'version_name' => $release->version_name,
-            'apk_url' => route('mobile-app-releases.download', $release),
+            'apk_url' => $this->apkUrl($release),
             'sha256' => $release->sha256,
             'file_size' => $release->file_size,
             'mandatory' => $release->mandatory,
@@ -119,5 +119,10 @@ class MobileAppReleaseController extends Controller
                 'uploaded_by' => $release->uploader?->name,
             ] : []),
         ];
+    }
+
+    private function apkUrl(MobileAppRelease $release): string
+    {
+        return request()->getSchemeAndHttpHost() . '/mobile-app-releases/' . rawurlencode($release->file_name);
     }
 }
