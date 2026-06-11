@@ -9,9 +9,12 @@ use App\Models\LeaveRequest;
 use App\Models\OvertimeRequest;
 use App\Models\PublicHolidayRequest;
 use App\Models\User;
+use App\Notifications\ApprovalReminderNotification;
 use App\Notifications\DirectManagerDecisionNotification;
 use App\Notifications\HrCancellationRequestNotification;
+use App\Notifications\ShortNoticeApprovalNotification;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 class ApprovalNotificationService
@@ -335,6 +338,75 @@ class ApprovalNotificationService
         }
     }
 
+    public function notifyShortNoticeToHr(object $request, string $type): void
+    {
+        try {
+            $request->loadMissing('user.karyawan');
+
+            User::query()
+                ->where('level', 2)
+                ->get()
+                ->each(fn (User $hr) => $hr->notify(new ShortNoticeApprovalNotification($request, $type)));
+
+            $groups = $this->hrGroupIds($type);
+            if (empty($groups)) {
+                return;
+            }
+
+            $message = $this->buildShortNoticeHrMessage($request, $type);
+            foreach ($groups as $groupId) {
+                $this->whatsAppService->sendMessage($groupId, $message);
+            }
+        } catch (\Throwable $e) {
+            Log::error('Short notice HR notification failed', [
+                'type' => $type,
+                'request_id' => $request->id ?? null,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    public function notifyManagerReminder(object $request, string $type, int $reminderNumber): bool
+    {
+        $cacheKey = 'approval-reminder:'.$this->requestKey($request, $type).':'.$reminderNumber.':'.now()->toDateString();
+        if (! Cache::add($cacheKey, true, now()->addDays(2))) {
+            return false;
+        }
+
+        try {
+            $request->loadMissing('user.karyawan');
+            $employee = $request->user?->karyawan;
+            $manager = $employee ? $this->directManagerFor($employee) : null;
+
+            if (! $employee || ! $manager) {
+                return false;
+            }
+
+            $managerUser = User::query()->where('username', $manager->nik)->first();
+            if ($managerUser) {
+                $managerUser->notify(new ApprovalReminderNotification($request, $type, $reminderNumber));
+            }
+
+            if (filled($manager->no_hp)) {
+                $this->whatsAppService->sendMessage(
+                    $this->normalizePhone($manager->no_hp),
+                    $this->buildManagerReminderMessage($request, $type, $employee, $reminderNumber)
+                );
+            }
+
+            return true;
+        } catch (\Throwable $e) {
+            Log::error('Approval manager reminder failed', [
+                'type' => $type,
+                'request_id' => $request->id ?? null,
+                'reminder' => $reminderNumber,
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
+
     public function notifyHrUsers($request, string $type): void
     {
         $request->loadMissing('user');
@@ -394,11 +466,94 @@ class ApprovalNotificationService
             'LEMBUR' => [
                 '120363426538856642@g.us',
             ],
+            'EO' => array_filter([
+                trim((string) config('services.whatsapp.hr_extra_off_group_id')),
+            ]),
             'IZIN', 'SAKIT' => array_filter([
                 trim((string) config('services.whatsapp.hr_permission_group_id')),
             ]),
             default => [],
         };
+    }
+
+    private function buildShortNoticeHrMessage(object $request, string $type): string
+    {
+        return "*PENGAJUAN KURANG DARI 12 JAM*\n\n"
+            ."Pengajuan berikut dibuat kurang dari 12 jam sebelum tanggal pengajuan.\n"
+            ."Mohon HRD koordinasikan ke IT jika approval perlu dibantu agar field approval terisi lengkap.\n\n"
+            .$this->approvalSummary($request, $type)."\n\n"
+            .'Menu HRD: '.$this->hrApprovalUrl($type);
+    }
+
+    private function buildManagerReminderMessage(object $request, string $type, Karyawan $employee, int $reminderNumber): string
+    {
+        $expiresAt = $request->approval_token_expires_at
+            ? Carbon::parse($request->approval_token_expires_at)->format('d M Y H:i')
+            : '-';
+
+        return "*REMINDER APPROVAL #{$reminderNumber}*\n\n"
+            ."Pengajuan bawahan Anda belum di-approve dan akan expired jika tidak segera diproses.\n\n"
+            .$this->approvalSummary($request, $type, $employee)."\n\n"
+            ."Expired: {$expiresAt} WIB\n"
+            ."Link approval:\n".$this->publicApprovalUrl($request->approval_token);
+    }
+
+    private function approvalSummary(object $request, string $type, ?Karyawan $employee = null): string
+    {
+        $request->loadMissing('user.karyawan');
+        $employee ??= $request->user?->karyawan;
+        $employeeName = $employee?->nama_karyawan ?? $request->user?->name ?? '-';
+        $employeeNik = $employee?->nik ?? $request->user?->username ?? '-';
+        $label = match (strtoupper($type)) {
+            'CUTI' => 'Cuti',
+            'PH' => 'Public Holiday',
+            'EO' => 'Extra Off',
+            'SAKIT' => 'Sakit',
+            'IZIN' => 'Izin',
+            default => $type,
+        };
+
+        $detail = match (true) {
+            $request instanceof LeaveRequest => 'Periode: '.Carbon::parse($request->start_date)->format('d M Y').' - '.Carbon::parse($request->end_date)->format('d M Y')."\nAlasan: ".($request->reason ?: '-'),
+            $request instanceof PublicHolidayRequest => 'Tanggal Pengambilan: '.Carbon::parse($request->claim_date)->format('d M Y')."\nPH: ".(optional($request->holiday)->name ?: '-'),
+            $request instanceof ExtraOffRequest => 'Tanggal Pengambilan: '.Carbon::parse($request->claim_date)->format('d M Y')."\nSumber EO: ".Carbon::parse($request->source_period_start)->format('d M Y').' - '.Carbon::parse($request->source_period_end)->format('d M Y'),
+            $request instanceof EmployeePermission => 'Tanggal: '.Carbon::parse($request->date)->format('d M Y').(($request->end_date && ! $request->end_date->isSameDay($request->date)) ? ' - '.$request->end_date->format('d M Y') : '')."\nAlasan: ".($request->reason ?: '-'),
+            default => '',
+        };
+
+        return "Jenis: {$label}\n"
+            ."Nama: {$employeeName}\n"
+            ."NIK: {$employeeNik}\n"
+            .$detail;
+    }
+
+    private function directManagerFor(Karyawan $employee): ?Karyawan
+    {
+        if (! $employee->nama_atasan_langsung) {
+            return null;
+        }
+
+        return Karyawan::query()
+            ->where('nama_karyawan', $employee->nama_atasan_langsung)
+            ->first();
+    }
+
+    private function requestKey(object $request, string $type): string
+    {
+        return strtolower($type).':'.class_basename($request).':'.$request->id;
+    }
+
+    private function hrApprovalUrl(string $type): string
+    {
+        $approvalType = match (strtoupper($type)) {
+            'CUTI' => 'leave',
+            'PH' => 'ph',
+            'EO' => 'extra-off',
+            'IZIN', 'SAKIT' => 'permission',
+            default => strtolower($type),
+        };
+
+        return rtrim((string) config('services.frontend.base_url'), '/').'/hr/approvals/'.$approvalType;
     }
 
     private function buildHrGroupMessage($request, string $type): string

@@ -110,15 +110,19 @@ class HrAttendanceController extends Controller
             'employee_niks' => ['nullable', 'array'],
             'employee_niks.*' => ['string', 'max:30', 'exists:m_karyawan,nik'],
             'employee_status' => ['nullable', 'in:AKTIF,NONAKTIF'],
-            'format' => ['nullable', 'in:detail,summary'],
+            'format' => ['nullable', 'in:detail,summary,full'],
         ]);
 
         $report = $this->attendanceReportService->report($validated);
-        $withDailyBreakdown = ($validated['format'] ?? 'detail') === 'detail';
-        $suffix = $withDailyBreakdown ? 'Detail' : 'Ringkas';
+        $format = $validated['format'] ?? 'detail';
+        $suffix = match ($format) {
+            'full' => 'Lengkap',
+            'summary' => 'Ringkas',
+            default => 'Detail',
+        };
         $fileName = 'Rekap_Absensi_HRD_'.$suffix.'_'.$report['filters']['start_date'].'_'.$report['filters']['end_date'].'.xlsx';
 
-        return Excel::download(new HrAttendanceExport($report['records'], $report['dates'], $withDailyBreakdown), $fileName);
+        return Excel::download(new HrAttendanceExport($report['records'], $report['dates'], $format), $fileName);
     }
 
     public function minimumMonitoring(Request $request): JsonResponse

@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Karyawan;
+use App\Services\EmployeeContractReminderService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -13,7 +14,7 @@ class ExpireEmployeeContracts extends Command
 
     protected $description = 'Nonaktifkan kontrak aktif yang tanggal akhirnya sudah lewat dan sinkronkan status karyawan.';
 
-    public function handle(): int
+    public function handle(EmployeeContractReminderService $reminderService): int
     {
         $today = $this->option('date')
             ? Carbon::parse((string) $this->option('date'))->startOfDay()
@@ -34,11 +35,16 @@ class ExpireEmployeeContracts extends Command
                 'updated_at' => now(),
             ]);
 
-        foreach ($expiredContracts as $nik) {
+        $contractNiks = DB::table('t_kontrak_karyawan')
+            ->pluck('nik')
+            ->unique()
+            ->values();
+
+        foreach ($contractNiks as $nik) {
             $hasActiveContract = DB::table('t_kontrak_karyawan')
                 ->where('nik', $nik)
                 ->where('status_kontrak', 'AKTIF')
-                ->whereDate('start_date', '<=', $today)
+                ->whereDate('start_date', '<=', $today->copy()->addMonthNoOverflow())
                 ->whereDate('end_date', '>=', $today)
                 ->exists();
 
@@ -47,7 +53,15 @@ class ExpireEmployeeContracts extends Command
             ]);
         }
 
-        $this->info("Kontrak kedaluwarsa dinonaktifkan: {$updatedContracts}. Karyawan disinkronkan: {$expiredContracts->count()}.");
+        $reminders = $reminderService->sendDueReminders($today);
+
+        $this->info(
+            "Kontrak kedaluwarsa dinonaktifkan: {$updatedContracts}. "
+            ."Karyawan disinkronkan: {$contractNiks->count()}. "
+            ."Reminder kontrak: {$reminders['contracts']} kontrak, "
+            ."in-app {$reminders['in_app_notifications']}, "
+            ."WhatsApp {$reminders['whatsapp_notifications']}."
+        );
 
         return self::SUCCESS;
     }

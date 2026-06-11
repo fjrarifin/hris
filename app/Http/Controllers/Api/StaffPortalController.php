@@ -849,6 +849,7 @@ class StaffPortalController extends Controller
         ])->load('user');
 
         $this->approvalRouting->notifyInitialApprover($leave, 'CUTI', $directToHr);
+        $this->notifyShortNoticeIfNeeded($leave, 'CUTI', $start);
 
         return response()->json([
             'message' => 'Pengajuan cuti berhasil dikirim.',
@@ -951,6 +952,7 @@ class StaffPortalController extends Controller
         ])->load(['user', 'holiday']);
 
         $this->approvalRouting->notifyInitialApprover($ph, 'PH', $directToHr);
+        $this->notifyShortNoticeIfNeeded($ph, 'PH', $claimDate);
 
         return response()->json([
             'message' => 'Pengajuan PH berhasil dikirim.',
@@ -1028,6 +1030,7 @@ class StaffPortalController extends Controller
         ])->load('user');
 
         $this->approvalRouting->notifyInitialApprover($extraOff, 'EO', $directToHr);
+        $this->notifyShortNoticeIfNeeded($extraOff, 'EO', $claimDate);
 
         return response()->json([
             'message' => 'Pengajuan Extra Off berhasil dikirim.',
@@ -1130,6 +1133,7 @@ class StaffPortalController extends Controller
         ])->load('user');
 
         $this->approvalRouting->notifyInitialApprover($permission, strtoupper($permission->type), $directToHr);
+        $this->notifyShortNoticeIfNeeded($permission, strtoupper($permission->type), $startDate);
 
         return response()->json([
             'message' => 'Pengajuan izin/sakit berhasil dikirim.',
@@ -2078,5 +2082,12 @@ class StaffPortalController extends Controller
             'level' => 3,
             'must_change_password' => true,
         ]);
+    }
+
+    private function notifyShortNoticeIfNeeded(object $approvalRequest, string $type, Carbon $targetDate): void
+    {
+        if (now()->greaterThanOrEqualTo($targetDate->copy()->startOfDay()->subHours(12))) {
+            $this->approvalNotification->notifyShortNoticeToHr($approvalRequest, $type);
+        }
     }
 }

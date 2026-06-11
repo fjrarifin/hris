@@ -693,7 +693,7 @@ class EmployeeController extends Controller
     private function isActiveContract(object $contract, Carbon $today): bool
     {
         return strtoupper((string) $contract->status_kontrak) === 'AKTIF'
-            && Carbon::parse($contract->start_date)->lte($today)
+            && Carbon::parse($contract->start_date)->subMonthNoOverflow()->lte($today)
             && Carbon::parse($contract->end_date)->gte($today);
     }
 

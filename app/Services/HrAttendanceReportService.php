@@ -100,6 +100,8 @@ class HrAttendanceReportService
                 'public_holiday_days' => $records->sum('total_ph'),
                 'extra_off_days' => $records->sum('total_eo'),
                 'sick_days' => $records->sum('total_sick'),
+                'sick_with_document_days' => $records->sum('total_sick_with_document'),
+                'sick_without_document_days' => $records->sum('total_sick_without_document'),
                 'permission_days' => $records->sum('total_permission'),
                 'national_holiday_attendance' => $records->sum('total_national_holiday_attendance'),
                 'national_holiday_alpha' => $records->sum('total_national_holiday_alpha'),
@@ -199,20 +201,31 @@ class HrAttendanceReportService
             ->with('user.karyawan')
             ->where('status', 'approved')
             ->whereNotNull('hr_approved_at')
-            ->whereBetween('date', [$start->toDateString(), $end->toDateString()])
+            ->whereDate('date', '<=', $end)
+            ->where(function (Builder $query) use ($start): void {
+                $query->whereDate('end_date', '>=', $start)
+                    ->orWhere(function (Builder $fallback) use ($start): void {
+                        $fallback->whereNull('end_date')->whereDate('date', '>=', $start);
+                    });
+            })
             ->get()
-            ->each(function (EmployeePermission $request) use ($absences, $selectedNiks): void {
+            ->each(function (EmployeePermission $request) use ($absences, $selectedNiks, $start, $end): void {
                 $employee = $request->user?->karyawan;
                 if ($employee && $selectedNiks->contains($employee->nik)) {
                     $sick = $request->type === 'sakit';
-                    $absences->put($this->recordKey($employee->nik, $request->date->toDateString()), [
-                        'code' => $sick ? 'S' : 'I',
-                        'label' => $sick ? 'Sakit' : 'Izin',
-                        'approval_type' => 'permission',
-                        'approval_id' => $request->id,
-                        'permission_type' => $request->type,
-                        'has_document' => filled($request->document),
-                    ]);
+                    $periodStart = $request->date->copy()->max($start);
+                    $periodEnd = ($request->end_date ?? $request->date)->copy()->min($end);
+
+                    foreach (CarbonPeriod::create($periodStart, $periodEnd) as $date) {
+                        $absences->put($this->recordKey($employee->nik, $date->toDateString()), [
+                            'code' => $sick ? 'S' : 'I',
+                            'label' => $sick ? 'Sakit' : 'Izin',
+                            'approval_type' => 'permission',
+                            'approval_id' => $request->id,
+                            'permission_type' => $request->type,
+                            'has_document' => filled($request->document),
+                        ]);
+                    }
                 }
             });
 
@@ -354,6 +367,13 @@ class HrAttendanceReportService
         if (! $hasScan && in_array($status, ['PH', 'C', 'EO'], true)) {
             $durationMinutes = self::APPROVED_PAID_ABSENCE_MINUTES;
         }
+        if (! $hasScan && $status === 'S' && ($absence['has_document'] ?? false)) {
+            $durationMinutes = self::APPROVED_PAID_ABSENCE_MINUTES;
+        }
+
+        $hasIncompleteScan = $status === 'M' && (blank($scanIn) || blank($scanOut));
+        $isUnderDailyTarget = $status === 'M' && $durationMinutes < self::APPROVED_PAID_ABSENCE_MINUTES;
+        $isSickWithDocument = $status === 'S' && ($absence['has_document'] ?? false);
 
         return [
             'date' => $date,
@@ -363,12 +383,16 @@ class HrAttendanceReportService
             'raw_scan_in' => $attendance['raw_scan_in'] ?? $scanIn,
             'raw_scan_out' => $attendance['raw_scan_out'] ?? $scanOut,
             'duration_minutes' => $durationMinutes,
+            'duration_label' => $this->workDurationLabel($durationMinutes),
             'overtime_minutes' => $overtimeMinutes,
             'note' => $absence ? ($hasScan
                 ? $absence['label'].' telah disetujui HRD, tetapi karyawan memiliki scan absensi.'
                 : $absence['label'].' disetujui HRD.') : null,
             'is_present' => $hasScan,
-            'counts_as_attendance' => in_array($status, ['M', 'PH', 'C', 'EO'], true),
+            'counts_as_attendance' => in_array($status, ['M', 'PH', 'C', 'EO'], true) || $isSickWithDocument,
+            'has_incomplete_scan' => $hasIncompleteScan,
+            'is_under_daily_target' => $isUnderDailyTarget,
+            'needs_attention' => $hasIncompleteScan || $isUnderDailyTarget,
             'is_national_holiday' => $holiday !== null,
             'holiday_name' => $holiday?->name,
             'approval_type' => $absence['approval_type'] ?? null,
@@ -400,11 +424,22 @@ class HrAttendanceReportService
             'total_overtime_minutes' => $overtimeDuration,
             'total_overtime' => $this->workDurationLabel($overtimeDuration),
             'total_present' => $days->where('status', 'M')->count(),
-            'total_alpha' => $days->where('status', 'A')->count(),
+            'total_alpha' => $days->where('status', 'A')->count() + $days
+                ->where('status', 'S')
+                ->where('has_document', false)
+                ->count(),
             'total_ph' => $days->where('status', 'PH')->count(),
             'total_eo' => $days->where('status', 'EO')->count(),
             'total_leave' => $days->where('status', 'C')->count(),
             'total_sick' => $days->where('status', 'S')->count(),
+            'total_sick_with_document' => $days
+                ->where('status', 'S')
+                ->where('has_document', true)
+                ->count(),
+            'total_sick_without_document' => $days
+                ->where('status', 'S')
+                ->where('has_document', false)
+                ->count(),
             'total_permission' => $days->where('status', 'I')->count(),
             'total_national_holiday_attendance' => $days->where('is_present', true)->where('is_national_holiday', true)->count(),
             'total_national_holiday_alpha' => $days->where('is_present', false)->where('is_national_holiday', true)->count(),

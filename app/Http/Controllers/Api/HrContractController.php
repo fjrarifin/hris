@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\HrdAuditLog;
 use App\Models\Karyawan;
 use App\Services\HrdAuditLogService;
 use Carbon\Carbon;
@@ -24,7 +25,7 @@ class HrContractController extends Controller
     {
         $validated = $request->validate([
             'q' => ['nullable', 'string', 'max:100'],
-            'status' => ['nullable', Rule::in(['all', 'active', 'expiring_two_months', 'expiring_this_month', 'expiring_next_month', 'expired', 'no_contract'])],
+            'status' => ['nullable', Rule::in(['all', 'active', 'expiring_60_days', 'expiring_45_days', 'expiring_30_days', 'expiring_two_months', 'expiring_this_month', 'expiring_next_month', 'expired', 'no_contract'])],
             'page' => ['nullable', 'integer', 'min:1'],
         ]);
 
@@ -50,9 +51,9 @@ class HrContractController extends Controller
                     true
                 )),
                 fn (Collection $items) => match ($status) {
-                    'expiring_two_months' => $items->filter(
-                        fn (array $item) => $this->isExpiringWithinTwoMonths($item['contract'], $today)
-                    ),
+                    'expiring_two_months', 'expiring_60_days' => $items->filter(fn (array $item) => $this->isExpiringBetweenDays($item['contract'], $today, 46, 60)),
+                    'expiring_45_days' => $items->filter(fn (array $item) => $this->isExpiringBetweenDays($item['contract'], $today, 31, 45)),
+                    'expiring_30_days' => $items->filter(fn (array $item) => $this->isExpiringBetweenDays($item['contract'], $today, 0, 30)),
                     'all' => $items,
                     default => $items->where('contract_state', $status),
                 }
@@ -76,6 +77,9 @@ class HrContractController extends Controller
                     ['active', 'expiring_this_month', 'expiring_next_month'],
                     true
                 ))->count(),
+                'expiring_60_days' => $records->filter(fn (array $item) => $this->isExpiringBetweenDays($item['contract'], $today, 46, 60))->count(),
+                'expiring_45_days' => $records->filter(fn (array $item) => $this->isExpiringBetweenDays($item['contract'], $today, 31, 45))->count(),
+                'expiring_30_days' => $records->filter(fn (array $item) => $this->isExpiringBetweenDays($item['contract'], $today, 0, 30))->count(),
                 'expiring_this_month' => $records->where('contract_state', 'expiring_this_month')->count(),
                 'expiring_next_month' => $records->where('contract_state', 'expiring_next_month')->count(),
                 'expired' => $records->where('contract_state', 'expired')->count(),
@@ -106,6 +110,7 @@ class HrContractController extends Controller
             'employee' => $this->employeeRow($employee),
             'contracts' => $this->contractsFor($employee->nik)
                 ->map(fn (object $contract) => $this->serializeContract($contract, now()->startOfDay())),
+            'audit_logs' => $this->contractAuditLogs($employee->nik),
         ]);
     }
 
@@ -209,7 +214,6 @@ class HrContractController extends Controller
             ->groupBy('nik');
 
         return Karyawan::query()
-            ->orderBy('nama_karyawan')
             ->get(['nik', 'nama_karyawan', 'jabatan', 'posisi', 'departement', 'divisi', 'unit', 'status_karyawan'])
             ->map(function (Karyawan $employee) use ($contracts, $today): array {
                 $history = $contracts->get($employee->nik, collect());
@@ -225,6 +229,17 @@ class HrContractController extends Controller
                     'contract_state' => $contract['state'] ?? 'no_contract',
                 ];
             })
+            ->sort(function (array $left, array $right) use ($today): int {
+                return [
+                    $this->contractSortPriority($left['contract'], $today),
+                    $left['contract']['end_date'] ?? '9999-12-31',
+                    $left['name'],
+                ] <=> [
+                    $this->contractSortPriority($right['contract'], $today),
+                    $right['contract']['end_date'] ?? '9999-12-31',
+                    $right['name'],
+                ];
+            })
             ->values();
     }
 
@@ -235,6 +250,27 @@ class HrContractController extends Controller
             ->orderByDesc('start_date')
             ->orderByDesc('id')
             ->get();
+    }
+
+    private function contractAuditLogs(string $nik): array
+    {
+        return HrdAuditLog::query()
+            ->where('module', 'Kontrak Karyawan')
+            ->where('subject_label', 'like', "{$nik} - kontrak%")
+            ->latest('occurred_at')
+            ->limit(50)
+            ->get()
+            ->map(fn (HrdAuditLog $log): array => [
+                'id' => $log->id,
+                'module' => $log->module,
+                'action' => $log->action,
+                'subject_label' => $log->subject_label,
+                'changed_by_name' => $log->actor_name ?: 'User tidak diketahui',
+                'source_label' => 'HRD',
+                'changes' => $log->changes ?? [],
+                'created_at' => $log->occurred_at?->toIso8601String(),
+            ])
+            ->all();
     }
 
     private function serializeContract(object $contract, Carbon $today): array
@@ -283,11 +319,11 @@ class HrContractController extends Controller
     private function isActive(object $contract, Carbon $today): bool
     {
         return ! in_array(strtoupper((string) $contract->status_kontrak), self::CLOSED_STATUSES, true)
-            && (! $contract->start_date || Carbon::parse($contract->start_date)->lte($today))
+            && (! $contract->start_date || Carbon::parse($contract->start_date)->subMonthNoOverflow()->lte($today))
             && (! $contract->end_date || Carbon::parse($contract->end_date)->gte($today));
     }
 
-    private function isExpiringWithinTwoMonths(?array $contract, Carbon $today): bool
+    private function isExpiringBetweenDays(?array $contract, Carbon $today, int $startDay, int $endDay): bool
     {
         if (! $contract
             || ! $contract['end_date']
@@ -295,7 +331,18 @@ class HrContractController extends Controller
             return false;
         }
 
-        return Carbon::parse($contract['end_date'])->between($today, $today->copy()->addMonthsNoOverflow(2));
+        $remainingDays = (int) $today->diffInDays(Carbon::parse($contract['end_date'])->startOfDay());
+
+        return $remainingDays >= $startDay && $remainingDays <= $endDay;
+    }
+
+    private function contractSortPriority(?array $contract, Carbon $today): int
+    {
+        if (! $contract || ! $contract['end_date']) {
+            return 2;
+        }
+
+        return Carbon::parse($contract['end_date'])->startOfDay()->gte($today) ? 0 : 1;
     }
 
     private function employeeRow(Karyawan $employee): array
@@ -334,7 +381,7 @@ class HrContractController extends Controller
         $hasActiveContract = DB::table('t_kontrak_karyawan')
             ->where('nik', $nik)
             ->where('status_kontrak', 'AKTIF')
-            ->whereDate('start_date', '<=', $today)
+            ->whereDate('start_date', '<=', $today->copy()->addMonthNoOverflow())
             ->whereDate('end_date', '>=', $today)
             ->when($exceptId !== null, fn ($query) => $query->where('id', '!=', $exceptId))
             ->exists();

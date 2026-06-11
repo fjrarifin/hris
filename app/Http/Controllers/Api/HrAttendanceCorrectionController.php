@@ -4,8 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AttendanceCorrection;
-use App\Services\HrdAuditLogService;
+use App\Models\HrdAuditLog;
 use App\Services\HrAttendanceReportService;
+use App\Services\HrdAuditLogService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -22,7 +23,7 @@ class HrAttendanceCorrectionController extends Controller
             'start_date' => ['nullable', 'date'],
             'end_date' => ['nullable', 'date', 'after_or_equal:start_date'],
             'q' => ['nullable', 'string', 'max:100'],
-            'status_filter' => ['nullable', 'string', 'in:all,alpha_only'],
+            'status_filter' => ['nullable', 'string', 'in:all,alpha_only,attention_only'],
             'page' => ['nullable', 'integer', 'min:1'],
         ]);
         $start = Carbon::parse($validated['start_date'] ?? $validated['date'] ?? now()->subDay()->toDateString())->startOfDay();
@@ -35,19 +36,17 @@ class HrAttendanceCorrectionController extends Controller
         }
 
         $keyword = strtolower(trim((string) ($validated['q'] ?? '')));
-        $statusFilter = $validated['status_filter'] ?? 'alpha_only';
+        $statusFilter = $validated['status_filter'] ?? 'attention_only';
 
         $report = $this->reportService->report([
             'start_date' => $start->toDateString(),
             'end_date' => $end->toDateString(),
+            'employee_status' => 'AKTIF',
         ]);
 
         $records = collect($report['records'])
             ->flatMap(function (array $employee) {
                 return collect($employee['days'])
-                    ->filter(function (array $day) {
-                        return blank($day['scan_in']) || blank($day['scan_out']);
-                    })
                     ->map(function (array $day) use ($employee) {
                         $statusLabel = match ($day['status']) {
                             'M' => 'Hadir',
@@ -67,8 +66,13 @@ class HrAttendanceCorrectionController extends Controller
                             'scan_out' => $day['scan_out'],
                             'raw_scan_in' => $day['raw_scan_in'] ?? null,
                             'raw_scan_out' => $day['raw_scan_out'] ?? null,
-                            'finding' => blank($day['raw_scan_in']) && blank($day['raw_scan_out']) ? 'Tidak ada absen' : (blank($day['raw_scan_in']) ? 'Tidak scan masuk' : 'Tidak scan pulang'),
-                            'is_resolved' => !blank($day['scan_in']) && !blank($day['scan_out']),
+                            'duration' => $day['duration_label'] ?? null,
+                            'duration_minutes' => $day['duration_minutes'] ?? 0,
+                            'finding' => $this->findingLabel($day),
+                            'is_resolved' => ! blank($day['scan_in']) && ! blank($day['scan_out']) && ! ($day['needs_attention'] ?? false),
+                            'needs_attention' => $day['needs_attention'] ?? false,
+                            'has_incomplete_scan' => $day['has_incomplete_scan'] ?? false,
+                            'is_under_daily_target' => $day['is_under_daily_target'] ?? false,
                             'status_label' => $statusLabel,
                             'status_code' => $day['status'],
                             'correction' => $day['correction'] ?? null,
@@ -76,9 +80,16 @@ class HrAttendanceCorrectionController extends Controller
                     })->values();
             })
             ->filter(function (array $record) use ($keyword, $statusFilter) {
-                if ($statusFilter === 'alpha_only') {
-                    // Only show pure Alpha (A) or Incomplete (M)
-                    if (!in_array($record['status_code'], ['A', 'M'], true)) {
+                if ($statusFilter === 'attention_only') {
+                    if (! $record['needs_attention'] && ! in_array($record['status_code'], ['A'], true)) {
+                        return false;
+                    }
+                } elseif ($statusFilter === 'alpha_only') {
+                    if (! in_array($record['status_code'], ['A', 'M'], true)) {
+                        return false;
+                    }
+
+                    if ($record['status_code'] === 'M' && ! $record['has_incomplete_scan']) {
                         return false;
                     }
                 }
@@ -92,7 +103,7 @@ class HrAttendanceCorrectionController extends Controller
                         $record['department'],
                         $record['status_label'],
                     ])->contains(fn ($value) => str_contains(strtolower((string) $value), $keyword));
-                    if (!$matches) {
+                    if (! $matches) {
                         return false;
                     }
                 }
@@ -109,6 +120,7 @@ class HrAttendanceCorrectionController extends Controller
             'start_date' => $start->toDateString(),
             'end_date' => $end->toDateString(),
             'records' => $records->forPage($page, $perPage)->values(),
+            'audit_logs' => $this->auditLogs($records, $start, $end, $keyword),
             'pagination' => [
                 'current_page' => $page,
                 'per_page' => $perPage,
@@ -116,6 +128,64 @@ class HrAttendanceCorrectionController extends Controller
                 'last_page' => max((int) ceil($records->count() / $perPage), 1),
             ],
         ]);
+    }
+
+    private function findingLabel(array $day): string
+    {
+        if (blank($day['raw_scan_in'] ?? null) && blank($day['raw_scan_out'] ?? null)) {
+            return 'Tidak ada absen';
+        }
+
+        if (blank($day['raw_scan_in'] ?? null)) {
+            return 'Tidak scan masuk';
+        }
+
+        if (blank($day['raw_scan_out'] ?? null)) {
+            return 'Tidak scan pulang';
+        }
+
+        if ($day['is_under_daily_target'] ?? false) {
+            return 'Jam kerja kurang dari 8 jam';
+        }
+
+        return 'Lengkap';
+    }
+
+    private function auditLogs($records, Carbon $start, Carbon $end, string $keyword): array
+    {
+        $subjectLabels = $records
+            ->map(fn (array $record): string => $record['nik'].' - '.$record['date'])
+            ->unique()
+            ->values();
+
+        return HrdAuditLog::query()
+            ->where('module', 'Koreksi Absensi')
+            ->when(
+                $subjectLabels->isNotEmpty(),
+                fn ($query) => $query->whereIn('subject_label', $subjectLabels),
+                fn ($query) => $query
+                    ->whereBetween('occurred_at', [$start->copy()->startOfDay(), $end->copy()->endOfDay()])
+                    ->when($keyword !== '', fn ($search) => $search->where('subject_label', 'like', "%{$keyword}%"))
+            )
+            ->latest('occurred_at')
+            ->limit(50)
+            ->get()
+            ->map(fn (HrdAuditLog $log): array => $this->serializeAuditLog($log))
+            ->all();
+    }
+
+    private function serializeAuditLog(HrdAuditLog $log): array
+    {
+        return [
+            'id' => $log->id,
+            'module' => $log->module,
+            'action' => $log->action,
+            'subject_label' => $log->subject_label,
+            'changed_by_name' => $log->actor_name ?: 'User tidak diketahui',
+            'source_label' => 'HRD',
+            'changes' => $log->changes ?? [],
+            'created_at' => $log->occurred_at?->toIso8601String(),
+        ];
     }
 
     public function store(Request $request, string $nik): JsonResponse
@@ -134,7 +204,7 @@ class HrAttendanceCorrectionController extends Controller
             'end_date' => $date->toDateString(),
             'employee_niks' => [$nik],
         ]);
-        
+
         $employeeData = collect($report['records'])->firstWhere('nik', $nik);
         $record = $employeeData ? collect($employeeData['days'])->firstWhere('date', $date->toDateString()) : null;
 
@@ -164,8 +234,8 @@ class HrAttendanceCorrectionController extends Controller
         $correction = AttendanceCorrection::query()->updateOrCreate(
             ['nik' => $nik, 'attendance_date' => $date->toDateString()],
             [
-                'corrected_scan_in' => !blank($record['raw_scan_in']) ? null : $validated['corrected_scan_in'],
-                'corrected_scan_out' => !blank($record['raw_scan_out']) ? null : $validated['corrected_scan_out'],
+                'corrected_scan_in' => ! empty($validated['corrected_scan_in']) ? $validated['corrected_scan_in'] : null,
+                'corrected_scan_out' => ! empty($validated['corrected_scan_out']) ? $validated['corrected_scan_out'] : null,
                 'has_missing_attendance_form' => ($validated['has_missing_attendance_form'] ?? false) ? true : null,
                 'notes' => $validated['notes'] ?? null,
                 'corrected_by' => $request->user()->id,
@@ -211,7 +281,7 @@ class HrAttendanceCorrectionController extends Controller
                 'raw_scan_in' => $freshDay['raw_scan_in'] ?? null,
                 'raw_scan_out' => $freshDay['raw_scan_out'] ?? null,
                 'finding' => blank($freshDay['raw_scan_in']) && blank($freshDay['raw_scan_out']) ? 'Tidak ada absen' : (blank($freshDay['raw_scan_in']) ? 'Tidak scan masuk' : 'Tidak scan pulang'),
-                'is_resolved' => !blank($freshDay['scan_in']) && !blank($freshDay['scan_out']),
+                'is_resolved' => ! blank($freshDay['scan_in']) && ! blank($freshDay['scan_out']) && ! ($freshDay['needs_attention'] ?? false),
                 'status_label' => $freshStatusLabel,
                 'status_code' => $freshDay['status'],
                 'correction' => $freshDay['correction'] ?? null,

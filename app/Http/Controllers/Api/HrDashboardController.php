@@ -59,7 +59,7 @@ class HrDashboardController extends Controller
             'overtime_today' => $overtimeToday,
             'yesterday_incomplete_attendance' => $incompleteYesterday,
             'expiring_contracts' => [
-                'through_date' => $today->copy()->addMonthsNoOverflow(2)->toDateString(),
+                'through_date' => $today->copy()->addDays(60)->toDateString(),
                 'records' => $expiringContracts,
             ],
             'monthly_attendance_monitoring' => $this->hrAttendanceController->monthlyMonitoring($today),
@@ -120,7 +120,7 @@ class HrDashboardController extends Controller
     {
         return DB::table('t_kontrak_karyawan')
             ->where('status_kontrak', 'AKTIF')
-            ->whereDate('start_date', '<=', $today)
+            ->whereDate('start_date', '<=', $today->copy()->addMonthNoOverflow())
             ->whereDate('end_date', '>=', $today)
             ->distinct('nik')
             ->count('nik');
@@ -251,7 +251,7 @@ class HrDashboardController extends Controller
 
         $contracts = DB::table('t_kontrak_karyawan')
             ->whereDate('end_date', '>=', $today)
-            ->whereDate('end_date', '<=', $today->copy()->addMonthsNoOverflow(2))
+            ->whereDate('end_date', '<=', $today->copy()->addDays(60))
             ->whereNotIn('status_kontrak', $closedStatuses)
             ->orderBy('end_date')
             ->get(['id', 'nik', 'kontrak_ke', 'end_date', 'status_kontrak']);
