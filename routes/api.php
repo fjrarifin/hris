@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\HrPerformanceReviewController;
 use App\Http\Controllers\Api\HrScheduleController;
 use App\Http\Controllers\Api\HrTalentOptionsController;
 use App\Http\Controllers\Api\ItUserController;
+use App\Http\Controllers\Api\MobileAppReleaseController;
 use App\Http\Controllers\Api\NavigationController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\OnlineUserController;
@@ -53,6 +54,9 @@ Route::post('/auth/forgot-password/verify-otp', [ForgotPasswordController::class
     ->middleware('throttle:10,1');
 Route::post('/auth/forgot-password/reset', [ForgotPasswordController::class, 'resetPassword'])
     ->middleware('throttle:10,1');
+Route::get('/mobile-app/latest', [MobileAppReleaseController::class, 'latest']);
+Route::get('/mobile-app/releases/{release}/download', [MobileAppReleaseController::class, 'download'])
+    ->name('mobile-app-releases.download');
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/attendance/pull', [AttendanceController::class, 'pull'])->middleware('level:0,1,2');
@@ -94,6 +98,12 @@ Route::middleware('auth:sanctum')->group(function () {
         });
         Route::get('/audit-logs', [HrdAuditLogController::class, 'index'])
             ->middleware(['level:0', 'frontend.menu:audit-logs']);
+        Route::prefix('it/mobile-app-releases')
+            ->middleware('level:0')
+            ->group(function () {
+                Route::get('/', [MobileAppReleaseController::class, 'index']);
+                Route::post('/', [MobileAppReleaseController::class, 'store']);
+            });
         Route::prefix('it/users')
             ->middleware(['level:0', 'frontend.menu:user-management'])
             ->group(function () {
