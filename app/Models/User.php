@@ -100,4 +100,9 @@ class User extends Authenticatable
     {
         return $this->hasMany(RfidTag::class);
     }
+
+    public function mobileDeviceTokens()
+    {
+        return $this->hasMany(MobileDeviceToken::class);
+    }
 }

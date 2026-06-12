@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\HrPerformancePeriodController;
 use App\Http\Controllers\Api\HrPerformanceReviewController;
 use App\Http\Controllers\Api\HrScheduleController;
 use App\Http\Controllers\Api\HrTalentOptionsController;
+use App\Http\Controllers\Api\ItPushNotificationController;
 use App\Http\Controllers\Api\ItUserController;
 use App\Http\Controllers\Api\MobileAppReleaseController;
 use App\Http\Controllers\Api\NavigationController;
@@ -114,6 +115,13 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::post('/{user}/reset-photo-limit', [ItUserController::class, 'resetPhotoLimit']);
                 Route::post('/{user}/reset-email-limit', [ItUserController::class, 'resetEmailLimit']);
                 Route::post('/{user}/reset-password-limit', [ItUserController::class, 'resetPasswordLimit']);
+            });
+        Route::prefix('it/push-notifications')
+            ->middleware(['level:0', 'frontend.menu:it-push-notifications'])
+            ->group(function () {
+                Route::get('/', [ItPushNotificationController::class, 'index']);
+                Route::get('/recipients', [ItPushNotificationController::class, 'recipients']);
+                Route::post('/', [ItPushNotificationController::class, 'store']);
             });
 
         Route::middleware('frontend.menu:employees')->group(function () {
