@@ -478,6 +478,13 @@ class IncompleteAttendanceWhatsAppReport
             $scanOut = $logs->count() > 1 ? $logs->last() : null;
         }
 
+        if (! $scanOut && $logs->count() > 1) {
+            $lastScan = $logs->last();
+            if (! $scanIn || $lastScan->scan_date->gt($scanIn->scan_date)) {
+                $scanOut = $lastScan;
+            }
+        }
+
         return [
             'scan_in' => $scanIn?->scan_date?->format('H:i:s'),
             'scan_out' => $scanOut?->scan_date?->format('H:i:s'),

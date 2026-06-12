@@ -807,6 +807,13 @@ class HrAttendanceController extends Controller
             $scanOut = $logs->count() > 1 ? $logs->last() : null;
         }
 
+        if (! $scanOut && $logs->count() > 1) {
+            $lastScan = $logs->last();
+            if (! $scanIn || $lastScan->scan_date->gt($scanIn->scan_date)) {
+                $scanOut = $lastScan;
+            }
+        }
+
         $overtimeScanIn = $logs->first(
             fn (FingerspotAttendanceLog $log) => in_array((string) $log->status_scan, ['0', '4'], true)
         ) ?? $logs->first();
