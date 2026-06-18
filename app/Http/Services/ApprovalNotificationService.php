@@ -63,6 +63,12 @@ class ApprovalNotificationService
 
             $atasanUser = User::where('username', $atasan->nik)->first();
 
+            if (! $this->isActiveSupervisor($atasan, $atasanUser)) {
+                $this->routeToHrBecauseSupervisorInactive($request, $type, $karyawan, $atasan);
+
+                return;
+            }
+
             if ($atasanUser) {
                 $atasanUser->notify(
                     new \App\Notifications\ApprovalRequestNotification($request, $type)
@@ -383,6 +389,12 @@ class ApprovalNotificationService
             }
 
             $managerUser = User::query()->where('username', $manager->nik)->first();
+            if (! $this->isActiveSupervisor($manager, $managerUser)) {
+                $this->routeToHrBecauseSupervisorInactive($request, $type, $employee, $manager);
+
+                return true;
+            }
+
             if ($managerUser) {
                 $managerUser->notify(new ApprovalReminderNotification($request, $type, $reminderNumber));
             }
@@ -413,6 +425,7 @@ class ApprovalNotificationService
 
         User::query()
             ->where('level', 2)
+            ->where('is_active', true)
             ->get()
             ->each(fn (User $hr) => $hr->notify(
                 new \App\Notifications\ApprovalRequestNotification($request, $type)
@@ -474,6 +487,67 @@ class ApprovalNotificationService
             ]),
             default => [],
         };
+    }
+
+    private function routeToHrBecauseSupervisorInactive(
+        object $request,
+        string $type,
+        Karyawan $employee,
+        Karyawan $supervisor
+    ): void {
+        $this->markAsWaitingHr($request);
+        $this->notifyHrUsers($request, $type);
+
+        $groupId = trim((string) config('services.whatsapp.attendance_group_id'));
+        if ($groupId !== '') {
+            $this->whatsAppService->sendMessage(
+                $groupId,
+                $this->buildInactiveSupervisorHrMessage($request, $type, $employee, $supervisor)
+            );
+        }
+
+        Log::warning('Approval routed to HR because direct supervisor is inactive', [
+            'type' => $type,
+            'request_id' => $request->id ?? null,
+            'employee_nik' => $employee->nik,
+            'supervisor_nik' => $supervisor->nik,
+            'supervisor_status' => $supervisor->status_karyawan,
+        ]);
+    }
+
+    private function markAsWaitingHr(object $request): void
+    {
+        if (! method_exists($request, 'forceFill')) {
+            return;
+        }
+
+        $request->forceFill([
+            'manager_approved_at' => $request->manager_approved_at ?: now(),
+            'manager_approved_by' => $request->manager_approved_by,
+            'approval_token' => null,
+            'approval_token_expires_at' => null,
+        ])->save();
+    }
+
+    private function isActiveSupervisor(Karyawan $supervisor, ?User $supervisorUser = null): bool
+    {
+        $employeeActive = strtoupper(trim((string) $supervisor->status_karyawan)) === 'AKTIF';
+
+        return $employeeActive && (! $supervisorUser || $supervisorUser->is_active);
+    }
+
+    private function buildInactiveSupervisorHrMessage(
+        object $request,
+        string $type,
+        Karyawan $employee,
+        Karyawan $supervisor
+    ): string {
+        return "*APPROVAL DIALIHKAN KE HRD*\n\n"
+            ."Atasan langsung karyawan tidak aktif, sehingga pengajuan dialihkan ke HRD.\n\n"
+            ."Atasan langsung: {$supervisor->nama_karyawan} ({$supervisor->nik})\n"
+            ."Status atasan: ".($supervisor->status_karyawan ?: '-')."\n\n"
+            .$this->approvalSummary($request, $type, $employee)."\n\n"
+            .'Menu HRD: '.$this->hrApprovalUrl($type);
     }
 
     private function buildShortNoticeHrMessage(object $request, string $type): string

@@ -1315,7 +1315,7 @@ class StaffPortalController extends Controller
         $data = $request->validate([
             'employee_niks' => ['required', 'array', 'min:1'],
             'employee_niks.*' => ['string', 'exists:m_karyawan,nik'],
-            'date' => ['required', 'date', 'after_or_equal:today'],
+            'date' => ['required', 'date'],
             'start_time' => ['required', 'date_format:H:i'],
             'end_time' => ['required', 'date_format:H:i', 'after:start_time'],
             'reason' => ['required', 'string', 'max:255'],
