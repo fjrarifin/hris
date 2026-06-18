@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\HrPerformancePeriodController;
 use App\Http\Controllers\Api\HrPerformanceReviewController;
 use App\Http\Controllers\Api\HrScheduleController;
 use App\Http\Controllers\Api\HrTalentOptionsController;
+use App\Http\Controllers\Api\ItActiveSessionController;
 use App\Http\Controllers\Api\ItPushNotificationController;
 use App\Http\Controllers\Api\ItUserController;
 use App\Http\Controllers\Api\MobileAppReleaseController;
@@ -122,6 +123,13 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::get('/', [ItPushNotificationController::class, 'index']);
                 Route::get('/recipients', [ItPushNotificationController::class, 'recipients']);
                 Route::post('/', [ItPushNotificationController::class, 'store']);
+            });
+        Route::prefix('it/active-sessions')
+            ->middleware(['level:0', 'frontend.menu:it-active-sessions'])
+            ->group(function () {
+                Route::get('/', [ItActiveSessionController::class, 'index']);
+                Route::delete('/{token}', [ItActiveSessionController::class, 'destroy']);
+                Route::delete('/users/{user}', [ItActiveSessionController::class, 'destroyUser']);
             });
 
         Route::middleware('frontend.menu:employees')->group(function () {
