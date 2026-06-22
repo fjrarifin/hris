@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\MobileDeviceToken;
+use App\Notifications\BirthdayGreetingNotification;
 use App\Services\FirebasePushService;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
@@ -13,6 +15,8 @@ class NotificationController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
+        $this->ensureBirthdayGreeting($request);
+
         $visibleNotifications = $request->user()->notifications();
 
         $notifications = (clone $visibleNotifications)
@@ -143,5 +147,33 @@ class NotificationController extends Controller
             'sent' => $sent,
             'registered_tokens' => $tokenCount,
         ]);
+    }
+
+    private function ensureBirthdayGreeting(Request $request): void
+    {
+        $user = $request->user()->loadMissing('karyawan');
+        $employee = $user->karyawan;
+        $today = now();
+
+        if (! $employee?->tanggal_lahir || $employee->tanggal_lahir->format('m-d') !== $today->format('m-d')) {
+            return;
+        }
+
+        if ($this->birthdayGreetingExists($user->notifications(), $today->toDateString())) {
+            return;
+        }
+
+        $user->notify(new BirthdayGreetingNotification(
+            $employee->nama_karyawan ?: $user->name,
+            $today->toDateString()
+        ));
+    }
+
+    private function birthdayGreetingExists(MorphMany $notifications, string $date): bool
+    {
+        return (clone $notifications)
+            ->where('type', BirthdayGreetingNotification::class)
+            ->where('data->date', $date)
+            ->exists();
     }
 }
