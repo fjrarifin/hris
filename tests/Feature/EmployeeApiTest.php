@@ -330,7 +330,7 @@ class EmployeeApiTest extends TestCase
 
         $this->post('/api/hr/contracts/EMP004', [
             ...$payload,
-            'document' => UploadedFile::fake()->create('kontrak-terlalu-besar.pdf', 2049, 'application/pdf'),
+            'document' => UploadedFile::fake()->create('kontrak-terlalu-besar.pdf', 10241, 'application/pdf'),
         ], ['Accept' => 'application/json'])
             ->assertUnprocessable()
             ->assertJsonValidationErrors('document');

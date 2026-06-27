@@ -123,7 +123,7 @@ class HrContractController extends Controller
         // Validate file if present
         if ($request->hasFile('document')) {
             $request->validate([
-                'document' => ['required', 'file', 'mimes:pdf', 'max:2048'],
+                'document' => ['required', 'file', 'mimes:pdf', 'max:10240'],
             ]);
         }
 
@@ -183,7 +183,7 @@ class HrContractController extends Controller
         // Validate file if present
         if ($request->hasFile('document')) {
             $request->validate([
-                'document' => ['required', 'file', 'mimes:pdf', 'max:2048'],
+                'document' => ['required', 'file', 'mimes:pdf', 'max:10240'],
             ]);
         }
 
