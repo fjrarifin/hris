@@ -119,9 +119,21 @@ class HrContractController extends Controller
         $employee = Karyawan::query()->where('nik', $nik)->firstOrFail();
         $this->ensureNoActiveContract($employee->nik);
         $validated = $this->validatedContract($request);
-        $document = $request->file('document')?->store('contract-documents', 'local');
 
+        // Validate file if present
+        if ($request->hasFile('document')) {
+            $request->validate([
+                'document' => ['required', 'file', 'mimes:pdf', 'max:2048'],
+            ]);
+        }
+
+        $document = null;
         try {
+            // Store document if present
+            if ($request->hasFile('document')) {
+                $document = $request->file('document')->store('contract-documents', 'local');
+            }
+
             $id = DB::table('t_kontrak_karyawan')->insertGetId([
                 'nik' => $employee->nik,
                 'kontrak_ke' => ((int) DB::table('t_kontrak_karyawan')->where('nik', $employee->nik)->max('kontrak_ke')) + 1,
@@ -131,12 +143,14 @@ class HrContractController extends Controller
                 'updated_at' => now(),
             ]);
         } catch (Throwable $exception) {
-            if ($document) {
+            // Clean up uploaded file if database insert fails
+            if ($document && Storage::disk('local')->exists($document)) {
                 Storage::disk('local')->delete($document);
             }
 
             throw $exception;
         }
+
         $this->syncEmployeeStatus($employee->nik);
         $createdContract = DB::table('t_kontrak_karyawan')->find($id);
         app(HrdAuditLogService::class)->record(
@@ -166,11 +180,39 @@ class HrContractController extends Controller
             $this->ensureNoActiveContract((string) $contract->nik, $contractId);
         }
 
+        // Validate file if present
+        if ($request->hasFile('document')) {
+            $request->validate([
+                'document' => ['required', 'file', 'mimes:pdf', 'max:2048'],
+            ]);
+        }
+
         $beforeAudit = app(HrdAuditLogService::class)->snapshot($contract);
-        DB::table('t_kontrak_karyawan')->where('id', $contractId)->update([
-            ...$validated,
-            'updated_at' => now(),
-        ]);
+        
+        try {
+            // Handle document update
+            $updateData = [...$validated];
+            
+            if ($request->hasFile('document')) {
+                // Delete old document if exists
+                if ($contract->document && Storage::disk('local')->exists($contract->document)) {
+                    Storage::disk('local')->delete($contract->document);
+                }
+                // Store new document
+                $updateData['document'] = $request->file('document')->store('contract-documents', 'local');
+            } elseif ($this->hasEmptyDocumentPlaceholder($request)) {
+                // Clear document if empty placeholder sent
+                $updateData['document'] = null;
+            }
+            
+            DB::table('t_kontrak_karyawan')->where('id', $contractId)->update([
+                ...$updateData,
+                'updated_at' => now(),
+            ]);
+        } catch (Throwable $exception) {
+            throw $exception;
+        }
+
         $this->syncEmployeeStatus((string) $contract->nik);
         $updatedContract = DB::table('t_kontrak_karyawan')->find($contractId);
         app(HrdAuditLogService::class)->record(
@@ -366,17 +408,11 @@ class HrContractController extends Controller
             'start_date' => ['required', 'date'],
             'end_date' => ['required', 'date', 'after_or_equal:start_date'],
             'keterangan' => ['nullable', 'string', 'max:1000'],
-            'document' => [
-                Rule::excludeIf($this->hasEmptyDocumentPlaceholder($request)),
-                $documentRequired ? 'required' : 'nullable',
-                'file',
-                'mimes:pdf',
-                'max:2048',
-            ],
+            // Remove document from validation here - it's handled separately in store/update
         ]);
 
         return [
-            ...collect($validated)->except('document')->all(),
+            ...collect($validated)->all(),
             'jenis_kontrak' => strtoupper($validated['jenis_kontrak']),
             'status_kontrak' => strtoupper($validated['status_kontrak']),
             'durasi_bulan' => $this->durationMonths($validated['start_date'], $validated['end_date']),
