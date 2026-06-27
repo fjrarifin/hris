@@ -118,8 +118,8 @@ class HrContractController extends Controller
     {
         $employee = Karyawan::query()->where('nik', $nik)->firstOrFail();
         $this->ensureNoActiveContract($employee->nik);
-        $validated = $this->validatedContract($request, true);
-        $document = $request->file('document')->store('contract-documents', 'local');
+        $validated = $this->validatedContract($request);
+        $document = $request->file('document')?->store('contract-documents', 'local');
 
         try {
             $id = DB::table('t_kontrak_karyawan')->insertGetId([
@@ -131,7 +131,9 @@ class HrContractController extends Controller
                 'updated_at' => now(),
             ]);
         } catch (Throwable $exception) {
-            Storage::disk('local')->delete($document);
+            if ($document) {
+                Storage::disk('local')->delete($document);
+            }
 
             throw $exception;
         }
@@ -364,7 +366,13 @@ class HrContractController extends Controller
             'start_date' => ['required', 'date'],
             'end_date' => ['required', 'date', 'after_or_equal:start_date'],
             'keterangan' => ['nullable', 'string', 'max:1000'],
-            'document' => [$documentRequired ? 'required' : 'nullable', 'file', 'mimes:pdf', 'max:2048'],
+            'document' => [
+                Rule::excludeIf($this->hasEmptyDocumentPlaceholder($request)),
+                $documentRequired ? 'required' : 'nullable',
+                'file',
+                'mimes:pdf',
+                'max:2048',
+            ],
         ]);
 
         return [
@@ -373,6 +381,13 @@ class HrContractController extends Controller
             'status_kontrak' => strtoupper($validated['status_kontrak']),
             'durasi_bulan' => $this->durationMonths($validated['start_date'], $validated['end_date']),
         ];
+    }
+
+    private function hasEmptyDocumentPlaceholder(Request $request): bool
+    {
+        return $request->has('document')
+            && ! $request->hasFile('document')
+            && in_array($request->input('document'), ['null', ''], true);
     }
 
     private function ensureNoActiveContract(string $nik, ?int $exceptId = null): void

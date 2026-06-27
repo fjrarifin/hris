@@ -284,7 +284,13 @@ class EmployeeController extends Controller
             'start_date' => ['nullable', 'date', 'required_with:end_date,status_kontrak,jenis_kontrak'],
             'end_date' => ['nullable', 'date', 'after_or_equal:start_date', 'required_with:start_date,status_kontrak,jenis_kontrak'],
             'keterangan_kontrak' => ['nullable', 'string', 'max:1000'],
-            'document' => [$this->requiresNewContractDocument($request, $employee) ? 'required' : 'nullable', 'file', 'mimes:pdf', 'max:2048'],
+            'document' => [
+                Rule::excludeIf($this->hasEmptyDocumentPlaceholder($request)),
+                'nullable',
+                'file',
+                'mimes:pdf',
+                'max:2048',
+            ],
             'no_hp' => ['nullable', 'string', 'max:30'],
             'email' => ['nullable', 'email', 'max:150', $emailRule],
             'tanggal_lahir' => ['nullable', 'date'],
@@ -667,16 +673,11 @@ class EmployeeController extends Controller
         ]);
     }
 
-    private function requiresNewContractDocument(Request $request, ?Karyawan $employee): bool
+    private function hasEmptyDocumentPlaceholder(Request $request): bool
     {
-        $hasContractInput = collect(['jenis_kontrak', 'status_kontrak', 'start_date', 'end_date'])
-            ->contains(fn (string $field): bool => $request->filled($field));
-
-        if (! $hasContractInput) {
-            return false;
-        }
-
-        return ! $employee || ! DB::table('t_kontrak_karyawan')->where('nik', $employee->nik)->exists();
+        return $request->has('document')
+            && ! $request->hasFile('document')
+            && in_array($request->input('document'), ['null', ''], true);
     }
 
     private function employeeStatus(string $nik): string

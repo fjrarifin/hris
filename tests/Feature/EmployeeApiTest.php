@@ -288,7 +288,7 @@ class EmployeeApiTest extends TestCase
         $this->assertDatabaseMissing('m_karyawan', ['nik' => 'EMP003']);
     }
 
-    public function test_it_requires_a_pdf_document_when_hr_adds_a_new_contract(): void
+    public function test_it_allows_hr_to_add_a_new_contract_without_document(): void
     {
         FrontendMenu::create([
             'key' => 'hr-contracts',
@@ -303,18 +303,30 @@ class EmployeeApiTest extends TestCase
             'nama_karyawan' => 'Rina Kontrak',
             'jabatan' => 'Staff',
         ]);
+        Karyawan::create([
+            'nik' => 'EMP005',
+            'nama_karyawan' => 'Doni Kontrak',
+            'jabatan' => 'Staff',
+        ]);
 
         $payload = [
             'jenis_kontrak' => 'PKWT',
-            'status_kontrak' => 'AKTIF',
+            'status_kontrak' => 'NONAKTIF',
             'start_date' => '2026-06-01',
             'end_date' => '2027-05-31',
             'keterangan' => 'Kontrak baru',
         ];
 
         $this->postJson('/api/hr/contracts/EMP004', $payload)
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('document');
+            ->assertCreated()
+            ->assertJsonPath('data.contract_number', 1)
+            ->assertJsonPath('data.status', 'NONAKTIF')
+            ->assertJsonPath('data.has_document', false);
+
+        $this->assertDatabaseHas('t_kontrak_karyawan', [
+            'nik' => 'EMP004',
+            'document' => null,
+        ]);
 
         $this->post('/api/hr/contracts/EMP004', [
             ...$payload,
@@ -323,8 +335,9 @@ class EmployeeApiTest extends TestCase
             ->assertUnprocessable()
             ->assertJsonValidationErrors('document');
 
-        $this->post('/api/hr/contracts/EMP004', [
+        $this->post('/api/hr/contracts/EMP005', [
             ...$payload,
+            'status_kontrak' => 'AKTIF',
             'document' => UploadedFile::fake()->create('kontrak-rina.pdf', 100, 'application/pdf'),
         ], ['Accept' => 'application/json'])
             ->assertCreated()
@@ -332,16 +345,16 @@ class EmployeeApiTest extends TestCase
             ->assertJsonPath('data.status', 'AKTIF')
             ->assertJsonPath('data.has_document', true);
 
-        $document = DB::table('t_kontrak_karyawan')->where('nik', 'EMP004')->value('document');
+        $document = DB::table('t_kontrak_karyawan')->where('nik', 'EMP005')->value('document');
         $this->assertNotNull($document);
         Storage::disk('local')->assertExists($document);
 
-        $contractId = DB::table('t_kontrak_karyawan')->where('nik', 'EMP004')->value('id');
+        $contractId = DB::table('t_kontrak_karyawan')->where('nik', 'EMP005')->value('id');
 
         $this->get('/api/hr/contracts/records/'.$contractId.'/pdf-preview')
             ->assertOk()
             ->assertJsonPath('mime_type', 'application/pdf')
-            ->assertJsonPath('filename', 'Kontrak-EMP004-1.pdf');
+            ->assertJsonPath('filename', 'Kontrak-EMP005-1.pdf');
     }
 
     public function test_it_sends_employee_userinfo_to_fingerspot_machine(): void

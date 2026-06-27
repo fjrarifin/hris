@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\HrPerformanceReviewController;
 use App\Http\Controllers\Api\HrScheduleController;
 use App\Http\Controllers\Api\HrTalentOptionsController;
 use App\Http\Controllers\Api\ItActiveSessionController;
+use App\Http\Controllers\Api\ItDashboardController;
 use App\Http\Controllers\Api\ItPushNotificationController;
 use App\Http\Controllers\Api\ItUserController;
 use App\Http\Controllers\Api\MobileAppReleaseController;
@@ -105,6 +106,16 @@ Route::middleware('auth:sanctum')->group(function () {
             ->group(function () {
                 Route::get('/', [MobileAppReleaseController::class, 'index']);
                 Route::post('/', [MobileAppReleaseController::class, 'store']);
+            });
+        Route::prefix('it/dashboard')
+            ->middleware('level:0')
+            ->group(function () {
+                Route::get('/', [ItDashboardController::class, 'index']);
+                Route::delete('/active-sessions/{token}', [ItDashboardController::class, 'destroySession']);
+                Route::delete('/active-sessions/users/{user}', [ItDashboardController::class, 'destroyUser']);
+                Route::post('/users/{user}/reset-password', [ItDashboardController::class, 'resetPassword']);
+                Route::post('/users/{user}/reset-password-limit', [ItDashboardController::class, 'resetPasswordLimit']);
+                Route::post('/users/{user}/reset-photo-limit', [ItDashboardController::class, 'resetPhotoLimit']);
             });
         Route::prefix('it/users')
             ->middleware(['level:0', 'frontend.menu:user-management'])
