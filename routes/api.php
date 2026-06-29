@@ -144,7 +144,7 @@ Route::middleware('auth:sanctum')->group(function () {
             });
 
         Route::prefix('it/service-toggles')
-            ->middleware(['level:0'])
+            ->middleware(['level:0', 'frontend.menu:it-service-toggles'])
             ->group(function () {
                 Route::get('/', [\App\Http\Controllers\Api\CommandServiceToggleController::class, 'index']);
                 Route::put('/{commandServiceToggle}', [\App\Http\Controllers\Api\CommandServiceToggleController::class, 'update']);
