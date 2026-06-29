@@ -289,7 +289,7 @@ class EmployeeController extends Controller
                 'nullable',
                 'file',
                 'mimes:pdf',
-                'max:2048',
+                'max:10240',
             ],
             'no_hp' => ['nullable', 'string', 'max:30'],
             'email' => ['nullable', 'email', 'max:150', $emailRule],

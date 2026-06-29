@@ -130,7 +130,7 @@ class HrJobdeskController extends Controller
             'deskripsi' => ['required', 'string'],
             'tipe_tugas' => ['required', Rule::in(['harian', 'mingguan', 'bulanan', 'tahunan', 'insidental'])],
             'is_active' => ['required', 'boolean'],
-            'document' => ['nullable', 'file', 'mimes:pdf', 'max:2048'],
+            'document' => ['nullable', 'file', 'mimes:pdf', 'max:10240'],
         ]);
     }
 }
