@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Models\CommandServiceToggle;
 use App\Services\IncompleteAttendanceWhatsAppReport;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
@@ -24,6 +25,12 @@ class SendIncompleteAttendanceWhatsAppReport extends Command
             $this->error($exception->getMessage());
 
             return self::FAILURE;
+        }
+
+        if (! CommandServiceToggle::isEnabled('attendance:send-incomplete-report')) {
+            $this->warn('Layanan laporan absensi tidak lengkap dinonaktifkan. Perintah dihentikan.');
+
+            return self::SUCCESS;
         }
 
         if (! $this->option('preview') && ! app()->environment('production')) {

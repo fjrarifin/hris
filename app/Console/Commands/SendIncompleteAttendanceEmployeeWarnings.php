@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Models\CommandServiceToggle;
 use App\Services\IncompleteAttendanceWhatsAppReport;
 use App\Services\PayrollPeriodService;
 use Carbon\Carbon;
@@ -26,6 +27,12 @@ class SendIncompleteAttendanceEmployeeWarnings extends Command
             $this->error($exception->getMessage());
 
             return self::FAILURE;
+        }
+
+        if (! CommandServiceToggle::isEnabled('attendance:send-employee-warnings')) {
+            $this->warn('Layanan pengiriman peringatan absensi dinonaktifkan. Perintah dihentikan.');
+
+            return self::SUCCESS;
         }
 
         if (! $this->option('preview') && ! app()->environment('production')) {

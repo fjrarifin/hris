@@ -143,6 +143,13 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::delete('/users/{user}', [ItActiveSessionController::class, 'destroyUser']);
             });
 
+        Route::prefix('it/service-toggles')
+            ->middleware(['level:0'])
+            ->group(function () {
+                Route::get('/', [\App\Http\Controllers\Api\CommandServiceToggleController::class, 'index']);
+                Route::put('/{commandServiceToggle}', [\App\Http\Controllers\Api\CommandServiceToggleController::class, 'update']);
+            });
+
         Route::middleware('frontend.menu:employees')->group(function () {
             Route::get('/employee/fingerspot/clouds', [EmployeeController::class, 'fingerspotClouds']);
             Route::post('/employee/{employee}/fingerspot-userinfo', [EmployeeController::class, 'sendFingerspotUserinfo']);
