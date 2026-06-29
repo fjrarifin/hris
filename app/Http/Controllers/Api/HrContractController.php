@@ -203,6 +203,9 @@ class HrContractController extends Controller
             } elseif ($this->hasEmptyDocumentPlaceholder($request)) {
                 // Clear document if empty placeholder sent
                 $updateData['document'] = null;
+            } else {
+                // Keep existing document if not updating
+                $updateData['document'] = $contract->document;
             }
             
             DB::table('t_kontrak_karyawan')->where('id', $contractId)->update([
@@ -333,6 +336,7 @@ class HrContractController extends Controller
             'status' => $contract->status_kontrak,
             'description' => $contract->keterangan ?? null,
             'has_document' => filled($contract->document),
+            'document' => $contract->document ?? null,
             'state' => $this->contractState($contract, $today),
             'remaining_days' => $endDate && $endDate->gte($today)
                 ? (int) $today->diffInDays($endDate)
