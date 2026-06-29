@@ -743,6 +743,17 @@ class StaffPortalController extends Controller
         $employee = $this->employeeFor($request->user());
         abort_unless($employee->pin, 422, 'Akun pegawai belum terdaftar PIN absensi.');
 
+        $distanceMeters = $this->distanceFromAttendanceCenter(
+            (float) $validated['latitude'],
+            (float) $validated['longitude']
+        );
+        $attendanceRadiusMeters = 50;
+        abort_if(
+            $distanceMeters > $attendanceRadiusMeters,
+            422,
+            sprintf('Absensi mobile hanya bisa dilakukan maksimal %d meter dari HomPim Play. Jarak Anda saat ini sekitar %d meter.', $attendanceRadiusMeters, (int) round($distanceMeters))
+        );
+
         $photoPayload = $validated['photo'];
         $photoType = 'image/jpeg';
         $photoData = null;
@@ -791,6 +802,7 @@ class StaffPortalController extends Controller
             'raw_payload' => [
                 'latitude' => $validated['latitude'],
                 'longitude' => $validated['longitude'],
+                'distance_from_attendance_center_meters' => round($distanceMeters, 2),
                 'photo_path' => $filePath,
                 'photo_type' => $photoType,
                 'attendance_type' => strtolower($attendanceType),
@@ -802,6 +814,21 @@ class StaffPortalController extends Controller
             'attendance_type' => $attendanceType,
             'scan_time' => $now->toTimeString(),
         ], 201);
+    }
+
+    private function distanceFromAttendanceCenter(float $latitude, float $longitude): float
+    {
+        $centerLatitude = -6.8698601;
+        $centerLongitude = 107.6282757;
+        $earthRadiusMeters = 6371000;
+        $lat1 = deg2rad($latitude);
+        $lat2 = deg2rad($centerLatitude);
+        $deltaLat = deg2rad($centerLatitude - $latitude);
+        $deltaLon = deg2rad($centerLongitude - $longitude);
+        $haversine = sin($deltaLat / 2) ** 2
+            + cos($lat1) * cos($lat2) * sin($deltaLon / 2) ** 2;
+
+        return $earthRadiusMeters * 2 * atan2(sqrt($haversine), sqrt(1 - $haversine));
     }
 
     public function leaves(Request $request): JsonResponse
