@@ -14,10 +14,10 @@ class SendIncompleteAttendanceEmployeeWarnings extends Command
 {
     protected $signature = 'attendance:send-employee-warnings
         {--date= : Tanggal absensi format Y-m-d, default hari kemarin}
-        {--preview : Tampilkan isi peringatan tanpa mengirim WhatsApp}
-        {--test : Tambahkan tanda TEST pada peringatan yang dikirim}';
+        {--preview : Tampilkan calon notifikasi tanpa mengirim push}
+        {--test : Preview mode untuk menandai notifikasi sebagai TEST}';
 
-    protected $description = 'Kirim peringatan pribadi kepada karyawan dan atasan langsung terkait scan absensi tidak lengkap.';
+    protected $description = 'Kirim notifikasi push Android kepada karyawan terkait scan absensi tidak lengkap (bukan WhatsApp).';
 
     public function handle(IncompleteAttendanceWhatsAppReport $report, PayrollPeriodService $periodService): int
     {
@@ -36,80 +36,48 @@ class SendIncompleteAttendanceEmployeeWarnings extends Command
         }
 
         if (! $this->option('preview') && ! app()->environment('production')) {
-            $this->warn('Pengiriman WhatsApp dilewati karena environment bukan production.');
+            $this->warn('Pengiriman push notification dilewati karena environment bukan production.');
 
             return self::SUCCESS;
         }
 
         if ($this->option('preview')) {
-            $notifications = $report->employeeMessagesForDate($date, (bool) $this->option('test'));
-            $supervisorNotifications = $report->supervisorMessagesForDate($date, (bool) $this->option('test'));
+            $notifications = $report->employeeAppNotificationRecordsForDate($date);
 
             foreach ($notifications as $notification) {
-                $target = $notification['is_redirected']
-                    ? sprintf(
-                        'Dialihkan ke %s (%s) / %s',
-                        $notification['recipient_name'],
-                        $notification['recipient_nik'],
-                        $notification['phone']
-                    )
-                    : $notification['name'].' / '.$notification['phone'];
-
-                $this->line('Tujuan: '.$target);
-                $this->line($notification['message']);
-                $this->newLine();
-            }
-
-            foreach ($supervisorNotifications as $notification) {
-                $this->line('Tujuan atasan: '.$notification['recipient_name'].' / '.$notification['phone']);
-                $this->line($notification['message']);
+                $this->line('Tujuan: '.$notification['name'].' / '.$notification['nik']);
+                $this->line('Temuan: '.$notification['finding']);
+                $this->line('Scan masuk: '.($notification['scan_in'] ? substr($notification['scan_in'], 0, 5).' WIB' : '-'));
+                $this->line('Scan pulang: '.($notification['scan_out'] ? substr($notification['scan_out'], 0, 5).' WIB' : '-'));
                 $this->newLine();
             }
 
             $this->info(sprintf(
-                'Preview selesai. %d pesan karyawan dan %d pesan atasan siap dikirim, tidak ada WhatsApp yang dikirim.',
-                $notifications->count(),
-                $supervisorNotifications->count()
+                'Preview selesai. %d notifikasi karyawan siap dikirim melalui push Android, tidak ada notifikasi yang dikirim saat preview.',
+                $notifications->count()
             ));
 
             return self::SUCCESS;
         }
 
-        $periodAppNotificationCount = $this->storePeriodAppNotifications($report, $periodService, $date);
-        $result = $report->sendEmployeeWarningsForDate($date, (bool) $this->option('test'));
-        $supervisorResult = $report->sendSupervisorWarningsForDate($date, (bool) $this->option('test'));
-
-        if (! $result['ok'] || ! $supervisorResult['ok']) {
-            $this->error($result['reason'] ?? $supervisorResult['reason']);
-
-            return self::FAILURE;
-        }
+        $appNotificationCount = $this->storeAppNotifications($report, $periodService, $date);
 
         $this->info(sprintf(
-            'Peringatan absensi %s berhasil dikirim (%d pesan karyawan, %d pesan atasan). Dilewati tanpa nomor HP karyawan: %d.',
+            'Notifikasi absensi tidak lengkap sampai %s berhasil diproses (%d notifikasi aplikasi/push baru).',
             $date->format('d/m/Y'),
-            $result['sent_count'],
-            $supervisorResult['sent_count'],
-            $result['skipped_count']
+            $appNotificationCount
         ));
-
-        if ($periodAppNotificationCount > 0 || ($result['app_notification_count'] ?? 0) > 0) {
-            $this->info(sprintf(
-                'Notifikasi aplikasi tersimpan: %d temuan periode berjalan.',
-                $periodAppNotificationCount + ($result['app_notification_count'] ?? 0)
-            ));
-        }
 
         return self::SUCCESS;
     }
 
-    private function storePeriodAppNotifications(
+    private function storeAppNotifications(
         IncompleteAttendanceWhatsAppReport $report,
         PayrollPeriodService $periodService,
         Carbon $untilDate
     ): int {
         if ($this->option('date')) {
-            return 0;
+            return $report->storeEmployeeAppNotificationsForDate($untilDate, false);
         }
 
         $period = $periodService->periodFor($untilDate->toDateString());

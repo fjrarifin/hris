@@ -747,7 +747,7 @@ class StaffPortalController extends Controller
             (float) $validated['latitude'],
             (float) $validated['longitude']
         );
-        $attendanceRadiusMeters = 50;
+        $attendanceRadiusMeters = 300;
         abort_if(
             $distanceMeters > $attendanceRadiusMeters,
             422,

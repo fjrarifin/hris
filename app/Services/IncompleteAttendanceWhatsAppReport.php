@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Http\Services\WhatsAppService;
 use App\Models\AttendanceCorrection;
 use App\Models\EmployeeDailySchedule;
 use App\Models\FingerspotAttendanceLog;
@@ -141,29 +140,13 @@ class IncompleteAttendanceWhatsAppReport
     public function sendForDate(Carbon $date, bool $test = false): array
     {
         $messages = $this->messagesForDate($date, $test);
-        $groupId = trim((string) config('services.whatsapp.attendance_group_id'));
-
-        if ($groupId === '' || ! config('services.whatsapp.url') || ! config('services.whatsapp.device_id')) {
-            Log::warning('Incomplete attendance WhatsApp report skipped: WhatsApp config incomplete', [
-                'date' => $date->toDateString(),
-            ]);
-
-            return [
-                'ok' => false,
-                'messages' => $messages,
-                'reason' => 'Konfigurasi WhatsApp belum lengkap.',
-            ];
-        }
-
-        $ok = true;
-        foreach ($messages as $message) {
-            $ok = app(WhatsAppService::class)->sendMessage($groupId, $message) && $ok;
-        }
+        $appNotificationCount = $this->storeEmployeeAppNotificationsForDate($date, $test);
 
         return [
-            'ok' => $ok,
+            'ok' => true,
             'messages' => $messages,
-            'reason' => $ok ? null : 'Pengiriman WhatsApp gagal.',
+            'app_notification_count' => $appNotificationCount,
+            'reason' => 'Pengiriman WhatsApp dinonaktifkan. Laporan absensi tidak lengkap dikirim melalui push Android ke aplikasi mobile.',
         ];
     }
 
@@ -192,52 +175,36 @@ class IncompleteAttendanceWhatsAppReport
         $notifications = $this->employeeMessagesForDate($date, $test);
         $appNotificationCount = $this->storeEmployeeAppNotificationsForDate($date, $test);
 
-        if (! config('services.whatsapp.url') || ! config('services.whatsapp.device_id')) {
-            return [
-                'ok' => false,
-                'sent_count' => 0,
-                'skipped_count' => $notifications->count(),
-                'app_notification_count' => $appNotificationCount,
-                'notifications' => $notifications,
-                'reason' => 'Konfigurasi WhatsApp belum lengkap.',
-            ];
-        }
-
-        $ok = true;
-        foreach ($notifications as $notification) {
-            $ok = app(WhatsAppService::class)->sendMessage(
-                $notification['phone'],
-                $notification['message']
-            ) && $ok;
-        }
-
         return [
-            'ok' => $ok,
-            'sent_count' => $notifications->count(),
+            'ok' => true,
+            'sent_count' => $appNotificationCount,
             'skipped_count' => $this->recordsForDate($date)->count() - $notifications->count(),
             'app_notification_count' => $appNotificationCount,
             'notifications' => $notifications,
-            'reason' => $ok ? null : 'Pengiriman WhatsApp pribadi gagal.',
+            'reason' => 'Pengiriman WhatsApp dinonaktifkan. Peringatan absensi tidak lengkap dikirim melalui push Android ke aplikasi mobile.',
         ];
     }
 
     public function storeEmployeeAppNotificationsForDate(Carbon $date, bool $test = false): int
     {
-        if ($test || trim((string) config('services.whatsapp.attendance_warning_override_nik')) !== '') {
+        if ($test) {
             return 0;
         }
 
         $count = 0;
 
-        foreach ($this->recordsForDate($date) as $record) {
-            if (! $this->shouldReceiveIncompleteAttendanceWarning($record)) {
-                continue;
-            }
-
+        foreach ($this->employeeAppNotificationRecordsForDate($date) as $record) {
             $count += $this->storeEmployeeAppNotification($record, $date);
         }
 
         return $count;
+    }
+
+    public function employeeAppNotificationRecordsForDate(Carbon $date): Collection
+    {
+        return $this->recordsForDate($date)
+            ->filter(fn (array $record): bool => $this->shouldReceiveIncompleteAttendanceWarning($record))
+            ->values();
     }
 
     private function storeEmployeeAppNotification(array $record, Carbon $date): int
@@ -343,28 +310,11 @@ class IncompleteAttendanceWhatsAppReport
     {
         $notifications = $this->supervisorMessagesForDate($date, $test);
 
-        if (! config('services.whatsapp.url') || ! config('services.whatsapp.device_id')) {
-            return [
-                'ok' => false,
-                'sent_count' => 0,
-                'notifications' => $notifications,
-                'reason' => 'Konfigurasi WhatsApp belum lengkap.',
-            ];
-        }
-
-        $ok = true;
-        foreach ($notifications as $notification) {
-            $ok = app(WhatsAppService::class)->sendMessage(
-                $notification['phone'],
-                $notification['message']
-            ) && $ok;
-        }
-
         return [
-            'ok' => $ok,
-            'sent_count' => $notifications->count(),
+            'ok' => true,
+            'sent_count' => 0,
             'notifications' => $notifications,
-            'reason' => $ok ? null : 'Pengiriman WhatsApp atasan gagal.',
+            'reason' => 'Pengiriman WhatsApp atasan untuk absensi tidak lengkap dinonaktifkan.',
         ];
     }
 

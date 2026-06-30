@@ -12,10 +12,10 @@ class SendIncompleteAttendanceWhatsAppReport extends Command
 {
     protected $signature = 'attendance:send-incomplete-report
         {--date= : Tanggal absensi format Y-m-d, default hari kemarin}
-        {--preview : Tampilkan isi laporan tanpa mengirim WhatsApp}
-        {--test : Tambahkan tanda TEST pada laporan yang dikirim}';
+        {--preview : Tampilkan isi laporan tanpa mengirim push}
+        {--test : Preview mode untuk menandai laporan sebagai TEST}';
 
-    protected $description = 'Kirim laporan scan masuk/pulang tidak lengkap ke grup WhatsApp attendance.';
+    protected $description = 'Proses notifikasi aplikasi/push Android untuk scan masuk/pulang tidak lengkap.';
 
     public function handle(IncompleteAttendanceWhatsAppReport $report): int
     {
@@ -34,7 +34,7 @@ class SendIncompleteAttendanceWhatsAppReport extends Command
         }
 
         if (! $this->option('preview') && ! app()->environment('production')) {
-            $this->warn('Pengiriman WhatsApp dilewati karena environment bukan production.');
+            $this->warn('Pengiriman push notification dilewati karena environment bukan production.');
 
             return self::SUCCESS;
         }
@@ -45,23 +45,17 @@ class SendIncompleteAttendanceWhatsAppReport extends Command
                 $this->newLine();
             }
 
-            $this->info('Preview selesai. Tidak ada pesan WhatsApp yang dikirim.');
+            $this->info('Preview selesai. Tidak ada push notification yang dikirim.');
 
             return self::SUCCESS;
         }
 
-        $result = $report->sendForDate($date, (bool) $this->option('test'));
-
-        if (! $result['ok']) {
-            $this->error($result['reason']);
-
-            return self::FAILURE;
-        }
+        $notificationCount = $report->storeEmployeeAppNotificationsForDate($date, false);
 
         $this->info(sprintf(
-            'Laporan absensi %s berhasil dikirim ke grup attendance (%d pesan).',
+            'Notifikasi absensi tidak lengkap %s berhasil diproses (%d notifikasi aplikasi/push baru).',
             $date->format('d/m/Y'),
-            count($result['messages'])
+            $notificationCount
         ));
 
         return self::SUCCESS;
