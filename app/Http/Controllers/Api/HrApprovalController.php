@@ -63,11 +63,6 @@ class HrApprovalController extends Controller
         $item = $this->query($this->model($type), $type)->findOrFail($id);
         abort_unless($this->canDecide($item), 422, 'Pengajuan ini sudah diproses.');
 
-        if ($type === 'ph' && $validated['decision'] === 'approved' && ! $this->hasWorkedOnPublicHoliday($item)) {
-            throw ValidationException::withMessages([
-                'decision' => 'PH tidak dapat disetujui karena karyawan tidak memiliki scan pada hari libur nasional tersebut.',
-            ]);
-        }
 
         $item->update([
             'status' => $validated['decision'],
@@ -199,16 +194,4 @@ class HrApprovalController extends Controller
         return $item->status === 'approved' && $item->hr_approved_at !== null;
     }
 
-    private function hasWorkedOnPublicHoliday(PublicHolidayRequest $item): bool
-    {
-        $pin = $item->user?->karyawan?->pin;
-
-        return $pin !== null
-            && $item->holiday !== null
-            && $item->holiday->is_active
-            && FingerspotAttendanceLog::query()
-                ->where('pin', $pin)
-                ->whereDate('scan_date', $item->holiday->holiday_date)
-                ->exists();
-    }
 }

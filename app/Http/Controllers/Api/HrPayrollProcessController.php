@@ -88,7 +88,14 @@ class HrPayrollProcessController extends Controller
                     if (!blank($day['scan_in']) && blank($day['scan_out'])) {
                         $in = Carbon::createFromFormat('H:i:s', $day['scan_in']);
                         $out = $in->copy()->addHours(8);
-                        AttendanceCorrection::updateOrCreate(
+                        
+                        $existingCorrection = AttendanceCorrection::query()
+                            ->where('nik', $employee['nik'])
+                            ->whereDate('attendance_date', $date)
+                            ->first();
+                        $beforeAudit = $existingCorrection ? app(HrdAuditLogService::class)->snapshot($existingCorrection) : null;
+                        
+                        $correction = AttendanceCorrection::updateOrCreate(
                             ['nik' => $employee['nik'], 'attendance_date' => $date],
                             [
                                 'corrected_scan_in' => $in->format('H:i:s'),
@@ -98,11 +105,30 @@ class HrPayrollProcessController extends Controller
                                 'has_missing_attendance_form' => false,
                             ]
                         );
+                        
+                        app(HrdAuditLogService::class)->record(
+                            $request,
+                            'Koreksi Absensi',
+                            $existingCorrection ? 'updated' : 'created',
+                            "{$employee['nik']} - {$date}",
+                            $beforeAudit,
+                            $correction->fresh(),
+                            AttendanceCorrection::class,
+                            $correction->id
+                        );
+                        
                         $correctedCount++;
                     } elseif (blank($day['scan_in']) && !blank($day['scan_out'])) {
                         $out = Carbon::createFromFormat('H:i:s', $day['scan_out']);
                         $in = $out->copy()->subHours(8);
-                        AttendanceCorrection::updateOrCreate(
+                        
+                        $existingCorrection = AttendanceCorrection::query()
+                            ->where('nik', $employee['nik'])
+                            ->whereDate('attendance_date', $date)
+                            ->first();
+                        $beforeAudit = $existingCorrection ? app(HrdAuditLogService::class)->snapshot($existingCorrection) : null;
+
+                        $correction = AttendanceCorrection::updateOrCreate(
                             ['nik' => $employee['nik'], 'attendance_date' => $date],
                             [
                                 'corrected_scan_in' => $in->format('H:i:s'),
@@ -112,6 +138,18 @@ class HrPayrollProcessController extends Controller
                                 'has_missing_attendance_form' => false,
                             ]
                         );
+                        
+                        app(HrdAuditLogService::class)->record(
+                            $request,
+                            'Koreksi Absensi',
+                            $existingCorrection ? 'updated' : 'created',
+                            "{$employee['nik']} - {$date}",
+                            $beforeAudit,
+                            $correction->fresh(),
+                            AttendanceCorrection::class,
+                            $correction->id
+                        );
+                        
                         $correctedCount++;
                     }
                 }

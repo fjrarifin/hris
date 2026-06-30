@@ -35,7 +35,11 @@ class HrAttendanceCorrectionController extends Controller
             'start_date' => ['nullable', 'date'],
             'end_date' => ['nullable', 'date', 'after_or_equal:start_date'],
             'q' => ['nullable', 'string', 'max:100'],
-            'status_filter' => ['nullable', 'string', 'in:all,alpha_only,attention_only'],
+            'status_filter' => ['nullable', 'string', 'in:all,alpha_only,incomplete_only,attention_only'],
+            'departments' => ['nullable', 'array'],
+            'departments.*' => ['string'],
+            'employee_niks' => ['nullable', 'array'],
+            'employee_niks.*' => ['string'],
             'page' => ['nullable', 'integer', 'min:1'],
         ]);
         $start = Carbon::parse($validated['start_date'] ?? $validated['date'] ?? now()->subDay()->toDateString())->startOfDay();
@@ -49,6 +53,8 @@ class HrAttendanceCorrectionController extends Controller
 
         $keyword = strtolower(trim((string) ($validated['q'] ?? '')));
         $statusFilter = $validated['status_filter'] ?? 'attention_only';
+        $departments = $validated['departments'] ?? [];
+        $employeeNiks = $validated['employee_niks'] ?? [];
 
         $report = $this->reportService->report([
             'start_date' => $start->toDateString(),
@@ -93,17 +99,29 @@ class HrAttendanceCorrectionController extends Controller
                         ];
                     })->values();
             })
-            ->filter(function (array $record) use ($keyword, $statusFilter) {
+            ->filter(function (array $record) use ($keyword, $statusFilter, $departments, $employeeNiks) {
                 if ($statusFilter === 'attention_only') {
                     if (! $record['needs_attention'] && ! in_array($record['status_code'], ['A'], true)) {
                         return false;
                     }
                 } elseif ($statusFilter === 'alpha_only') {
-                    if (! in_array($record['status_code'], ['A', 'M'], true)) {
+                    if ($record['status_code'] !== 'A') {
                         return false;
                     }
+                } elseif ($statusFilter === 'incomplete_only') {
+                    if ($record['status_code'] !== 'M' || ! $record['has_incomplete_scan']) {
+                        return false;
+                    }
+                }
 
-                    if ($record['status_code'] === 'M' && ! $record['has_incomplete_scan']) {
+                if (! empty($departments)) {
+                    if (! in_array($record['department'], $departments, true)) {
+                        return false;
+                    }
+                }
+
+                if (! empty($employeeNiks)) {
+                    if (! in_array($record['nik'], $employeeNiks, true)) {
                         return false;
                     }
                 }
