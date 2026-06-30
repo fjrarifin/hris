@@ -31,6 +31,8 @@ class SingleDeviceLoginApiTest extends TestCase
             $table->timestamp('password_changed_at')->nullable();
             $table->boolean('must_change_password')->default(false);
             $table->unsignedTinyInteger('level')->default(3);
+            $table->boolean('is_active')->default(true);
+            $table->boolean('allow_mobile_attendance')->default(false);
             $table->timestamps();
         });
 
@@ -72,6 +74,7 @@ class SingleDeviceLoginApiTest extends TestCase
             $table->string('nik')->primary();
             $table->string('nama_karyawan');
             $table->string('email')->nullable();
+            $table->string('status_karyawan')->nullable();
             $table->timestamps();
         });
 
