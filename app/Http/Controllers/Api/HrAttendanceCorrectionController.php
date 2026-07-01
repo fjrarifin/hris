@@ -324,7 +324,14 @@ class HrAttendanceCorrectionController extends Controller
         $beforeAudit = $existingCorrection ? app(HrdAuditLogService::class)->snapshot($existingCorrection) : null;
         $correction = DB::transaction(function () use ($request, $nik, $date, $validated, $correctionType, $existingCorrection): AttendanceCorrection {
             $employee = Karyawan::query()->where('nik', $nik)->firstOrFail();
-            $employeeUser = User::query()->where('username', $nik)->firstOrFail();
+            $employeeUser = User::query()->where('username', $nik)->first();
+
+            if ($correctionType !== 'time' && ! $employeeUser) {
+                throw ValidationException::withMessages([
+                    'correction_type' => ['Karyawan belum terdaftar sebagai user. Koreksi jenis ini tidak dapat diproses.'],
+                ]);
+            }
+
             $lockedCorrection = $existingCorrection
                 ? AttendanceCorrection::query()->lockForUpdate()->find($existingCorrection->id)
                 : null;
