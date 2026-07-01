@@ -82,6 +82,7 @@ class HrPayrollProcessController extends Controller
         }
 
         $correctedCount = 0;
+        $failures = [];
         foreach ($employees as $employee) {
             foreach ($employee['days'] as $date => $day) {
                 if ($day['status'] === 'M' && (blank($day['scan_in']) || blank($day['scan_out']))) {
@@ -89,74 +90,95 @@ class HrPayrollProcessController extends Controller
                         $in = Carbon::createFromFormat('H:i:s', $day['scan_in']);
                         $out = $in->copy()->addHours(8);
                         
-                        $existingCorrection = AttendanceCorrection::query()
-                            ->where('nik', $employee['nik'])
-                            ->whereDate('attendance_date', $date)
-                            ->first();
-                        $beforeAudit = $existingCorrection ? app(HrdAuditLogService::class)->snapshot($existingCorrection) : null;
-                        
-                        $correction = AttendanceCorrection::updateOrCreate(
-                            ['nik' => $employee['nik'], 'attendance_date' => $date],
-                            [
-                                'corrected_scan_in' => $in->format('H:i:s'),
-                                'corrected_scan_out' => $out->format('H:i:s'),
-                                'notes' => 'Diperbaiki otomatis oleh HRD (Lupa scan pulang)',
-                                'corrected_by' => $request->user()?->id,
-                                'has_missing_attendance_form' => false,
-                            ]
-                        );
-                        
-                        app(HrdAuditLogService::class)->record(
-                            $request,
-                            'Koreksi Absensi',
-                            $existingCorrection ? 'updated' : 'created',
-                            "{$employee['nik']} - {$date}",
-                            $beforeAudit,
-                            $correction->fresh(),
-                            AttendanceCorrection::class,
-                            $correction->id
-                        );
-                        
-                        $correctedCount++;
+                        try {
+                            $existingCorrection = AttendanceCorrection::query()
+                                ->where('nik', $employee['nik'])
+                                ->whereDate('attendance_date', $date)
+                                ->first();
+                            $beforeAudit = $existingCorrection ? app(HrdAuditLogService::class)->snapshot($existingCorrection) : null;
+
+                            $correction = AttendanceCorrection::updateOrCreate(
+                                ['nik' => $employee['nik'], 'attendance_date' => $date],
+                                [
+                                    'corrected_scan_in' => $in->format('H:i:s'),
+                                    'corrected_scan_out' => $out->format('H:i:s'),
+                                    'notes' => 'Diperbaiki otomatis oleh HRD (Lupa scan pulang)',
+                                    'corrected_by' => $request->user()?->id,
+                                    'has_missing_attendance_form' => false,
+                                ]
+                            );
+
+                            app(HrdAuditLogService::class)->record(
+                                $request,
+                                'Koreksi Absensi',
+                                $existingCorrection ? 'updated' : 'created',
+                                "{$employee['nik']} - {$date}",
+                                $beforeAudit,
+                                $correction->fresh(),
+                                AttendanceCorrection::class,
+                                $correction->id
+                            );
+
+                            $correctedCount++;
+                        } catch (\Throwable $e) {
+                            $failures[] = [
+                                'nik' => $employee['nik'],
+                                'date' => $date,
+                                'error' => $e->getMessage(),
+                            ];
+                        }
                     } elseif (blank($day['scan_in']) && !blank($day['scan_out'])) {
                         $out = Carbon::createFromFormat('H:i:s', $day['scan_out']);
                         $in = $out->copy()->subHours(8);
                         
-                        $existingCorrection = AttendanceCorrection::query()
-                            ->where('nik', $employee['nik'])
-                            ->whereDate('attendance_date', $date)
-                            ->first();
-                        $beforeAudit = $existingCorrection ? app(HrdAuditLogService::class)->snapshot($existingCorrection) : null;
+                        try {
+                            $existingCorrection = AttendanceCorrection::query()
+                                ->where('nik', $employee['nik'])
+                                ->whereDate('attendance_date', $date)
+                                ->first();
+                            $beforeAudit = $existingCorrection ? app(HrdAuditLogService::class)->snapshot($existingCorrection) : null;
 
-                        $correction = AttendanceCorrection::updateOrCreate(
-                            ['nik' => $employee['nik'], 'attendance_date' => $date],
-                            [
-                                'corrected_scan_in' => $in->format('H:i:s'),
-                                'corrected_scan_out' => $out->format('H:i:s'),
-                                'notes' => 'Diperbaiki otomatis oleh HRD (Lupa scan masuk)',
-                                'corrected_by' => $request->user()?->id,
-                                'has_missing_attendance_form' => false,
-                            ]
-                        );
-                        
-                        app(HrdAuditLogService::class)->record(
-                            $request,
-                            'Koreksi Absensi',
-                            $existingCorrection ? 'updated' : 'created',
-                            "{$employee['nik']} - {$date}",
-                            $beforeAudit,
-                            $correction->fresh(),
-                            AttendanceCorrection::class,
-                            $correction->id
-                        );
-                        
-                        $correctedCount++;
+                            $correction = AttendanceCorrection::updateOrCreate(
+                                ['nik' => $employee['nik'], 'attendance_date' => $date],
+                                [
+                                    'corrected_scan_in' => $in->format('H:i:s'),
+                                    'corrected_scan_out' => $out->format('H:i:s'),
+                                    'notes' => 'Diperbaiki otomatis oleh HRD (Lupa scan masuk)',
+                                    'corrected_by' => $request->user()?->id,
+                                    'has_missing_attendance_form' => false,
+                                ]
+                            );
+
+                            app(HrdAuditLogService::class)->record(
+                                $request,
+                                'Koreksi Absensi',
+                                $existingCorrection ? 'updated' : 'created',
+                                "{$employee['nik']} - {$date}",
+                                $beforeAudit,
+                                $correction->fresh(),
+                                AttendanceCorrection::class,
+                                $correction->id
+                            );
+
+                            $correctedCount++;
+                        } catch (\Throwable $e) {
+                            $failures[] = [
+                                'nik' => $employee['nik'],
+                                'date' => $date,
+                                'error' => $e->getMessage(),
+                            ];
+                        }
                     }
                 }
             }
         }
 
-        return response()->json(['message' => "{$correctedCount} hari absensi berhasil dikoreksi otomatis."]);
+        $response = ['message' => "{$correctedCount} hari absensi berhasil dikoreksi otomatis."];
+        if (!empty($failures)) {
+            $response['failures'] = $failures;
+        }
+
+        return response()->json($response);
     }
 
     public function drafts(Request $request): JsonResponse
