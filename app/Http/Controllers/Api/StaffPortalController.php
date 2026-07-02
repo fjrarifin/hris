@@ -835,15 +835,18 @@ class StaffPortalController extends Controller
     {
         $user = $request->user();
         $accruals = $user->accruals()->orderByDesc('year')->orderByDesc('month')->get();
+        $accruedDays = (int) $accruals->sum(fn (LeaveAccrual $accrual): int => (int) ($accrual->days ?: 1));
+        $availableAccruedDays = (int) $accruals
+            ->where('is_used', false)
+            ->filter(fn (LeaveAccrual $accrual): bool => Carbon::parse($accrual->expired_at)->gte(now()))
+            ->sum(fn (LeaveAccrual $accrual): int => (int) ($accrual->days ?: 1));
+        $annualLeaveDays = $this->activeAnnualLeaveDays($user);
 
         return response()->json([
             'balance' => [
-                'total' => $accruals->count(),
-                'used' => $accruals->where('is_used', true)->count(),
-                'available' => $accruals
-                    ->where('is_used', false)
-                    ->where('expired_at', '>=', now())
-                    ->count(),
+                'total' => $accruedDays,
+                'used' => $annualLeaveDays,
+                'available' => $availableAccruedDays - $annualLeaveDays,
             ],
             'leave_types' => LeaveRequest::LEAVE_TYPES,
             'requests' => LeaveRequest::query()
@@ -1493,11 +1496,24 @@ class StaffPortalController extends Controller
 
     private function leaveBalance(User $user): int
     {
-        return LeaveAccrual::query()
+        $availableAccruedDays = (int) LeaveAccrual::query()
             ->where('user_id', $user->id)
             ->where('is_used', false)
             ->where('expired_at', '>=', now())
-            ->count();
+            ->get()
+            ->sum(fn (LeaveAccrual $accrual): int => (int) ($accrual->days ?: 1));
+
+        return $availableAccruedDays - $this->activeAnnualLeaveDays($user);
+    }
+
+    private function activeAnnualLeaveDays(User $user): int
+    {
+        return (int) LeaveRequest::query()
+            ->where('user_id', $user->id)
+            ->where('leave_type', 'cuti_tahunan')
+            ->whereNotIn('status', ['rejected', 'cancelled'])
+            ->get(['start_date', 'end_date'])
+            ->sum(fn (LeaveRequest $leave): int => Carbon::parse($leave->start_date)->diffInDays(Carbon::parse($leave->end_date)) + 1);
     }
 
     private function publicHolidayBalance(User $user): int

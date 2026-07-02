@@ -34,7 +34,7 @@ class LeaveRequest extends Model
     ];
 
     public const LEAVE_TYPES = [
-        // 'cuti_tahunan' => 'Cuti Tahunan',
+        'cuti_tahunan' => 'Cuti Tahunan',
         'lainnya' => 'Cuti Normatif',
     ];
 
