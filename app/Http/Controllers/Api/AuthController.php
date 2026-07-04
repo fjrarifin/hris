@@ -10,6 +10,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\PersonalAccessToken;
 
@@ -20,6 +21,7 @@ class AuthController extends Controller
     private const PASSWORD_CHANGE_INTERVAL_DAYS = 30;
 
     private const PORTAL_TOKEN_NAME = 'hris-fe';
+
     private const MOBILE_TOKEN_NAME = 'hris-mobile';
 
     public function __construct(private readonly FrontendNavigation $navigation) {}
@@ -32,17 +34,19 @@ class AuthController extends Controller
             'client' => ['nullable', 'string', 'in:web,mobile'],
         ]);
 
-        $result = DB::transaction(function () use ($credentials, $request): array {
+        $identifier = $this->normalizeLoginIdentifier($credentials['username']);
+
+        $result = DB::transaction(function () use ($credentials, $identifier, $request): array {
             $tokenName = ($credentials['client'] ?? 'web') === 'mobile'
                 ? self::MOBILE_TOKEN_NAME
                 : self::PORTAL_TOKEN_NAME;
             $user = User::query()
-                ->where('username', trim($credentials['username']))
+                ->where('username', $identifier)
                 ->lockForUpdate()
                 ->first();
 
             if (! $user) {
-                $user = $this->provisionEmployeeAccount($credentials);
+                $user = $this->provisionEmployeeAccount($identifier, $credentials['password']);
             }
 
             if (! $user || ! Hash::check($credentials['password'], $user->password)) {
@@ -202,35 +206,77 @@ class AuthController extends Controller
             : null;
     }
 
-    private function provisionEmployeeAccount(array $credentials): ?User
+    private function provisionEmployeeAccount(string $identifier, string $password): ?User
     {
-        if (! hash_equals(self::DEFAULT_FIRST_LOGIN_PASSWORD, $credentials['password'])) {
+        if (! hash_equals(self::DEFAULT_FIRST_LOGIN_PASSWORD, $password)) {
             return null;
         }
 
-        $employee = Karyawan::query()
-            ->where('nik', trim($credentials['username']))
-            ->lockForUpdate()
-            ->first();
-
+        $employee = $this->findEmployeeForFirstLogin($identifier);
         if (! $employee) {
             return null;
         }
 
-        $email = $employee->email ?: $employee->nik.'@hris.local';
-        if (User::query()->where('email', $email)->exists()) {
-            $email = $employee->nik.'@hris.local';
+        $employeeNik = $this->normalizeLoginIdentifier($employee->nik);
+        $existingUser = User::query()
+            ->where('username', $employeeNik)
+            ->lockForUpdate()
+            ->first();
+
+        if ($existingUser) {
+            return $existingUser;
         }
 
         return User::query()->create([
-            'username' => $employee->nik,
+            'username' => $employeeNik,
             'name' => $employee->nama_karyawan,
-            'email' => $email,
+            'email' => $this->uniqueEmployeeEmail($employee, $employeeNik),
             'password' => Hash::make(self::DEFAULT_FIRST_LOGIN_PASSWORD),
             'level' => 3,
             'must_change_password' => true,
             'is_active' => true,
         ]);
+    }
+
+    private function findEmployeeForFirstLogin(string $identifier): ?Karyawan
+    {
+        return Karyawan::query()
+            ->where(function ($query) use ($identifier): void {
+                $query
+                    ->where('nik', $identifier)
+                    ->orWhereRaw('TRIM(nik) = ?', [$identifier]);
+
+                if (Schema::hasColumn('m_karyawan', 'pin')) {
+                    $query
+                        ->orWhere('pin', $identifier)
+                        ->orWhereRaw('TRIM(pin) = ?', [$identifier]);
+                }
+            })
+            ->lockForUpdate()
+            ->first();
+    }
+
+    private function uniqueEmployeeEmail(Karyawan $employee, string $employeeNik): string
+    {
+        $email = filled($employee->email)
+            ? trim((string) $employee->email)
+            : "{$employeeNik}@hris.local";
+
+        if (! User::query()->where('email', $email)->exists()) {
+            return $email;
+        }
+
+        $fallbackEmail = "{$employeeNik}@hris.local";
+        if (! User::query()->where('email', $fallbackEmail)->exists()) {
+            return $fallbackEmail;
+        }
+
+        return "{$employeeNik}+".now()->format('YmdHis').'@hris.local';
+    }
+
+    private function normalizeLoginIdentifier(string $identifier): string
+    {
+        return trim($identifier);
     }
 
     private function passwordChangeAvailability(User $user): array

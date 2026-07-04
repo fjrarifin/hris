@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 
 class AuthController extends Controller
 {
@@ -25,111 +26,123 @@ class AuthController extends Controller
             'password' => ['required'],
         ]);
 
-        $nik = trim($request->username);
+        $nik = $this->normalizeLoginIdentifier($request->username);
         $password = $request->password;
 
-        /*
-        |--------------------------------------------------------------------------
-        | 1️⃣ CEK USER SUDAH ADA
-        |--------------------------------------------------------------------------
-        */
         $user = User::where('username', $nik)->first();
 
-        if ($user) {
+        if (! $user) {
+            $user = $this->provisionEmployeeAccount($nik, $password);
 
-            if (! $user->is_active) {
+            if (! $user && $this->findEmployeeForFirstLogin($nik)) {
                 return back()->withErrors([
-                    'username' => 'Akun ini sedang dinonaktifkan. Hubungi IT.',
+                    'password' => 'Password default login pertama adalah: '.self::DEFAULT_FIRST_LOGIN_PASSWORD,
                 ]);
             }
-
-            if (! Auth::attempt(['username' => $nik, 'password' => $password])) {
-                return back()->withErrors([
-                    'username' => 'NIK atau password salah',
-                ]);
-            }
-
-            $request->session()->regenerate();
-
-            // 🔥 Cek profil tidak lengkap
-            $this->notifyIncompleteProfile($user);
-
-            // 🔐 Force change password jika wajib
-            if ($user->must_change_password) {
-                return redirect()->route('password.change');
-            }
-
-            return redirect()->route('dashboard');
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | 2️⃣ CEK DI TABEL m_karyawan (LOGIN PERTAMA)
-        |--------------------------------------------------------------------------
-        */
-        $karyawan = DB::table('m_karyawan')
-            ->where('nik', $nik)
-            ->first();
-
-        if (! $karyawan) {
+        if (! $user) {
             return back()->withErrors([
                 'username' => 'NIK tidak terdaftar',
             ]);
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | 3️⃣ PASSWORD DEFAULT LOGIN PERTAMA
-        |--------------------------------------------------------------------------
-        */
-        if ($password !== self::DEFAULT_FIRST_LOGIN_PASSWORD) {
-            return back()->withErrors([
-                'password' => 'Password default login pertama adalah: '.self::DEFAULT_FIRST_LOGIN_PASSWORD,
-            ]);
+        return $this->loginUser($request, $user, $password);
+    }
+
+    private function provisionEmployeeAccount(string $identifier, string $password): ?User
+    {
+        $karyawan = $this->findEmployeeForFirstLogin($identifier);
+
+        if (! $karyawan || $password !== self::DEFAULT_FIRST_LOGIN_PASSWORD) {
+            return null;
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | 4️⃣ BUAT USER BARU
-        |--------------------------------------------------------------------------
-        */
-        $newUser = User::create([
-            'username' => $karyawan->nik,
+        $employeeNik = $this->normalizeLoginIdentifier($karyawan->nik);
+        $existingUser = User::query()->where('username', $employeeNik)->first();
+
+        if ($existingUser) {
+            return $existingUser;
+        }
+
+        return User::create([
+            'username' => $employeeNik,
             'name' => $karyawan->nama_karyawan,
-            'email' => $karyawan->nik.'@hris.local',
+            'email' => $this->uniqueEmployeeEmail($karyawan, $employeeNik),
             'password' => Hash::make(self::DEFAULT_FIRST_LOGIN_PASSWORD),
-            'level' => 3, // STAFF
+            'level' => 3,
             'must_change_password' => true,
             'is_active' => true,
         ]);
+    }
 
-        if (! $newUser->is_active) {
+    private function findEmployeeForFirstLogin(string $identifier): ?object
+    {
+        return DB::table('m_karyawan')
+            ->where(function ($query) use ($identifier): void {
+                $query
+                    ->where('nik', $identifier)
+                    ->orWhereRaw('TRIM(nik) = ?', [$identifier]);
+
+                if (Schema::hasColumn('m_karyawan', 'pin')) {
+                    $query
+                        ->orWhere('pin', $identifier)
+                        ->orWhereRaw('TRIM(pin) = ?', [$identifier]);
+                }
+            })
+            ->first();
+    }
+
+    private function uniqueEmployeeEmail(object $karyawan, string $employeeNik): string
+    {
+        $email = filled($karyawan->email ?? null)
+            ? trim((string) $karyawan->email)
+            : "{$employeeNik}@hris.local";
+
+        if (! User::query()->where('email', $email)->exists()) {
+            return $email;
+        }
+
+        $fallbackEmail = "{$employeeNik}@hris.local";
+        if (! User::query()->where('email', $fallbackEmail)->exists()) {
+            return $fallbackEmail;
+        }
+
+        return "{$employeeNik}+".now()->format('YmdHis').'@hris.local';
+    }
+
+    private function loginUser(Request $request, User $user, string $password)
+    {
+        if (! $user->is_active) {
             return back()->withErrors([
                 'username' => 'Akun ini sedang dinonaktifkan. Hubungi IT.',
             ]);
         }
 
-        Auth::login($newUser);
+        if (! Hash::check($password, $user->password)) {
+            return back()->withErrors([
+                'username' => 'NIK atau password salah',
+            ]);
+        }
+
+        Auth::login($user);
         $request->session()->regenerate();
 
-        // 🔥 Cek profil tidak lengkap
-        $this->notifyIncompleteProfile($newUser);
+        $this->notifyIncompleteProfile($user);
 
-        return redirect()->route('password.change');
+        if ($user->must_change_password) {
+            return redirect()->route('password.change');
+        }
+
+        return redirect()->route('dashboard');
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | 🔔 NOTIF PROFILE TIDAK LENGKAP
-    |--------------------------------------------------------------------------
-    */
-    private function notifyIncompleteProfile(User $user)
+    private function notifyIncompleteProfile(User $user): void
     {
         if (
             empty($user->email) ||
             empty(optional($user->karyawan)->no_hp)
         ) {
-
             $alreadyNotified = $user->notifications()
                 ->where('type', IncompleteProfileNotification::class)
                 ->exists();
@@ -140,11 +153,11 @@ class AuthController extends Controller
         }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | LOGOUT
-    |--------------------------------------------------------------------------
-    */
+    private function normalizeLoginIdentifier(string $identifier): string
+    {
+        return trim($identifier);
+    }
+
     public function logout(Request $request)
     {
         Auth::logout();
