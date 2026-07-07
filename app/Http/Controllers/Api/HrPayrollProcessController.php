@@ -395,6 +395,16 @@ class HrPayrollProcessController extends Controller
             'amount' => (int) $item->amount,
             'input_mode' => $item->component?->input_mode ?? 'manual',
         ])->values();
+
+        $rawItems = $payroll->items->map(fn ($item) => [
+            'id' => $item->id,
+            'component_id' => $item->component_id,
+            'name' => $item->component?->nama ?? $item->nama_item,
+            'type' => $item->type,
+            'amount' => (int) $item->amount,
+            'input_mode' => $item->component?->input_mode ?? 'manual',
+        ])->values();
+
         $employer = (int) $items->where('type', 'employer_contribution')->sum('amount');
 
         return [
@@ -418,6 +428,7 @@ class HrPayrollProcessController extends Controller
             'tunjangan_tidak_tetap_full' => (int) $payroll->tunjangan_tidak_tetap_full,
             'formula_version' => $payroll->formula_version,
             'items' => $items,
+            'raw_items' => $rawItems,
         ];
     }
 
