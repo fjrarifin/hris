@@ -41,7 +41,7 @@ class PayrollCalculationServiceTest extends TestCase
         ]);
 
         $this->assertSame(44736, $result['daily_rate']);
-        $this->assertSame(6530406, $result['gross_salary']);
+        $this->assertSame(6749406, $result['gross_salary']);
         $this->assertSame(308472, $result['total_deduction']);
         $this->assertSame(6440934, $result['take_home_pay']);
         $this->assertSame(577065, $result['employer_contribution']);
