@@ -264,7 +264,7 @@ class HrPayrollProcessController extends Controller
         $payload = $request->validate([
             'adjustments' => ['required', 'array'],
             'adjustments.*.component_id' => ['required', 'integer'],
-            'adjustments.*.amount' => ['required', 'integer', 'min:0'],
+            'adjustments.*.amount' => ['required', 'integer', 'min:0', 'max:999999999'],
         ]);
         $beforeAudit = app(HrdAuditLogService::class)->snapshot($payroll);
         $payroll = $this->reviewService->updateManualAdjustments($payroll, $payload['adjustments'], $request->user()?->id);
