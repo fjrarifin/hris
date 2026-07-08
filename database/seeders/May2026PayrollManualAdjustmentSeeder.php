@@ -110,7 +110,7 @@ class May2026PayrollManualAdjustmentSeeder extends Seeder
             'Potongan Kasbon' => ['deduction', 'AV'],
             'Kelebihan Gaji' => ['deduction', 'AW'],
             'Pot. Denda Kehilangan Aset' => ['deduction', 'AX'],
-            'PPh21' => ['deduction', 'AY'],
+            'PPh 21' => ['deduction', 'AY'],
         ];
 
         return collect($mapping)

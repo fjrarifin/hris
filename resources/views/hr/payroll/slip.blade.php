@@ -519,7 +519,7 @@
 							<td class="item-name">PPh 21</td>
 							<td class="item-cur">Rp</td>
 							<td class="item-amt">
-								{{ isset($itemMap['PPh21']) ? number_format($itemMap['PPh21']->amount, 0, ',', '.') : '-' }}
+								{{ isset($itemMap['PPh 21']) ? number_format($itemMap['PPh 21']->amount, 0, ',', '.') : '-' }}
 							</td>
 						</tr>
 					</table>
@@ -593,7 +593,7 @@
 							<td class="item-name">PPh 21</td>
 							<td class="item-cur">Rp</td>
 							<td class="item-amt">
-								{{ isset($itemMap['PPh21']) ? number_format($itemMap['PPh21']->amount, 0, ',', '.') : '-' }}
+								{{ isset($itemMap['PPh 21']) ? number_format($itemMap['PPh 21']->amount, 0, ',', '.') : '-' }}
 							</td>
 						</tr>
 					</table>

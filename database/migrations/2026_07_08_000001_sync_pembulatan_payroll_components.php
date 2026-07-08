@@ -39,6 +39,11 @@ return new class extends Migration
         DB::table('payroll_components')
             ->where('nama', 'Potongan Alpha')
             ->update(['is_active' => false, 'updated_at' => $now]);
+
+        // Set duplicate PPh21 component to inactive
+        DB::table('payroll_components')
+            ->where('nama', 'PPh21')
+            ->update(['is_active' => false, 'updated_at' => $now]);
     }
 
     /**
@@ -52,6 +57,10 @@ return new class extends Migration
 
         DB::table('payroll_components')
             ->where('nama', 'Potongan Alpha')
+            ->update(['is_active' => true, 'updated_at' => now()]);
+
+        DB::table('payroll_components')
+            ->where('nama', 'PPh21')
             ->update(['is_active' => true, 'updated_at' => now()]);
     }
 };

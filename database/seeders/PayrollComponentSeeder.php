@@ -26,7 +26,7 @@ class PayrollComponentSeeder extends Seeder
             ['nama' => 'Potongan Alpha', 'type' => 'deduction', 'input_mode' => 'calculated', 'is_active' => false],
             ['nama' => 'Potongan Kasbon', 'type' => 'deduction', 'input_mode' => 'manual', 'is_active' => true],
             ['nama' => 'Potongan Lain-lain', 'type' => 'deduction', 'input_mode' => 'manual', 'is_active' => true],
-            ['nama' => 'PPh21', 'type' => 'deduction', 'input_mode' => 'manual', 'is_active' => true],
+            ['nama' => 'PPh 21', 'type' => 'deduction', 'input_mode' => 'manual', 'is_active' => true],
             ['nama' => 'Tunjangan PPh21', 'type' => 'earning', 'input_mode' => 'manual', 'is_active' => true],
             ['nama' => 'Tunjangan BPJS Kesehatan Karyawan', 'type' => 'earning', 'input_mode' => 'calculated', 'is_active' => false],
             ['nama' => 'Tunjangan JHT Karyawan', 'type' => 'earning', 'input_mode' => 'calculated', 'is_active' => false],

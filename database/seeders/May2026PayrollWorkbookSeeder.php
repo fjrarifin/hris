@@ -176,7 +176,7 @@ class May2026PayrollWorkbookSeeder extends Seeder
             'Potongan Kasbon' => ['deduction', 'AV'],
             'Kelebihan Gaji' => ['deduction', 'AW'],
             'Pot. Denda Kehilangan Aset' => ['deduction', 'AX'],
-            'PPh21' => ['deduction', 'AY'],
+            'PPh 21' => ['deduction', 'AY'],
             'JKN Perusahaan' => ['employer_contribution', 'Z'],
             'JHT Perusahaan' => ['employer_contribution', 'AA'],
             'JP Perusahaan' => ['employer_contribution', 'AB'],

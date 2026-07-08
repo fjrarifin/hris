@@ -578,7 +578,7 @@ class PayrollController extends Controller
                 'Pot. Kasbon' => 'Potongan Kasbon',
                 'Kelebihan Gaji' => 'Kelebihan Gaji',
                 'Pot. Denda Kehilangan Aset' => 'Pot. Denda Kehilangan Aset',
-                'Pot. PPH 21' => 'PPh21',
+                'Pot. PPH 21' => 'PPh 21',
                 'Service' => 'Service',
                 'Bonus' => 'Bonus',
             ];
