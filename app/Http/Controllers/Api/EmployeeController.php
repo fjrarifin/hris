@@ -116,6 +116,19 @@ class EmployeeController extends Controller
             $this->saveContract($employee, $payload);
             $this->syncEmployeeStatus($employee);
 
+            // Buat akun user baru untuk karyawan
+            \App\Models\User::updateOrCreate(
+                ['username' => $employee->nik],
+                [
+                    'name' => $employee->nama_karyawan,
+                    'email' => $employee->email ?: "{$employee->nik}@hris.local",
+                    'password' => bcrypt('12345678'),
+                    'level' => 3,
+                    'is_active' => true,
+                    'must_change_password' => true,
+                ]
+            );
+
             return $employee;
         });
         app(HrdAuditLogService::class)->record(
