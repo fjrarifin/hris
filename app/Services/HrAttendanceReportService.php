@@ -468,13 +468,13 @@ class HrAttendanceReportService
             'total_ph' => $days->where('status', 'PH')->count(),
             'total_eo' => $days->where('status', 'EO')->count(),
             'total_leave' => $days->where('status', 'C')->count(),
-            'total_sick' => $days->where('status', 'S')->count(),
+            'total_sick' => $days->whereIn('status', ['S', 'SDC'])->count(),
             'total_sick_with_document' => $days
-                ->where('status', 'S')
+                ->whereIn('status', ['S', 'SDC'])
                 ->where('has_document', true)
                 ->count(),
             'total_sick_without_document' => $days
-                ->where('status', 'S')
+                ->whereIn('status', ['S', 'SDC'])
                 ->where('has_document', false)
                 ->count(),
             'total_permission' => $days->where('status', 'I')->count(),
