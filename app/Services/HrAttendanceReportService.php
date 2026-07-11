@@ -425,7 +425,7 @@ class HrAttendanceReportService
                 ? $absence['label'].' telah disetujui HRD, tetapi karyawan memiliki scan absensi.'
                 : $absence['label'].' disetujui HRD.') : null,
             'is_present' => $hasScan,
-            'counts_as_attendance' => in_array($status, ['M', 'PH', 'C', 'EO'], true) || $isSickWithDocument,
+            'counts_as_attendance' => in_array($status, ['M', 'PH', 'C', 'EO', 'SDC'], true) || $isSickWithDocument,
             'has_incomplete_scan' => $hasIncompleteScan,
             'is_under_daily_target' => $isUnderDailyTarget,
             'needs_attention' => $hasIncompleteScan || $isUnderDailyTarget,

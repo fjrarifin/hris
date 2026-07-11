@@ -278,7 +278,7 @@ class HrAttendanceCorrectionController extends Controller
     {
         $validated = $request->validate([
             'attendance_date' => ['required', 'date'],
-            'correction_type' => ['nullable', Rule::in(['time', 'leave', 'public_holiday', 'extra_off'])],
+            'correction_type' => ['nullable', Rule::in(['time', 'sdc', 'leave', 'public_holiday', 'extra_off'])],
             'corrected_scan_in' => ['nullable', 'date_format:H:i'],
             'corrected_scan_out' => ['nullable', 'date_format:H:i'],
             'public_holiday_id' => ['nullable', 'integer', 'exists:public_holidays,id'],
@@ -388,6 +388,7 @@ class HrAttendanceCorrectionController extends Controller
             'PH' => 'Libur Nasional',
             'EO' => 'Libur Ekstra / Off',
             'C' => 'Cuti',
+            'SDC' => 'Sakit Dengan Catatan',
             default => $freshDay['approval_label'] ?? $freshDay['status']
         };
 
@@ -404,7 +405,7 @@ class HrAttendanceCorrectionController extends Controller
                 'raw_scan_in' => $freshDay['raw_scan_in'] ?? null,
                 'raw_scan_out' => $freshDay['raw_scan_out'] ?? null,
                 'finding' => blank($freshDay['raw_scan_in']) && blank($freshDay['raw_scan_out']) ? 'Tidak ada absen' : (blank($freshDay['raw_scan_in']) ? 'Tidak scan masuk' : 'Tidak scan pulang'),
-                'is_resolved' => in_array($freshDay['status'], ['C', 'PH', 'EO'], true)
+                'is_resolved' => in_array($freshDay['status'], ['C', 'PH', 'EO', 'SDC'], true)
                     || (! blank($freshDay['scan_in']) && ! blank($freshDay['scan_out']) && ! ($freshDay['needs_attention'] ?? false)),
                 'needs_attention' => $freshDay['needs_attention'] ?? false,
                 'has_incomplete_scan' => $freshDay['has_incomplete_scan'] ?? false,

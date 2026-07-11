@@ -107,7 +107,7 @@ class PayrollAttendanceReadinessService
                 $summary['eo_days']++;
             } elseif ($status === 'I') {
                 $summary['permission_days']++;
-            } elseif ($status === 'S') {
+            } elseif ($status === 'S' || $status === 'SDC') {
                 $key = ($day['has_document'] ?? false) ? 'sick_with_document_days' : 'sick_without_document_days';
                 $summary[$key]++;
             }
