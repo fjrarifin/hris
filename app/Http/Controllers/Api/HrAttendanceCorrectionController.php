@@ -73,6 +73,7 @@ class HrAttendanceCorrectionController extends Controller
                             'PH' => 'Libur Nasional',
                             'EO' => 'Libur Ekstra / Off',
                             'C' => 'Cuti',
+                            'SDC' => 'Sakit Dengan Catatan',
                             default => $day['approval_label'] ?? $day['status']
                         };
 
@@ -89,7 +90,8 @@ class HrAttendanceCorrectionController extends Controller
                             'duration' => $day['duration_label'] ?? null,
                             'duration_minutes' => $day['duration_minutes'] ?? 0,
                             'finding' => $this->findingLabel($day),
-                            'is_resolved' => in_array($day['status'], ['C', 'PH', 'EO'], true)
+                            'is_resolved' => in_array($day['status'], ['C', 'PH', 'EO', 'SDC'], true)
+                                || (($day['correction']['correction_type'] ?? null) === 'sdc')
                                 || (! blank($day['scan_in']) && ! blank($day['scan_out']) && ! ($day['needs_attention'] ?? false)),
                             'needs_attention' => $day['needs_attention'] ?? false,
                             'has_incomplete_scan' => $day['has_incomplete_scan'] ?? false,
