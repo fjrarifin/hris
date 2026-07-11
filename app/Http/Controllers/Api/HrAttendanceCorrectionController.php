@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\AttendanceCorrection;
 use App\Models\EmployeeExtraOff;
+use App\Models\EmployeePermission;
 use App\Models\ExtraOffRequest;
 use App\Models\HrdAuditLog;
 use App\Models\Karyawan;
@@ -259,6 +260,7 @@ class HrAttendanceCorrectionController extends Controller
         if ($field === 'correction_type') {
             return match ($value) {
                 'time' => 'Koreksi Jam Absen',
+                'sdc' => 'SDC',
                 'leave' => 'Cuti',
                 'public_holiday' => 'PH',
                 'extra_off' => 'Extra Off',
@@ -471,11 +473,34 @@ class HrAttendanceCorrectionController extends Controller
         $this->ensureNoAbsenceConflict($employeeUser, $date);
 
         return match ($correctionType) {
+            'sdc' => $this->createApprovedSdcCorrection($request, $employeeUser, $date, $validated),
             'leave' => $this->createApprovedLeaveCorrection($request, $employeeUser, $employee, $date, $validated),
             'public_holiday' => $this->createApprovedPublicHolidayCorrection($request, $employeeUser, $employee, $date, $validated),
             'extra_off' => $this->createApprovedExtraOffCorrection($request, $employeeUser, $employee, $date, $validated),
             default => throw ValidationException::withMessages(['correction_type' => ['Jenis koreksi tidak valid.']]),
         };
+    }
+
+    private function createApprovedSdcCorrection(Request $request, User $employeeUser, Carbon $date, array $validated): array
+    {
+        $permission = EmployeePermission::query()->create([
+            'user_id' => $employeeUser->id,
+            'type' => 'sakit',
+            'date' => $date->toDateString(),
+            'end_date' => $date->toDateString(),
+            'reason' => $this->correctionReason('Sakit Dengan Catatan', $validated['notes'] ?? null),
+            'status' => 'approved',
+            'manager_approved_at' => now(),
+            'manager_approved_by' => $request->user()?->id,
+            'hr_approved_at' => now(),
+            'hr_approved_by' => $request->user()?->id,
+        ]);
+
+        return [
+            'type' => EmployeePermission::class,
+            'id' => $permission->id,
+            'leave_accrual_id' => null,
+        ];
     }
 
     private function createApprovedLeaveCorrection(Request $request, User $employeeUser, Karyawan $employee, Carbon $date, array $validated): array
@@ -611,8 +636,14 @@ class HrAttendanceCorrectionController extends Controller
                 ->where('user_id', $user->id)
                 ->whereNotIn('status', ['rejected', 'cancelled'])
                 ->whereDate('claim_date', $date)
+                ->exists()
+            || EmployeePermission::query()
+                ->where('user_id', $user->id)
+                ->whereNotIn('status', ['rejected', 'cancelled'])
+                ->whereDate('date', '<=', $date)
+                ->whereDate('end_date', '>=', $date)
                 ->exists()) {
-            throw ValidationException::withMessages(['attendance_date' => ['Tanggal ini sudah memiliki CUTI/PH/EO yang aktif.']]);
+            throw ValidationException::withMessages(['attendance_date' => ['Tanggal ini sudah memiliki CUTI/PH/EO/IZIN-SAKIT yang aktif.']]);
         }
     }
 
