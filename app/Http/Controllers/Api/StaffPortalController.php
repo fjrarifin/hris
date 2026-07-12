@@ -748,8 +748,9 @@ class StaffPortalController extends Controller
             (float) $validated['longitude']
         );
         $attendanceRadiusMeters = 300;
+        $attendanceRadiusRequired = $employee->requiresAttendanceRadius();
         abort_if(
-            $distanceMeters > $attendanceRadiusMeters,
+            $attendanceRadiusRequired && $distanceMeters > $attendanceRadiusMeters,
             422,
             sprintf('Absensi mobile hanya bisa dilakukan maksimal %d meter dari HomPim Play. Jarak Anda saat ini sekitar %d meter.', $attendanceRadiusMeters, (int) round($distanceMeters))
         );
@@ -803,6 +804,7 @@ class StaffPortalController extends Controller
                 'latitude' => $validated['latitude'],
                 'longitude' => $validated['longitude'],
                 'distance_from_attendance_center_meters' => round($distanceMeters, 2),
+                'attendance_radius_required' => $attendanceRadiusRequired,
                 'photo_path' => $filePath,
                 'photo_type' => $photoType,
                 'attendance_type' => strtolower($attendanceType),

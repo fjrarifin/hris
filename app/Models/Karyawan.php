@@ -6,6 +6,12 @@ use Illuminate\Database\Eloquent\Model;
 
 class Karyawan extends Model
 {
+    private const ATTENDANCE_RADIUS_EXEMPT_POSITIONS = [
+        'manager',
+        'gm',
+        'general manager',
+    ];
+
     protected $table = 'm_karyawan';
 
     protected $primaryKey = 'nik';
@@ -88,5 +94,12 @@ class Karyawan extends Model
     public function payrollProfile()
     {
         return $this->hasOne(EmployeePayrollProfile::class, 'karyawan_nik', 'nik');
+    }
+
+    public function requiresAttendanceRadius(): bool
+    {
+        $positionTitle = strtolower(trim((string) ($this->posisi_title ?: $this->jabatan ?: $this->posisi)));
+
+        return ! in_array($positionTitle, self::ATTENDANCE_RADIUS_EXEMPT_POSITIONS, true);
     }
 }
