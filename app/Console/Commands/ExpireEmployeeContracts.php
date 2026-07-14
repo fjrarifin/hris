@@ -60,7 +60,9 @@ class ExpireEmployeeContracts extends Command
             ."Karyawan disinkronkan: {$contractNiks->count()}. "
             ."Reminder kontrak: {$reminders['contracts']} kontrak, "
             ."in-app {$reminders['in_app_notifications']}, "
-            ."WhatsApp {$reminders['whatsapp_notifications']}."
+            ."WhatsApp {$reminders['whatsapp_notifications']}, "
+            ."in-app atasan {$reminders['supervisor_in_app_notifications']}, "
+            ."WhatsApp atasan {$reminders['supervisor_whatsapp_notifications']}."
         );
 
         return self::SUCCESS;

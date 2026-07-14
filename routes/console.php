@@ -35,6 +35,11 @@ Schedule::command('contracts:expire')
     ->withoutOverlapping()
     ->runInBackground();
 
+Schedule::command('birthdays:send-greetings')
+    ->dailyAt('08:00')
+    ->withoutOverlapping()
+    ->runInBackground();
+
 Schedule::command('approval:send-reminders --slot=1')
     ->dailyAt('18:00')
     ->withoutOverlapping()

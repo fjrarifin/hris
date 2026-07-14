@@ -42,6 +42,8 @@ class EmployeeContractReminderTest extends TestCase
             $table->string('departement')->nullable();
             $table->string('divisi')->nullable();
             $table->string('unit')->nullable();
+            $table->string('nama_atasan_langsung')->nullable();
+            $table->string('no_hp')->nullable();
             $table->string('status_karyawan')->nullable();
             $table->timestamps();
         });
@@ -128,6 +130,70 @@ class EmployeeContractReminderTest extends TestCase
         $this->assertDatabaseHas('notifications', [
             'type' => 'whatsapp',
             'notifiable_type' => 'whatsapp_group',
+        ]);
+    }
+
+    public function test_it_notifies_direct_supervisor_in_app_and_whatsapp_at_45_days(): void
+    {
+        User::query()->create([
+            'name' => 'HRD',
+            'username' => 'hrd0001',
+            'email' => 'hrd@example.test',
+            'password' => 'secret',
+            'level' => 2,
+            'is_active' => true,
+        ]);
+        $supervisorUser = User::query()->create([
+            'name' => 'Siti Atasan',
+            'username' => 'SPV001',
+            'email' => 'siti@example.test',
+            'password' => 'secret',
+            'level' => 3,
+            'is_active' => true,
+        ]);
+
+        Karyawan::query()->create([
+            'nik' => 'SPV001',
+            'nama_karyawan' => 'Siti Atasan',
+            'jabatan' => 'Supervisor',
+            'no_hp' => '081234567890',
+            'status_karyawan' => 'AKTIF',
+        ]);
+        Karyawan::query()->create([
+            'nik' => 'EMP003',
+            'nama_karyawan' => 'Doni Saputra',
+            'jabatan' => 'Staff',
+            'nama_atasan_langsung' => 'Siti Atasan',
+            'status_karyawan' => 'AKTIF',
+        ]);
+        $this->contract('EMP003', '2026-01-01', '2026-07-26');
+
+        $this->mockWhatsApp()
+            ->shouldReceive('sendMessage')
+            ->once()
+            ->withArgs(fn (string $recipient, string $message): bool => $recipient === 'attendance-group'
+                && str_contains($message, 'Doni Saputra'))
+            ->andReturnTrue();
+        app(WhatsAppService::class)
+            ->shouldReceive('sendMessage')
+            ->once()
+            ->withArgs(fn (string $recipient, string $message): bool => $recipient === '081234567890'
+                && str_contains($message, 'Doni Saputra')
+                && str_contains($message, '45 hari')
+                && str_contains($message, 'hubungi HRD'))
+            ->andReturnTrue();
+
+        Artisan::call('contracts:expire', ['--date' => '2026-06-11']);
+
+        $notifications = $supervisorUser->fresh()->notifications;
+        $this->assertCount(1, $notifications);
+        $this->assertSame('subordinate_contract_expiry_reminder', $notifications->first()->data['type']);
+        $this->assertSame('/contracts', $notifications->first()->data['mobile_path']);
+        $this->assertStringContainsString('Hubungi HRD', $notifications->first()->data['message']);
+
+        $this->assertDatabaseHas('notifications', [
+            'type' => 'whatsapp',
+            'notifiable_type' => 'whatsapp_supervisor',
         ]);
     }
 

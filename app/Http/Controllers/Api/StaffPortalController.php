@@ -104,6 +104,88 @@ class StaffPortalController extends Controller
         return response()->json($this->profilePayload($employee, $user, true));
     }
 
+    public function contracts(Request $request): JsonResponse
+    {
+        $employee = $this->employeeFor($request->user());
+        $today = now()->startOfDay();
+        $subordinates = Karyawan::query()
+            ->whereIn('nik', $this->subordinateNiks($request->user()))
+            ->orderBy('nama_karyawan')
+            ->get(['nik', 'nama_karyawan', 'jabatan', 'posisi', 'departement', 'divisi', 'unit']);
+
+        $ownContracts = DB::table('t_kontrak_karyawan')
+            ->where('nik', $employee->nik)
+            ->orderByDesc('start_date')
+            ->orderByDesc('id')
+            ->get()
+            ->map(fn (object $contract): array => $this->staffContractPayload($contract, $today))
+            ->values();
+
+        $activeContractsByNik = DB::table('t_kontrak_karyawan')
+            ->whereIn('nik', $subordinates->pluck('nik'))
+            ->whereRaw("UPPER(TRIM(COALESCE(status_kontrak, ''))) = ?", ['AKTIF'])
+            ->whereDate('start_date', '<=', $today)
+            ->whereDate('end_date', '>=', $today)
+            ->orderByDesc('start_date')
+            ->orderByDesc('id')
+            ->get()
+            ->groupBy('nik');
+
+        $teamContracts = $subordinates
+            ->map(function (Karyawan $subordinate) use ($activeContractsByNik, $today): ?array {
+                $contract = $activeContractsByNik->get($subordinate->nik)?->first();
+
+                if (! $contract) {
+                    return null;
+                }
+
+                return [
+                    'employee' => [
+                        'nik' => $subordinate->nik,
+                        'name' => $subordinate->nama_karyawan,
+                        'position' => $subordinate->jabatan ?: $subordinate->posisi,
+                        'department' => $subordinate->departement ?: $subordinate->divisi,
+                        'unit' => $subordinate->unit,
+                    ],
+                    'contract' => $this->staffContractPayload($contract, $today),
+                ];
+            })
+            ->filter()
+            ->values();
+
+        return response()->json([
+            'as_of_date' => $today->toDateString(),
+            'employee' => [
+                'nik' => $employee->nik,
+                'name' => $employee->nama_karyawan,
+            ],
+            'own_contracts' => $ownContracts,
+            'team_contracts' => $teamContracts,
+        ]);
+    }
+
+    public function previewContractPdf(Request $request, int $contractId): JsonResponse
+    {
+        $contract = DB::table('t_kontrak_karyawan')->where('id', $contractId)->first();
+        abort_unless($contract && filled($contract->document), 404);
+
+        $isOwnContract = (string) $contract->nik === (string) $request->user()->username;
+        $isActiveSubordinateContract = $this->subordinateNiks($request->user())
+            ->contains((string) $contract->nik)
+            && $this->isStaffContractActive($contract, now()->startOfDay());
+
+        abort_unless($isOwnContract || $isActiveSubordinateContract, 404);
+
+        $disk = Storage::disk('local')->exists($contract->document) ? 'local' : 'public';
+        abort_unless(Storage::disk($disk)->exists($contract->document), 404);
+
+        return response()->json([
+            'filename' => 'Kontrak-'.$contract->nik.'-'.$contract->kontrak_ke.'.pdf',
+            'mime_type' => 'application/pdf',
+            'content_base64' => base64_encode(Storage::disk($disk)->get($contract->document)),
+        ])->header('Cache-Control', 'private, no-store');
+    }
+
     public function storeGateQrUsage(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -1329,6 +1411,7 @@ class StaffPortalController extends Controller
         $user = $request->user();
         $subordinates = Karyawan::query()
             ->whereIn('nik', $this->subordinateNiks($user))
+            ->where('status_karyawan', 'AKTIF')
             ->orderBy('nama_karyawan')
             ->get(['nik', 'nama_karyawan', 'jabatan', 'departement']);
 
@@ -1417,6 +1500,33 @@ class StaffPortalController extends Controller
     private function employeeFor(User $user): Karyawan
     {
         return Karyawan::query()->where('nik', $user->username)->firstOrFail();
+    }
+
+    private function staffContractPayload(object $contract, Carbon $today): array
+    {
+        $startDate = $contract->start_date ? Carbon::parse($contract->start_date)->startOfDay() : null;
+        $endDate = $contract->end_date ? Carbon::parse($contract->end_date)->startOfDay() : null;
+        $isActive = $this->isStaffContractActive($contract, $today);
+
+        return [
+            'id' => (int) $contract->id,
+            'contract_number' => (int) $contract->kontrak_ke,
+            'contract_type' => $contract->jenis_kontrak ?: 'PKWT',
+            'start_date' => $startDate?->toDateString(),
+            'end_date' => $endDate?->toDateString(),
+            'status' => $contract->status_kontrak,
+            'state' => $isActive ? 'active' : ($startDate?->gt($today) ? 'upcoming' : 'history'),
+            'remaining_days' => $isActive && $endDate ? (int) $today->diffInDays($endDate) : null,
+            'description' => $contract->keterangan ?? null,
+            'has_document' => filled($contract->document ?? null),
+        ];
+    }
+
+    private function isStaffContractActive(object $contract, Carbon $today): bool
+    {
+        return strtoupper(trim((string) $contract->status_kontrak)) === 'AKTIF'
+            && (! $contract->start_date || Carbon::parse($contract->start_date)->startOfDay()->lte($today))
+            && (! $contract->end_date || Carbon::parse($contract->end_date)->startOfDay()->gte($today));
     }
 
     private function employeeSummary(Karyawan $employee, User $user): array
@@ -1655,7 +1765,10 @@ class StaffPortalController extends Controller
         $employee = Karyawan::query()->where('nik', $user->username)->first();
 
         return $employee
-            ? Karyawan::query()->where('nama_atasan_langsung', $employee->nama_karyawan)->pluck('nik')
+            ? Karyawan::query()
+                ->where('nama_atasan_langsung', $employee->nama_karyawan)
+                ->whereRaw("UPPER(TRIM(COALESCE(status_karyawan, ''))) = ?", ['AKTIF'])
+                ->pluck('nik')
             : collect();
     }
 
@@ -1664,6 +1777,7 @@ class StaffPortalController extends Controller
         $subordinateNiks = $this->subordinateNiks($user);
         $subordinates = Karyawan::query()
             ->whereIn('nik', $subordinateNiks)
+            ->whereRaw("UPPER(TRIM(COALESCE(status_karyawan, ''))) = ?", ['AKTIF'])
             ->orderBy('nama_karyawan')
             ->get(['nik', 'pin', 'nama_karyawan', 'jabatan', 'posisi', 'departement', 'divisi', 'unit']);
         $logsByPin = FingerspotAttendanceLog::query()
@@ -1995,8 +2109,12 @@ class StaffPortalController extends Controller
 
         return $employee
             ? Karyawan::query()
-                ->where('nama_atasan_langsung', $employee->nama_karyawan)
-                ->orWhere('atasan_tidak_langsung', $employee->nama_karyawan)
+                ->where(function ($query) use ($employee): void {
+                    $query
+                        ->where('nama_atasan_langsung', $employee->nama_karyawan)
+                        ->orWhere('atasan_tidak_langsung', $employee->nama_karyawan);
+                })
+                ->whereRaw("UPPER(TRIM(COALESCE(status_karyawan, ''))) = ?", ['AKTIF'])
                 ->exists()
             : false;
     }

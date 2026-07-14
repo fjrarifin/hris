@@ -247,6 +247,11 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('/profile/photo', [StaffPortalController::class, 'updateProfilePhoto']);
             Route::post('/profile/gate-qr-usage', [StaffPortalController::class, 'storeGateQrUsage']);
 
+            Route::middleware('frontend.menu:staff-contracts')->group(function () {
+                Route::get('/contracts', [StaffPortalController::class, 'contracts']);
+                Route::get('/contracts/{contractId}/pdf-preview', [StaffPortalController::class, 'previewContractPdf']);
+            });
+
             Route::middleware('frontend.menu:staff-attendance')->group(function () {
                 Route::get('/attendance', [StaffPortalController::class, 'attendance']);
                 Route::post('/attendance/selfie', [StaffPortalController::class, 'storeSelfAttendance']);
