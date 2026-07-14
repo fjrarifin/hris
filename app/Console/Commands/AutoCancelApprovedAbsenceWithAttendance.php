@@ -109,12 +109,12 @@ class AutoCancelApprovedAbsenceWithAttendance extends Command
 
     private function notifySupervisor(object $request, string $type, ?Karyawan $employee, Carbon $date): void
     {
-        if (! $employee || blank($employee->nama_atasan_langsung)) {
+        if (! $employee || blank($employee->atasan_langsung_nik)) {
             return;
         }
 
         $supervisorEmployee = Karyawan::query()
-            ->where('nama_karyawan', $employee->nama_atasan_langsung)
+            ->where('nik', $employee->atasan_langsung_nik)
             ->first();
         $supervisorUser = $supervisorEmployee
             ? User::query()->where('username', $supervisorEmployee->nik)->first()

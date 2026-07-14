@@ -1568,6 +1568,8 @@ class StaffPortalController extends Controller
                 'unit' => $employee->unit,
                 'nama_atasan_langsung' => $employee->nama_atasan_langsung,
                 'atasan_tidak_langsung' => $employee->atasan_tidak_langsung,
+                'atasan_langsung_nik' => $employee->atasan_langsung_nik,
+                'atasan_tidak_langsung_nik' => $employee->atasan_tidak_langsung_nik,
                 'join_date' => $employee->join_date?->toDateString(),
             ],
             'editable' => $editable,
@@ -1766,7 +1768,7 @@ class StaffPortalController extends Controller
 
         return $employee
             ? Karyawan::query()
-                ->where('nama_atasan_langsung', $employee->nama_karyawan)
+                ->where('atasan_langsung_nik', $employee->nik)
                 ->whereRaw("UPPER(TRIM(COALESCE(status_karyawan, ''))) = ?", ['AKTIF'])
                 ->pluck('nik')
             : collect();
@@ -2111,8 +2113,8 @@ class StaffPortalController extends Controller
             ? Karyawan::query()
                 ->where(function ($query) use ($employee): void {
                     $query
-                        ->where('nama_atasan_langsung', $employee->nama_karyawan)
-                        ->orWhere('atasan_tidak_langsung', $employee->nama_karyawan);
+                        ->where('atasan_langsung_nik', $employee->nik)
+                        ->orWhere('atasan_tidak_langsung_nik', $employee->nik);
                 })
                 ->whereRaw("UPPER(TRIM(COALESCE(status_karyawan, ''))) = ?", ['AKTIF'])
                 ->exists()

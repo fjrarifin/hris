@@ -285,12 +285,12 @@ class EmployeeController extends Controller
             'jabatan' => [$requiredOnCreate, 'string', 'max:100'],
             'posisi' => ['nullable', 'string', 'max:100'],
             'posisi_level' => ['nullable', Rule::in($this->positionLevels())],
-            'posisi_title' => ['nullable', Rule::in($this->positionTitles())],
-            'divisi' => ['nullable', Rule::in($this->divisionOptions())],
-            'departement' => ['nullable', 'string', 'max:100'],
-            'unit' => ['nullable', 'string', 'max:100'],
-            'nama_atasan_langsung' => ['nullable', 'string', 'max:150', 'exists:m_karyawan,nama_karyawan'],
-            'atasan_tidak_langsung' => ['nullable', 'string', 'max:150', 'exists:m_karyawan,nama_karyawan'],
+            'posisi_title' => ['nullable', 'string', 'exists:master_position_titles,name'],
+            'divisi' => ['nullable', 'string', 'exists:master_divisions,name'],
+            'departement' => ['nullable', 'string', 'exists:master_departments,name'],
+            'unit' => ['nullable', 'string', 'exists:master_units,name'],
+            'atasan_langsung_nik' => ['nullable', 'string', 'max:30', 'exists:m_karyawan,nik'],
+            'atasan_tidak_langsung_nik' => ['nullable', 'string', 'max:30', 'exists:m_karyawan,nik'],
             'join_date' => ['nullable', 'date'],
             'jenis_kontrak' => ['nullable', Rule::in(['PKWT', 'PKWTT']), 'required_with:start_date,end_date,status_kontrak'],
             'status_kontrak' => ['nullable', Rule::in(['AKTIF', 'NONAKTIF']), 'required_with:start_date,end_date,jenis_kontrak'],
@@ -540,6 +540,8 @@ class EmployeeController extends Controller
             'unit' => 'Unit',
             'nama_atasan_langsung' => 'Atasan Langsung',
             'atasan_tidak_langsung' => 'Atasan Tidak Langsung',
+            'atasan_langsung_nik' => 'Atasan Langsung',
+            'atasan_tidak_langsung_nik' => 'Atasan Tidak Langsung',
             'join_date' => 'Tanggal Bergabung',
             'no_hp' => 'Nomor HP',
             'email' => 'Email',
@@ -787,5 +789,15 @@ class EmployeeController extends Controller
     private function maritalStatuses(): array
     {
         return ['Menikah', 'Tidak Kawin', 'Cerai Hidup', 'Cerai Mati'];
+    }
+
+    public function options(): JsonResponse
+    {
+        return response()->json([
+            'position_titles' => \App\Models\MasterPositionTitle::where('is_active', true)->pluck('name')->all(),
+            'divisions' => \App\Models\MasterDivision::where('is_active', true)->pluck('name')->all(),
+            'departments' => \App\Models\MasterDepartment::where('is_active', true)->pluck('name')->all(),
+            'units' => \App\Models\MasterUnit::where('is_active', true)->pluck('name')->all(),
+        ]);
     }
 }

@@ -34,20 +34,20 @@ class ApprovalNotificationService
 
             $karyawan = Karyawan::where('nik', $user->username)->first();
 
-            if (! $karyawan || ! $karyawan->nama_atasan_langsung) {
-                Log::warning('Approval notification skipped: employee or direct supervisor name missing', [
+            if (! $karyawan || ! $karyawan->atasan_langsung_nik) {
+                Log::warning('Approval notification skipped: employee or direct supervisor NIK missing', [
                     'type' => $type,
                     'request_id' => $request->id ?? null,
                     'user_id' => $user->id ?? null,
                     'username' => $user->username ?? null,
                     'employee_found' => (bool) $karyawan,
-                    'direct_supervisor_name' => $karyawan?->nama_atasan_langsung,
+                    'direct_supervisor_nik' => $karyawan?->atasan_langsung_nik,
                 ]);
 
                 return;
             }
 
-            $atasan = Karyawan::where('nama_karyawan', $karyawan->nama_atasan_langsung)->first();
+            $atasan = Karyawan::where('nik', $karyawan->atasan_langsung_nik)->first();
 
             if (! $atasan) {
                 Log::warning('Approval notification skipped: direct supervisor employee not found', [
@@ -254,11 +254,11 @@ class ApprovalNotificationService
 
         $karyawan = Karyawan::where('nik', $user->username)->first();
 
-        if (! $karyawan || ! $karyawan->atasan_tidak_langsung) {
+        if (! $karyawan || ! $karyawan->atasan_tidak_langsung_nik) {
             return;
         }
 
-        $atasan = Karyawan::where('nama_karyawan', $karyawan->atasan_tidak_langsung)->first();
+        $atasan = Karyawan::where('nik', $karyawan->atasan_tidak_langsung_nik)->first();
 
         if (! $atasan) {
             return;
@@ -287,11 +287,11 @@ class ApprovalNotificationService
             $user = $request->user;
             $karyawan = Karyawan::where('nik', $user->username)->first();
 
-            if (! $karyawan || ! $karyawan->atasan_tidak_langsung) {
+            if (! $karyawan || ! $karyawan->atasan_tidak_langsung_nik) {
                 return;
             }
 
-            $atasan = Karyawan::where('nama_karyawan', $karyawan->atasan_tidak_langsung)->first();
+            $atasan = Karyawan::where('nik', $karyawan->atasan_tidak_langsung_nik)->first();
 
             if (! $atasan) {
                 return;
@@ -603,12 +603,12 @@ class ApprovalNotificationService
 
     private function directManagerFor(Karyawan $employee): ?Karyawan
     {
-        if (! $employee->nama_atasan_langsung) {
+        if (! $employee->atasan_langsung_nik) {
             return null;
         }
 
         return Karyawan::query()
-            ->where('nama_karyawan', $employee->nama_atasan_langsung)
+            ->where('nik', $employee->atasan_langsung_nik)
             ->first();
     }
 

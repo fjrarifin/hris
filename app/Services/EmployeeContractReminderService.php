@@ -82,6 +82,7 @@ class EmployeeContractReminderService
 
         return DB::table('t_kontrak_karyawan as contracts')
             ->leftJoin('m_karyawan as employees', 'employees.nik', '=', 'contracts.nik')
+            ->leftJoin('m_karyawan as supervisor', 'supervisor.nik', '=', 'employees.atasan_langsung_nik')
             ->where('contracts.status_kontrak', 'AKTIF')
             ->whereIn('contracts.end_date', $reminderDates)
             ->orderBy('contracts.end_date')
@@ -97,7 +98,8 @@ class EmployeeContractReminderService
                 'employees.nama_karyawan as employee_name',
                 'employees.jabatan',
                 'employees.departement',
-                'employees.nama_atasan_langsung as direct_supervisor_name',
+                'employees.atasan_langsung_nik as direct_supervisor_nik',
+                'supervisor.nama_karyawan as direct_supervisor_name',
             ])
             ->map(function (object $contract) use ($today): object {
                 $contract->days_before = $today->diffInDays(Carbon::parse($contract->end_date)->startOfDay());
@@ -166,8 +168,8 @@ class EmployeeContractReminderService
 
     private function notifyDirectSupervisor(object $contract, Carbon $today): array
     {
-        if (! $contract->direct_supervisor_name) {
-            Log::warning('Supervisor contract reminder skipped: direct supervisor name missing', [
+        if (! $contract->direct_supervisor_nik) {
+            Log::warning('Supervisor contract reminder skipped: direct supervisor NIK missing', [
                 'contract_id' => $contract->id,
                 'employee_nik' => $contract->nik,
             ]);
@@ -176,7 +178,7 @@ class EmployeeContractReminderService
         }
 
         $supervisor = Karyawan::query()
-            ->where('nama_karyawan', $contract->direct_supervisor_name)
+            ->where('nik', $contract->direct_supervisor_nik)
             ->whereRaw("UPPER(TRIM(COALESCE(status_karyawan, ''))) = ?", ['AKTIF'])
             ->first();
 
@@ -184,7 +186,7 @@ class EmployeeContractReminderService
             Log::warning('Supervisor contract reminder skipped: active supervisor not found', [
                 'contract_id' => $contract->id,
                 'employee_nik' => $contract->nik,
-                'direct_supervisor_name' => $contract->direct_supervisor_name,
+                'direct_supervisor_nik' => $contract->direct_supervisor_nik,
             ]);
 
             return ['in_app_notifications' => 0, 'whatsapp_notifications' => 0];

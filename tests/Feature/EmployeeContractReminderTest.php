@@ -43,6 +43,8 @@ class EmployeeContractReminderTest extends TestCase
             $table->string('divisi')->nullable();
             $table->string('unit')->nullable();
             $table->string('nama_atasan_langsung')->nullable();
+            $table->string('atasan_langsung_nik', 30)->nullable();
+            $table->string('atasan_tidak_langsung_nik', 30)->nullable();
             $table->string('no_hp')->nullable();
             $table->string('status_karyawan')->nullable();
             $table->timestamps();

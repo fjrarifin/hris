@@ -44,6 +44,7 @@ class IncompleteAttendanceWhatsAppReport
             ->get()
             ->keyBy('nik');
         $employees = Karyawan::query()
+            ->with('atasanLangsung')
             ->whereIn('nik', $scheduledNiks->merge($loggedEmployeeNiks)->merge($corrections->keys())->unique())
             ->orderBy('departement')
             ->orderBy('nama_karyawan')

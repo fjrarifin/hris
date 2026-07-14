@@ -49,7 +49,7 @@ class FrontendNavigation
         $payrollKeys = ['payroll', 'hr-payroll-master', 'hr-payroll-process'];
         $payrollChildren = $menus->whereIn('key', $payrollKeys)->values()->all();
         $payrollAnchor = $payrollChildren[0]['key'] ?? null;
-        $employeeKeys = ['employees', 'hr-contracts'];
+        $employeeKeys = ['employees', 'hr-contracts', 'hr-master-positions', 'hr-master-divisions', 'hr-master-departments', 'hr-master-units'];
         $employeeAnchor = $menus
             ->first(fn (array $menu) => in_array($menu['key'], $employeeKeys, true))['key'] ?? null;
         $employeeChildren = $menus
@@ -94,6 +94,10 @@ class FrontendNavigation
         $talentChildren = $menus->whereIn('key', $talentKeys)->values()->all();
         $talentAnchor = $talentChildren[0]['key'] ?? null;
 
+        $recruitmentKeys = ['hr-recruitment-vacancies', 'hr-recruitment-candidates', 'hr-recruitment-requests'];
+        $recruitmentChildren = $menus->whereIn('key', $recruitmentKeys)->values()->all();
+        $recruitmentAnchor = $recruitmentChildren[0]['key'] ?? null;
+
         return $menus->flatMap(function (array $menu) use (
             $employeeKeys,
             $employeeChildren,
@@ -109,7 +113,10 @@ class FrontendNavigation
             $talentAnchor,
             $payrollKeys,
             $payrollChildren,
-            $payrollAnchor
+            $payrollAnchor,
+            $recruitmentKeys,
+            $recruitmentChildren,
+            $recruitmentAnchor
         ): array {
             if ($menu['key'] === $payrollAnchor && $payrollChildren) {
                 return [[
@@ -163,6 +170,19 @@ class FrontendNavigation
                 return [];
             }
 
+            if ($menu['key'] === $recruitmentAnchor && $recruitmentChildren) {
+                return [[
+                    'key' => 'hr-recruitment',
+                    'label' => 'Recruitment',
+                    'icon' => 'i-lucide-briefcase',
+                    'children' => $recruitmentChildren,
+                ]];
+            }
+
+            if (in_array($menu['key'], $recruitmentKeys, true)) {
+                return [];
+            }
+
             if ($menu['key'] === $approvalAnchor && $children) {
                 return [[
                     'key' => 'hr-approvals',
@@ -172,7 +192,7 @@ class FrontendNavigation
                 ]];
             }
 
-            return in_array($menu['key'], $approvalKeys, true) ? [] : [$menu];
+            return in_array($menu['key'], array_merge($approvalKeys, $recruitmentKeys), true) ? [] : [$menu];
         })->values();
     }
 
@@ -280,7 +300,7 @@ class FrontendNavigation
             return true;
         }
 
-        if (in_array($menu->key, ['staff-approvals', 'staff-overtime'], true) && ! $this->hasDirectSubordinates($user)) {
+        if (in_array($menu->key, ['staff-approvals', 'staff-overtime', 'staff-recruitment-requests'], true) && ! $this->hasDirectSubordinates($user)) {
             return false;
         }
 
@@ -315,7 +335,7 @@ class FrontendNavigation
         $employee = $user->karyawan;
 
         return $employee
-            ? \App\Models\Karyawan::query()->where('nama_atasan_langsung', $employee->nama_karyawan)->exists()
+            ? \App\Models\Karyawan::query()->where('atasan_langsung_nik', $employee->nik)->exists()
             : false;
     }
 
@@ -325,8 +345,8 @@ class FrontendNavigation
 
         return $employee
             ? \App\Models\Karyawan::query()
-                ->where('nama_atasan_langsung', $employee->nama_karyawan)
-                ->orWhere('atasan_tidak_langsung', $employee->nama_karyawan)
+                ->where('atasan_langsung_nik', $employee->nik)
+                ->orWhere('atasan_tidak_langsung_nik', $employee->nik)
                 ->exists()
             : false;
     }

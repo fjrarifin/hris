@@ -34,6 +34,8 @@ class Karyawan extends Model
         'unit',
         'nama_atasan_langsung',
         'atasan_tidak_langsung',
+        'atasan_langsung_nik',
+        'atasan_tidak_langsung_nik',
         'status_karyawan',
         'join_date',
         'no_hp',
@@ -81,6 +83,11 @@ class Karyawan extends Model
         'children' => 'array',
     ];
 
+    protected $appends = [
+        'nama_atasan_langsung',
+        'atasan_tidak_langsung',
+    ];
+
     public function user()
     {
         return $this->belongsTo(User::class, 'nik', 'username');
@@ -101,5 +108,25 @@ class Karyawan extends Model
         $positionTitle = strtolower(trim((string) ($this->posisi_title ?: $this->jabatan ?: $this->posisi)));
 
         return ! in_array($positionTitle, self::ATTENDANCE_RADIUS_EXEMPT_POSITIONS, true);
+    }
+
+    public function atasanLangsung()
+    {
+        return $this->belongsTo(Karyawan::class, 'atasan_langsung_nik', 'nik');
+    }
+
+    public function atasanTidakLangsung()
+    {
+        return $this->belongsTo(Karyawan::class, 'atasan_tidak_langsung_nik', 'nik');
+    }
+
+    public function getNamaAtasanLangsungAttribute(): ?string
+    {
+        return $this->atasanLangsung?->nama_karyawan;
+    }
+
+    public function getAtasanTidakLangsungAttribute(): ?string
+    {
+        return $this->atasanTidakLangsung?->nama_karyawan;
     }
 }

@@ -49,6 +49,8 @@ class StaffLeaveApiTest extends TestCase
             $table->string('nik')->unique();
             $table->string('nama_karyawan');
             $table->string('nama_atasan_langsung')->nullable();
+            $table->string('atasan_langsung_nik', 30)->nullable();
+            $table->string('atasan_tidak_langsung_nik', 30)->nullable();
             $table->string('posisi_title')->nullable();
             $table->string('jabatan')->nullable();
             $table->string('posisi')->nullable();

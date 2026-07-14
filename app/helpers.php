@@ -126,8 +126,8 @@ if (!function_exists('punyaBawahan')) {
             return false;
         }
 
-        return Karyawan::where('nama_atasan_langsung', $karyawan->nama_karyawan)
-            ->orWhere('atasan_tidak_langsung', $karyawan->nama_karyawan)
+        return Karyawan::where('atasan_langsung_nik', $karyawan->nik)
+            ->orWhere('atasan_tidak_langsung_nik', $karyawan->nik)
             ->exists();
     }
 }

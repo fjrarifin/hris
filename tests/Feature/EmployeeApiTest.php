@@ -73,6 +73,8 @@ class EmployeeApiTest extends TestCase
             $table->string('unit')->nullable();
             $table->string('nama_atasan_langsung')->nullable();
             $table->string('atasan_tidak_langsung')->nullable();
+            $table->string('atasan_langsung_nik', 30)->nullable();
+            $table->string('atasan_tidak_langsung_nik', 30)->nullable();
             $table->string('status_karyawan')->nullable();
             $table->date('join_date')->nullable();
             $table->string('no_hp')->nullable();
@@ -212,7 +214,7 @@ class EmployeeApiTest extends TestCase
             'keterangan_kontrak' => 'Kontrak awal',
             'status_pajak' => 'K/1',
             'nama_anak_1' => 'Anak Pertama',
-            'nama_atasan_langsung' => 'Manager HR',
+            'atasan_langsung_nik' => 'MGR001',
             'npwp' => true,
             'bpjs' => true,
             'document' => UploadedFile::fake()->create('kontrak-awal.pdf', 100, 'application/pdf'),
@@ -231,7 +233,7 @@ class EmployeeApiTest extends TestCase
             'status_pajak' => 'K/1',
             'status_pernikahan' => 'Menikah',
             'nama_anak_1' => 'Anak Pertama',
-            'nama_atasan_langsung' => 'Manager HR',
+            'atasan_langsung_nik' => 'MGR001',
             'bpjs' => true,
         ]);
         $this->assertDatabaseHas('t_kontrak_karyawan', [

@@ -33,8 +33,11 @@ class CashierSupervisorHierarchySeeder extends Seeder
         }
 
         foreach ($leaders as $leader) {
-            if ($leader->nama_atasan_langsung !== $supervisor->nama_karyawan) {
-                $leader->update(['nama_atasan_langsung' => $supervisor->nama_karyawan]);
+            if ($leader->atasan_langsung_nik !== $supervisor->nik) {
+                $leader->update([
+                    'nama_atasan_langsung' => $supervisor->nama_karyawan,
+                    'atasan_langsung_nik' => $supervisor->nik,
+                ]);
             }
         }
 
@@ -46,11 +49,14 @@ class CashierSupervisorHierarchySeeder extends Seeder
 
         foreach ($cashiers as $index => $cashier) {
             $updates = [];
-            if (blank($cashier->nama_atasan_langsung) || $cashier->nama_atasan_langsung === '0') {
-                $updates['nama_atasan_langsung'] = $leaders[$index % $leaders->count()]->nama_karyawan;
+            $leader = $leaders[$index % $leaders->count()];
+            if (blank($cashier->atasan_langsung_nik) || $cashier->atasan_langsung_nik === '0') {
+                $updates['nama_atasan_langsung'] = $leader->nama_karyawan;
+                $updates['atasan_langsung_nik'] = $leader->nik;
             }
-            if (blank($cashier->atasan_tidak_langsung) || $cashier->atasan_tidak_langsung === '0') {
+            if (blank($cashier->atasan_tidak_langsung_nik) || $cashier->atasan_tidak_langsung_nik === '0') {
                 $updates['atasan_tidak_langsung'] = $supervisor->nama_karyawan;
+                $updates['atasan_tidak_langsung_nik'] = $supervisor->nik;
             }
             if ($updates) {
                 $cashier->update($updates);

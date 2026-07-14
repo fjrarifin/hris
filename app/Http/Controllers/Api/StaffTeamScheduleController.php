@@ -46,7 +46,7 @@ class StaffTeamScheduleController extends Controller
                 'position' => $employee->jabatan ?: ($employee->posisi ?: '-'),
                 'department' => $employee->departement ?: ($employee->divisi ?: '-'),
                 'unit' => $employee->unit ?: '-',
-                'relationship' => $employee->nama_atasan_langsung === $supervisor->nama_karyawan
+                'relationship' => $employee->atasan_langsung_nik === $supervisor->nik
                     ? 'Bawahan langsung'
                     : 'Bawahan tidak langsung',
                 'total_period_days' => $totalPeriodDays,
@@ -231,8 +231,8 @@ class StaffTeamScheduleController extends Controller
         return Karyawan::query()
             ->where('nik', '!=', $supervisor->nik)
             ->where(function ($query) use ($supervisor) {
-                $query->where('nama_atasan_langsung', $supervisor->nama_karyawan)
-                    ->orWhere('atasan_tidak_langsung', $supervisor->nama_karyawan);
+                $query->where('atasan_langsung_nik', $supervisor->nik)
+                    ->orWhere('atasan_tidak_langsung_nik', $supervisor->nik);
             })
             ->orderBy('nama_karyawan')
             ->get([
@@ -244,8 +244,8 @@ class StaffTeamScheduleController extends Controller
                 'departement',
                 'divisi',
                 'unit',
-                'nama_atasan_langsung',
-                'atasan_tidak_langsung',
+                'atasan_langsung_nik',
+                'atasan_tidak_langsung_nik',
             ])
             ->values();
     }

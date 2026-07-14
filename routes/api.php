@@ -11,6 +11,11 @@ use App\Http\Controllers\Api\HrDashboardController;
 use App\Http\Controllers\Api\HrdAuditLogController;
 use App\Http\Controllers\Api\HrJobdeskController;
 use App\Http\Controllers\Api\HrKpiTemplateController;
+use App\Http\Controllers\Api\HrRecruitmentCandidateController;
+use App\Http\Controllers\Api\HrRecruitmentVacancyController;
+use App\Http\Controllers\Api\HrRecruitmentRequestController;
+use App\Http\Controllers\Api\StaffRecruitmentRequestController;
+use App\Http\Controllers\Api\HrOrgStructureController;
 use App\Http\Controllers\Api\HrPayrollMasterController;
 use App\Http\Controllers\Api\HrPayrollProcessController;
 use App\Http\Controllers\Api\HrPerformancePeriodController;
@@ -85,6 +90,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/auth/logout', [ApiAuthController::class, 'logout']);
 
     Route::middleware('password.changed.api')->group(function () {
+        Route::get('/employee-options', [EmployeeController::class, 'options']);
         Route::get('/navigation', [NavigationController::class, 'index']);
         Route::get('/notifications', [NotificationController::class, 'index']);
         Route::post('/notifications/mobile-token', [NotificationController::class, 'registerMobileToken']);
@@ -192,6 +198,49 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::post('/reviews', [HrPerformanceReviewController::class, 'store']);
                 Route::get('/reviews/{performanceReview}', [HrPerformanceReviewController::class, 'show']);
                 Route::patch('/reviews/{performanceReview}/status', [HrPerformanceReviewController::class, 'updateStatus']);
+            });
+
+            Route::middleware('frontend.menu:hr-recruitment-vacancies')->group(function () {
+                Route::apiResource('recruitment/vacancies', HrRecruitmentVacancyController::class);
+            });
+
+            Route::middleware('frontend.menu:hr-master-positions')->prefix('master-orgs/positions')->group(function () {
+                Route::get('/', [HrOrgStructureController::class, 'index'])->defaults('type', 'positions');
+                Route::post('/', [HrOrgStructureController::class, 'store'])->defaults('type', 'positions');
+                Route::put('/{id}', [HrOrgStructureController::class, 'update'])->defaults('type', 'positions');
+                Route::delete('/{id}', [HrOrgStructureController::class, 'destroy'])->defaults('type', 'positions');
+            });
+
+            Route::middleware('frontend.menu:hr-master-divisions')->prefix('master-orgs/divisions')->group(function () {
+                Route::get('/', [HrOrgStructureController::class, 'index'])->defaults('type', 'divisions');
+                Route::post('/', [HrOrgStructureController::class, 'store'])->defaults('type', 'divisions');
+                Route::put('/{id}', [HrOrgStructureController::class, 'update'])->defaults('type', 'divisions');
+                Route::delete('/{id}', [HrOrgStructureController::class, 'destroy'])->defaults('type', 'divisions');
+            });
+
+            Route::middleware('frontend.menu:hr-master-departments')->prefix('master-orgs/departments')->group(function () {
+                Route::get('/', [HrOrgStructureController::class, 'index'])->defaults('type', 'departments');
+                Route::post('/', [HrOrgStructureController::class, 'store'])->defaults('type', 'departments');
+                Route::put('/{id}', [HrOrgStructureController::class, 'update'])->defaults('type', 'departments');
+                Route::delete('/{id}', [HrOrgStructureController::class, 'destroy'])->defaults('type', 'departments');
+            });
+
+            Route::middleware('frontend.menu:hr-master-units')->prefix('master-orgs/units')->group(function () {
+                Route::get('/', [HrOrgStructureController::class, 'index'])->defaults('type', 'units');
+                Route::post('/', [HrOrgStructureController::class, 'store'])->defaults('type', 'units');
+                Route::put('/{id}', [HrOrgStructureController::class, 'update'])->defaults('type', 'units');
+                Route::delete('/{id}', [HrOrgStructureController::class, 'destroy'])->defaults('type', 'units');
+            });
+
+            Route::middleware('frontend.menu:hr-recruitment-candidates')->group(function () {
+                Route::apiResource('recruitment/candidates', HrRecruitmentCandidateController::class);
+                Route::post('recruitment/candidates/{candidate}/upload-resume', [HrRecruitmentCandidateController::class, 'uploadResume']);
+                Route::get('recruitment/candidates/{candidate}/resume-preview', [HrRecruitmentCandidateController::class, 'previewResume']);
+            });
+
+            Route::middleware('frontend.menu:hr-recruitment-requests')->group(function () {
+                Route::get('recruitment/requests', [HrRecruitmentRequestController::class, 'index']);
+                Route::post('recruitment/requests/{recruitmentRequest}/decide', [HrRecruitmentRequestController::class, 'decide']);
             });
         });
 
@@ -311,6 +360,11 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::prefix('talent')->middleware('frontend.menu:staff-talent')->group(function () {
                 Route::get('/', [StaffTalentController::class, 'index']);
                 Route::get('/jobdesks/{jobdesk}/pdf-preview', [StaffTalentController::class, 'previewPdf']);
+            });
+
+            Route::middleware('frontend.menu:staff-recruitment-requests')->group(function () {
+                Route::get('/recruitment/requests', [StaffRecruitmentRequestController::class, 'index']);
+                Route::post('/recruitment/requests', [StaffRecruitmentRequestController::class, 'store']);
             });
         });
     });

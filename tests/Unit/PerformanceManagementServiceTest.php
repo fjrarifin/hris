@@ -94,6 +94,8 @@ class PerformanceManagementServiceTest extends TestCase
             $table->string('jabatan');
             $table->string('departement')->nullable();
             $table->string('nama_atasan_langsung')->nullable();
+            $table->string('atasan_langsung_nik', 30)->nullable();
+            $table->string('atasan_tidak_langsung_nik', 30)->nullable();
             $table->timestamps();
         });
         Schema::create('master_jabatans', function (Blueprint $table): void {

@@ -148,19 +148,10 @@ class PerformanceManagementService
 
     private function resolveReviewerId(Karyawan $employee): ?int
     {
-        if (! filled($employee->nama_atasan_langsung)) {
+        if (! filled($employee->atasan_langsung_nik)) {
             return null;
         }
 
-        $supervisors = Karyawan::query()
-            ->where('nama_karyawan', $employee->nama_atasan_langsung)
-            ->whereNotNull('nik')
-            ->get(['nik']);
-
-        if ($supervisors->count() !== 1) {
-            return null;
-        }
-
-        return User::query()->where('username', $supervisors->first()->nik)->value('id');
+        return User::query()->where('username', $employee->atasan_langsung_nik)->value('id');
     }
 }
