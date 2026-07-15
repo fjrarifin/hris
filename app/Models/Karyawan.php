@@ -127,6 +127,6 @@ class Karyawan extends Model
 
     public function getAtasanTidakLangsungAttribute(): ?string
     {
-        return $this->atasanTidakLangsung?->nama_karyawan;
+        return $this->getRelationValue('atasanTidakLangsung')?->nama_karyawan;
     }
 }
