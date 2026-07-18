@@ -27,8 +27,8 @@ class RecruitmentShortUrlService
             'expires_at' => $expiresAt,
         ]);
 
-        $baseUrl = request()?->getSchemeAndHttpHost() 
-            ?: (config('services.public_approval.base_url') ?: (config('app.url') ?: 'http://localhost:8000'));
+        $baseUrl = config('app.frontend_url') 
+            ?: (request()?->getSchemeAndHttpHost() ?: (config('app.url') ?: 'http://localhost:8000'));
         
         return rtrim((string) $baseUrl, '/') . '/s/' . $code;
     }
