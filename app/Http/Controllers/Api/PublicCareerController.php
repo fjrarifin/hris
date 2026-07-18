@@ -135,6 +135,12 @@ class PublicCareerController extends Controller
             throw $exception;
         }
 
+        try {
+            \Illuminate\Support\Facades\Mail::to($candidate->email)->send(new \App\Mail\CandidateAppliedMail($candidate));
+        } catch (\Throwable $mailException) {
+            \Illuminate\Support\Facades\Log::error('Failed to send CandidateAppliedMail to ' . $candidate->email . ': ' . $mailException->getMessage());
+        }
+
         return response()->json([
             'message' => 'Lamaran berhasil dikirim. Tim recruitment kami akan menghubungi kandidat yang sesuai.',
             'application_id' => $candidate->id,
