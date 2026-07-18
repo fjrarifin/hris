@@ -5,6 +5,9 @@ namespace App\Providers;
 use App\Models\User;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Sanctum\PersonalAccessToken;
 use Laravel\Sanctum\Sanctum;
@@ -24,6 +27,25 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        RateLimiter::for('career-read', fn (Request $request) => Limit::perMinute(120)->by($request->ip()));
+        RateLimiter::for('career-apply-ip', fn (Request $request) => [
+            Limit::perMinute(5)->by('career-ip-minute:'.$request->ip()),
+            Limit::perDay(30)->by('career-ip-day:'.$request->ip()),
+        ]);
+        RateLimiter::for('career-apply-identity', function (Request $request): array {
+            $email = mb_strtolower(trim((string) $request->input('email')));
+            $phone = preg_replace('/\D+/', '', (string) $request->input('phone')) ?: '';
+            if (str_starts_with($phone, '0')) {
+                $phone = '62'.substr($phone, 1);
+            }
+            $slug = (string) $request->route('slug');
+
+            return [
+                Limit::perDay(3)->by('career-email:'.$slug.':'.hash('sha256', $email)),
+                Limit::perDay(3)->by('career-phone:'.$slug.':'.hash('sha256', $phone)),
+            ];
+        });
+
         Sanctum::authenticateAccessTokensUsing(function (PersonalAccessToken $token, bool $isValid): bool {
             if (! $isValid) {
                 return false;

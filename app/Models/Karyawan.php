@@ -38,6 +38,7 @@ class Karyawan extends Model
         'atasan_tidak_langsung_nik',
         'status_karyawan',
         'join_date',
+        'end_date',
         'no_hp',
         'phone_updated_at',
         'email',
@@ -75,6 +76,7 @@ class Karyawan extends Model
 
     protected $casts = [
         'join_date' => 'date',
+        'end_date' => 'date',
         'tanggal_lahir' => 'date',
         'phone_updated_at' => 'datetime',
         'bpjs' => 'boolean',

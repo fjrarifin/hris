@@ -11,15 +11,18 @@ use App\Http\Controllers\Api\HrDashboardController;
 use App\Http\Controllers\Api\HrdAuditLogController;
 use App\Http\Controllers\Api\HrJobdeskController;
 use App\Http\Controllers\Api\HrKpiTemplateController;
-use App\Http\Controllers\Api\HrRecruitmentCandidateController;
-use App\Http\Controllers\Api\HrRecruitmentVacancyController;
-use App\Http\Controllers\Api\HrRecruitmentRequestController;
-use App\Http\Controllers\Api\StaffRecruitmentRequestController;
 use App\Http\Controllers\Api\HrOrgStructureController;
 use App\Http\Controllers\Api\HrPayrollMasterController;
 use App\Http\Controllers\Api\HrPayrollProcessController;
 use App\Http\Controllers\Api\HrPerformancePeriodController;
 use App\Http\Controllers\Api\HrPerformanceReviewController;
+use App\Http\Controllers\Api\HrRecruitmentCandidateController;
+use App\Http\Controllers\Api\HrRecruitmentDashboardController;
+use App\Http\Controllers\Api\HrRecruitmentInterviewAgendaController;
+use App\Http\Controllers\Api\HrRecruitmentRequestController;
+use App\Http\Controllers\Api\HrRecruitmentVacancyController;
+use App\Http\Controllers\Api\PublicCareerController;
+use App\Http\Controllers\Api\PublicReferenceEvaluationController;
 use App\Http\Controllers\Api\HrScheduleController;
 use App\Http\Controllers\Api\HrTalentOptionsController;
 use App\Http\Controllers\Api\ItActiveSessionController;
@@ -32,6 +35,7 @@ use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\OnlineUserController;
 use App\Http\Controllers\Api\StaffPerformanceReviewController;
 use App\Http\Controllers\Api\StaffPortalController;
+use App\Http\Controllers\Api\StaffRecruitmentRequestController;
 use App\Http\Controllers\Api\StaffTalentController;
 use App\Http\Controllers\Api\StaffTeamScheduleController;
 use App\Http\Controllers\AttendanceController;
@@ -41,6 +45,25 @@ use App\Http\Controllers\RfidController;
 use App\Http\Controllers\WhatsAppAiAgentWebhookController;
 use Illuminate\Support\Facades\Route;
 
+Route::get('/public/careers/vacancies', [PublicCareerController::class, 'index'])
+    ->middleware('throttle:career-read');
+Route::get('/public/careers/sitemap.xml', [PublicCareerController::class, 'sitemap'])
+    ->middleware('throttle:career-read');
+Route::get('/public/careers/robots.txt', [PublicCareerController::class, 'robots'])
+    ->middleware('throttle:career-read');
+Route::get('/public/careers/vacancies/{slug}', [PublicCareerController::class, 'show'])
+    ->middleware('throttle:career-read');
+Route::post('/public/careers/vacancies/{slug}/applications', [PublicCareerController::class, 'apply'])
+    ->middleware(['throttle:career-apply-ip', 'throttle:career-apply-identity']);
+Route::get('/public/reference-check/{type}/{token}', [PublicReferenceEvaluationController::class, 'show'])
+    ->whereIn('type', ['staff', 'managerial'])->middleware('throttle:10,1');
+Route::post('/public/reference-check/{type}/{token}', [PublicReferenceEvaluationController::class, 'submit'])
+    ->whereIn('type', ['staff', 'managerial'])->middleware('throttle:10,1');
+Route::get('/public/reference-check-short/{code}', [PublicReferenceEvaluationController::class, 'showShort'])
+    ->middleware('throttle:10,1');
+Route::post('/public/reference-check-short/{code}', [PublicReferenceEvaluationController::class, 'submitShort'])
+    ->middleware('throttle:10,1');
+
 Route::post('/rfid', [RfidController::class, 'scan'])->withoutMiddleware(['auth']);
 Route::get('/rfid', [RfidController::class, 'last'])->withoutMiddleware(['auth']);
 
@@ -49,6 +72,52 @@ Route::post('/attendance/webhook', [AttendanceWebhookController::class, 'handle'
 
 Route::post('/whatsapp/ai-agent/webhook', WhatsAppAiAgentWebhookController::class)
     ->middleware('throttle:30,1')
+    ->withoutMiddleware(['auth']);
+
+// Public Candidate Portal Endpoints
+Route::get('/public/candidates/reference-check/{token}', [HrRecruitmentCandidateController::class, 'getPublicReferenceCheck'])
+    ->middleware('throttle:10,1')
+    ->withoutMiddleware(['auth']);
+Route::post('/public/candidates/reference-check/{token}', [HrRecruitmentCandidateController::class, 'submitCandidateReferences'])
+    ->middleware('throttle:10,1')
+    ->withoutMiddleware(['auth']);
+
+Route::get('/public/candidates/offering/{token}', [HrRecruitmentCandidateController::class, 'getPublicOffering'])
+    ->middleware('throttle:10,1')
+    ->withoutMiddleware(['auth']);
+Route::post('/public/candidates/offering/{token}/sign', [HrRecruitmentCandidateController::class, 'submitCandidateOfferingSignature'])
+    ->middleware('throttle:10,1')
+    ->withoutMiddleware(['auth']);
+
+Route::get('/public/candidates/case-study/{token}', [HrRecruitmentCandidateController::class, 'getPublicCaseStudy'])
+    ->middleware('throttle:10,1')
+    ->withoutMiddleware(['auth']);
+Route::post('/public/candidates/case-study/{token}/submit', [HrRecruitmentCandidateController::class, 'submitPublicCaseStudy'])
+    ->middleware('throttle:10,1')
+    ->withoutMiddleware(['auth']);
+
+Route::get('/public/pkb/signer/{id}', [HrRecruitmentCandidateController::class, 'getPublicPkbSigner'])
+    ->middleware('throttle:10,1')
+    ->withoutMiddleware(['auth']);
+Route::post('/public/pkb/signer/{id}/sign', [HrRecruitmentCandidateController::class, 'submitPkbSignerSignature'])
+    ->middleware('throttle:10,1')
+    ->withoutMiddleware(['auth']);
+
+Route::get('/public/candidates/onboarding/{token}', [HrRecruitmentCandidateController::class, 'getPublicOnboarding'])
+    ->middleware('throttle:10,1')
+    ->withoutMiddleware(['auth']);
+Route::post('/public/candidates/onboarding/{token}/submit', [HrRecruitmentCandidateController::class, 'submitCandidateOnboarding'])
+    ->middleware('throttle:10,1')
+    ->withoutMiddleware(['auth']);
+
+Route::get('/public/candidates/evaluation/{token}', [HrRecruitmentCandidateController::class, 'getPublicEvaluation'])
+    ->middleware('throttle:10,1')
+    ->withoutMiddleware(['auth']);
+Route::post('/public/candidates/evaluation/{token}', [HrRecruitmentCandidateController::class, 'submitPublicEvaluation'])
+    ->middleware('throttle:10,1')
+    ->withoutMiddleware(['auth']);
+Route::post('/public/candidates/evaluation/{token}/resume', [HrRecruitmentCandidateController::class, 'getPublicResumeByEvaluationToken'])
+    ->middleware('throttle:10,1')
     ->withoutMiddleware(['auth']);
 
 Route::prefix('fingerspot')->group(function () {
@@ -201,7 +270,13 @@ Route::middleware('auth:sanctum')->group(function () {
             });
 
             Route::middleware('frontend.menu:hr-recruitment-vacancies')->group(function () {
+                Route::get('recruitment/vacancies/favorite', [HrRecruitmentVacancyController::class, 'favorite']);
                 Route::apiResource('recruitment/vacancies', HrRecruitmentVacancyController::class);
+            });
+
+            Route::middleware('frontend.menu:hr-recruitment-dashboard')->group(function () {
+                Route::get('recruitment/dashboard', HrRecruitmentDashboardController::class);
+                Route::get('recruitment/interview-agenda', HrRecruitmentInterviewAgendaController::class);
             });
 
             Route::middleware('frontend.menu:hr-master-positions')->prefix('master-orgs/positions')->group(function () {
@@ -234,8 +309,48 @@ Route::middleware('auth:sanctum')->group(function () {
 
             Route::middleware('frontend.menu:hr-recruitment-candidates')->group(function () {
                 Route::apiResource('recruitment/candidates', HrRecruitmentCandidateController::class);
+                Route::post('recruitment/candidates/check-conflict', [HrRecruitmentCandidateController::class, 'checkScheduleConflict']);
                 Route::post('recruitment/candidates/{candidate}/upload-resume', [HrRecruitmentCandidateController::class, 'uploadResume']);
                 Route::get('recruitment/candidates/{candidate}/resume-preview', [HrRecruitmentCandidateController::class, 'previewResume']);
+                Route::get('recruitment/candidates/{candidate}/hr-interview-summary-preview', [HrRecruitmentCandidateController::class, 'previewHrInterviewSummary']);
+                Route::get('recruitment/candidates/{candidate}/case-study-submission-preview', [HrRecruitmentCandidateController::class, 'previewCaseStudySubmission']);
+                Route::post('recruitment/candidates/{candidate}/upload-photo', [HrRecruitmentCandidateController::class, 'uploadPhoto']);
+                Route::get('recruitment/candidates/{candidate}/photo', [HrRecruitmentCandidateController::class, 'previewPhoto']);
+                Route::post('recruitment/candidates/{candidate}/upload-offering', [HrRecruitmentCandidateController::class, 'uploadOfferingLetter']);
+                Route::get('recruitment/candidates/{candidate}/offering-preview', [HrRecruitmentCandidateController::class, 'previewOfferingLetter']);
+                Route::post('recruitment/candidates/{candidate}/lock-interview', [HrRecruitmentCandidateController::class, 'lockInterview']);
+                Route::post('recruitment/candidates/{candidate}/send-wa-interviewer', [HrRecruitmentCandidateController::class, 'sendWaToInterviewer']);
+
+                // 10-Stage Workflow Endpoints
+                Route::post('recruitment/candidates/{candidate}/schedule-hr-interview', [HrRecruitmentCandidateController::class, 'scheduleHrInterview']);
+                Route::post('recruitment/candidates/{candidate}/send-wa-candidate-interview', [HrRecruitmentCandidateController::class, 'sendWaToCandidate']);
+                Route::post('recruitment/candidates/{candidate}/complete-hr-interview', [HrRecruitmentCandidateController::class, 'completeHrInterview']);
+                Route::post('recruitment/candidates/{candidate}/upload-hr-interview-summary', [HrRecruitmentCandidateController::class, 'uploadHrInterviewSummary']);
+                Route::post('recruitment/candidates/{candidate}/send-case-study', [HrRecruitmentCandidateController::class, 'sendCaseStudy']);
+                Route::post('recruitment/candidates/{candidate}/send-wa-candidate-case-study', [HrRecruitmentCandidateController::class, 'sendWaCaseStudyToCandidate']);
+                Route::post('recruitment/candidates/{candidate}/upload-case-study-submission', [HrRecruitmentCandidateController::class, 'uploadCaseStudySubmission']);
+                Route::post('recruitment/candidates/{candidate}/schedule-user-interview-round', [HrRecruitmentCandidateController::class, 'scheduleUserInterviewRound']);
+                Route::post('recruitment/candidates/{candidate}/user-interview-round/{round}/complete', [HrRecruitmentCandidateController::class, 'completeUserInterviewRound']);
+                Route::post('recruitment/candidates/{candidate}/save-user-interview-round-evaluation', [HrRecruitmentCandidateController::class, 'saveUserInterviewRoundEvaluation']);
+                Route::post('recruitment/candidates/{candidate}/upload-user-interview-round-summary', [HrRecruitmentCandidateController::class, 'uploadUserInterviewRoundSummary']);
+                Route::post('recruitment/candidates/{candidate}/rounds/{round}/send-eval-wa/{evaluation}', [HrRecruitmentCandidateController::class, 'sendInterviewerEvaluationLink']);
+                Route::post('recruitment/candidates/{candidate}/rounds/{round}/send-candidate-wa', [HrRecruitmentCandidateController::class, 'sendUserInterviewCandidateWa']);
+                Route::get('recruitment/evaluations/{evaluation}/preview', [HrRecruitmentCandidateController::class, 'previewUserInterviewEvaluation']);
+                Route::post('recruitment/candidates/{candidate}/send-reference-check-request', [HrRecruitmentCandidateController::class, 'sendReferenceCheckRequest']);
+                Route::post('recruitment/candidates/{candidate}/send-reference-check-wa', [HrRecruitmentCandidateController::class, 'sendReferenceCheckWa']);
+                Route::post('recruitment/candidates/{candidate}/upload-reference-check-summary', [HrRecruitmentCandidateController::class, 'uploadReferenceCheckSummary']);
+                Route::get('recruitment/candidates/{candidate}/reference-check-summary-preview', [HrRecruitmentCandidateController::class, 'previewReferenceCheckSummary']);
+                Route::get('recruitment/candidates/{candidate}/user-interview-round/{round}/summary-preview', [HrRecruitmentCandidateController::class, 'previewUserInterviewRoundSummary']);
+                Route::get('recruitment/candidates/{candidate}/user-interview-round/{round}/evaluation-recap-preview', [HrRecruitmentCandidateController::class, 'previewUserInterviewEvaluationRecap']);
+                Route::get('recruitment/candidates/{candidate}/pkb-approval-recap-preview', [HrRecruitmentCandidateController::class, 'previewPkbApprovalRecap']);
+                Route::post('recruitment/candidates/{candidate}/send-offering-with-signature', [HrRecruitmentCandidateController::class, 'sendOfferingLetterWithSignature']);
+                Route::post('recruitment/candidates/{candidate}/send-offering-wa', [HrRecruitmentCandidateController::class, 'sendOfferingLetterWa']);
+                Route::post('recruitment/candidates/{candidate}/send-pkb-approval-request', [HrRecruitmentCandidateController::class, 'sendPkbApprovalRequest']);
+                Route::post('recruitment/candidates/{candidate}/pkb-signers/{signer}/resend-wa', [HrRecruitmentCandidateController::class, 'resendPkbSignerWa']);
+                Route::post('recruitment/candidates/{candidate}/send-onboarding-link', [HrRecruitmentCandidateController::class, 'sendOnboardingFormLink']);
+                Route::post('recruitment/candidates/{candidate}/send-onboarding-wa', [HrRecruitmentCandidateController::class, 'sendOnboardingWa']);
+                Route::post('recruitment/candidates/{candidate}/import-onboarding', [HrRecruitmentCandidateController::class, 'importCandidateOnboarding']);
+                Route::post('recruitment/candidates/{candidate}/save-onboarding-draft', [HrRecruitmentCandidateController::class, 'saveCandidateOnboardingData']);
             });
 
             Route::middleware('frontend.menu:hr-recruitment-requests')->group(function () {

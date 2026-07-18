@@ -21,10 +21,10 @@ class FingerspotController extends Controller
 
     private function sendToFingerspot(string $endpoint, array $payload, bool $storeAttendance = false)
     {
-        $url = rtrim(env('FINGERSPOT_BASE_URL', 'https://developer.fingerspot.io/api'), '/') . '/' . ltrim($endpoint, '/');
+        $url = rtrim(config('fingerspot.base_url', 'https://developer.fingerspot.io/api'), '/') . '/' . ltrim($endpoint, '/');
 
         $response = Http::withHeaders([
-            'Authorization' => 'Bearer ' . env('FINGERSPOT_API_TOKEN'),
+            'Authorization' => 'Bearer ' . config('fingerspot.api_token'),
             'Content-Type'  => 'application/json',
             'Accept'        => 'application/json',
         ])

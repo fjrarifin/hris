@@ -32,6 +32,11 @@ class EmployeeController extends Controller
                 'email' => $employee->email,
                 'position' => $employee->jabatan ?: $employee->posisi,
                 'department' => $employee->departement ?: $employee->divisi,
+                'level' => $employee->posisi,
+                'divisi' => $employee->divisi,
+                'departement' => $employee->departement,
+                'unit' => $employee->unit,
+                'posisi_title' => $employee->posisi_title ?: $employee->jabatan,
                 'status' => $this->employeeStatus($employee->nik),
                 'photo_url' => $this->publicFileUrl($employee->user?->photo),
             ]);

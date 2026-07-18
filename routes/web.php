@@ -129,3 +129,8 @@ Route::middleware(['auth', 'level:3'])
         Route::get('/self-assessment', [SelfAssessmentController::class, 'index'])->name('self-assessment.index');
         Route::post('/self-assessment', [SelfAssessmentController::class, 'store'])->name('self-assessment.store');
     });
+
+Route::get('/s/{code}', [\App\Http\Controllers\RecruitmentShortUrlController::class, 'redirect'])
+    ->middleware('throttle:60,1')
+    ->name('short-url.redirect');
+

@@ -37,6 +37,27 @@ class FrontendNavigation
 
     private function groupItMenus(Collection $menus): Collection
     {
+        $itKeys = ['it-users', 'it-push-notifications', 'it-active-sessions', 'menu-access', 'audit-logs'];
+        $itChildren = $menus->whereIn('key', $itKeys)->values()->all();
+        $itAnchor = $itChildren[0]['key'] ?? null;
+
+        $menus = $menus->flatMap(function (array $menu) use ($itKeys, $itChildren, $itAnchor): array {
+            if ($menu['key'] === $itAnchor && $itChildren) {
+                return [[
+                    'key' => 'it-admin',
+                    'label' => 'IT Admin',
+                    'icon' => 'i-lucide-settings',
+                    'children' => $itChildren,
+                ]];
+            }
+
+            if (in_array($menu['key'], $itKeys, true)) {
+                return [];
+            }
+
+            return [$menu];
+        })->values();
+
         return $this->groupHrMenus(
             $menus
                 ->reject(fn (array $menu) => $this->isStaffMenuKey($menu['key']))
@@ -94,7 +115,7 @@ class FrontendNavigation
         $talentChildren = $menus->whereIn('key', $talentKeys)->values()->all();
         $talentAnchor = $talentChildren[0]['key'] ?? null;
 
-        $recruitmentKeys = ['hr-recruitment-vacancies', 'hr-recruitment-candidates', 'hr-recruitment-requests'];
+        $recruitmentKeys = ['hr-recruitment-dashboard', 'hr-recruitment-vacancies', 'hr-recruitment-candidates', 'hr-recruitment-requests'];
         $recruitmentChildren = $menus->whereIn('key', $recruitmentKeys)->values()->all();
         $recruitmentAnchor = $recruitmentChildren[0]['key'] ?? null;
 
