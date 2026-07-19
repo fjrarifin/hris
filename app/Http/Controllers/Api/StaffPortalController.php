@@ -258,6 +258,54 @@ class StaffPortalController extends Controller
         return response()->json($this->profilePayload($employee, $employee->user, $nik === $request->user()->username));
     }
 
+    public function subordinateCandidates(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $employee = $this->employeeFor($user);
+        if (!$employee) {
+            return response()->json(['records' => []]);
+        }
+
+        $vacancyIds = \App\Models\RecruitmentVacancy::query()
+            ->where('supervisor_nik', $employee->nik)
+            ->pluck('id');
+
+        $candidates = \App\Models\RecruitmentCandidate::query()
+            ->whereIn('vacancy_id', $vacancyIds)
+            ->whereNotIn('status', ['hired', 'rejected'])
+            ->with(['vacancy', 'stageHistories' => function ($q) {
+                $q->orderBy('entered_at', 'asc');
+            }])
+            ->latest()
+            ->get();
+
+        return response()->json([
+            'records' => $candidates->map(fn (\App\Models\RecruitmentCandidate $c) => [
+                'id' => $c->id,
+                'name' => $c->name,
+                'email' => $c->email,
+                'phone' => $c->phone,
+                'status' => $c->status,
+                'notes' => $c->notes,
+                'created_at' => $c->created_at?->toIso8601String(),
+                'updated_at' => $c->updated_at?->toIso8601String(),
+                'vacancy' => $c->vacancy ? [
+                    'id' => $c->vacancy->id,
+                    'title' => $c->vacancy->title,
+                    'division' => $c->vacancy->division,
+                    'department' => $c->vacancy->department,
+                ] : null,
+                'stage_histories' => $c->stageHistories->map(fn ($h) => [
+                    'id' => $h->id,
+                    'stage' => $h->stage,
+                    'entered_at' => $h->entered_at?->toIso8601String(),
+                    'exited_at' => $h->exited_at?->toIso8601String(),
+                    'reason' => $h->reason,
+                ])->values(),
+            ])->values(),
+        ]);
+    }
+
     public function updateProfileContact(Request $request): JsonResponse
     {
         $user = $request->user();

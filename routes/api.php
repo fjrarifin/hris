@@ -481,6 +481,10 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::get('/recruitment/requests', [StaffRecruitmentRequestController::class, 'index']);
                 Route::post('/recruitment/requests', [StaffRecruitmentRequestController::class, 'store']);
             });
+
+            Route::middleware('frontend.menu:staff-subordinate-candidates')->group(function () {
+                Route::get('/subordinate-candidates', [StaffPortalController::class, 'subordinateCandidates']);
+            });
         });
     });
 });

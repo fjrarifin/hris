@@ -98,8 +98,29 @@ class RecruitmentStageService
 
             $lockedCandidate->forceFill(['status' => $toStage])->save();
 
-            return $lockedCandidate->refresh();
+            $refreshed = $lockedCandidate->refresh();
+            $this->notifySupervisorOfChange($refreshed, $toStage);
+
+            return $refreshed;
         });
+    }
+
+    public function notifySupervisorOfChange(RecruitmentCandidate $candidate, string $stage): void
+    {
+        try {
+            $supervisorNik = $candidate->vacancy?->supervisor_nik;
+            if ($supervisorNik) {
+                $supervisorUser = User::query()
+                    ->where('username', $supervisorNik)
+                    ->where('is_active', true)
+                    ->first();
+                if ($supervisorUser) {
+                    $supervisorUser->notify(new \App\Notifications\SubordinateCandidateStageNotification($candidate, $stage));
+                }
+            }
+        } catch (\Throwable $exception) {
+            \Illuminate\Support\Facades\Log::error('Failed to notify supervisor of candidate stage change: ' . $exception->getMessage());
+        }
     }
 
     public function normalize(?string $stage): string

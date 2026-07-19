@@ -29,7 +29,7 @@ class FrontendNavigation
         }
 
         if ((int) $user->level === 3) {
-            return $this->groupStaffMenus($menus);
+            return $this->groupStaffMenus($menus, $user);
         }
 
         return $menus;
@@ -217,8 +217,18 @@ class FrontendNavigation
         })->values();
     }
 
-    private function groupStaffMenus(Collection $menus): Collection
+    private function groupStaffMenus(Collection $menus, User $user): Collection
     {
+        if ($this->hasVacancySupervision($user)) {
+            $menus->push([
+                'id' => 9999,
+                'key' => 'staff-subordinate-candidates',
+                'label' => 'Kandidat Bawahan',
+                'to' => '/staff/subordinate-candidates',
+                'icon' => 'i-lucide-user-search',
+            ]);
+        }
+
         $requestKeys = ['staff-leave', 'staff-public-holiday', 'staff-extra-off', 'staff-permission'];
         $requestAnchor = $menus
             ->first(fn (array $menu) => in_array($menu['key'], $requestKeys, true))['key'] ?? null;
@@ -228,7 +238,7 @@ class FrontendNavigation
             ->values()
             ->all();
 
-        $supervisorKeys = ['staff-approvals', 'staff-overtime', 'staff-team-schedules'];
+        $supervisorKeys = ['staff-approvals', 'staff-overtime', 'staff-team-schedules', 'staff-subordinate-candidates'];
         $supervisorAnchor = $menus
             ->first(fn (array $menu) => in_array($menu['key'], $supervisorKeys, true))['key'] ?? null;
         $supervisorChildren = $menus
@@ -285,6 +295,10 @@ class FrontendNavigation
 
     public function canAccess(User $user, string $key): bool
     {
+        if ($key === 'staff-subordinate-candidates') {
+            return $this->hasVacancySupervision($user);
+        }
+
         $menu = FrontendMenu::query()
             ->where('key', $key)
             ->when((int) $user->level !== 0, fn ($query) => $query
@@ -369,6 +383,15 @@ class FrontendNavigation
                 ->where('atasan_langsung_nik', $employee->nik)
                 ->orWhere('atasan_tidak_langsung_nik', $employee->nik)
                 ->exists()
+            : false;
+    }
+
+    private function hasVacancySupervision(User $user): bool
+    {
+        $employee = $user->karyawan;
+
+        return $employee
+            ? \App\Models\RecruitmentVacancy::query()->where('supervisor_nik', $employee->nik)->exists()
             : false;
     }
 

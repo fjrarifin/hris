@@ -141,6 +141,12 @@ class PublicCareerController extends Controller
             \Illuminate\Support\Facades\Log::error('Failed to send CandidateAppliedMail to ' . $candidate->email . ': ' . $mailException->getMessage());
         }
 
+        try {
+            app(\App\Services\RecruitmentStageService::class)->notifySupervisorOfChange($candidate, 'applied');
+        } catch (\Throwable $err) {
+            \Illuminate\Support\Facades\Log::error('Failed to notify supervisor on apply: ' . $err->getMessage());
+        }
+
         return response()->json([
             'message' => 'Lamaran berhasil dikirim. Tim recruitment kami akan menghubungi kandidat yang sesuai.',
             'application_id' => $candidate->id,
