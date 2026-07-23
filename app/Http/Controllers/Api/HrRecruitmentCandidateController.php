@@ -33,7 +33,7 @@ class HrRecruitmentCandidateController extends Controller
     {
         return response()->json(
             RecruitmentCandidate::query()
-                ->with(['vacancy', 'interviewer', 'pic', 'atasanLangsung'])
+                ->with(['vacancy', 'interviewer', 'pic', 'atasanLangsung', 'userInterviews.interviewer', 'userInterviewEvaluations.interviewer'])
                 ->whereNull('profile_candidate_id') // hanya tampilkan profil utama
                 ->when($request->filled('vacancy_id'), fn ($query) => $query->where('vacancy_id', $request->input('vacancy_id')))
                 ->when($request->filled('status'), fn ($query) => $query->where('status', $request->input('status')))
@@ -1299,44 +1299,52 @@ class HrRecruitmentCandidateController extends Controller
             Log::error('Gagal mengirim email undangan wawancara user', ['error' => $e->getMessage()]);
         }
 
-        $firstNik = $selectedNiks[0] ?? null;
-        $interviewer = $firstNik ? Karyawan::where('nik', $firstNik)->first() : null;
-        if ($interviewer && $interviewer->no_hp) {
-            try {
-                $formattedDate = Carbon::parse($userInterview->interview_date)->locale('id')->translatedFormat('l, d F Y');
-                $time = substr($userInterview->interview_time, 0, 5);
-                $type = $userInterview->interview_type === 'online' ? 'Online (Tautan Meet)' : 'Offline (Lokasi Fisik)';
-                $details = $userInterview->interview_type === 'online' ? $userInterview->interview_meet_link : $userInterview->interview_location;
-                $vacancyTitle = $candidate->vacancy?->title ?? 'Umum';
+        $waSentCount = 0;
+        foreach ($selectedNiks as $nik) {
+            $interviewer = Karyawan::where('nik', $nik)->first();
+            if ($interviewer && ! empty($interviewer->no_hp)) {
+                try {
+                    $formattedDate = Carbon::parse($userInterview->interview_date)->locale('id')->translatedFormat('l, d F Y');
+                    $time = substr($userInterview->interview_time, 0, 5);
+                    $type = $userInterview->interview_type === 'online' ? 'Online (Tautan Meet)' : 'Offline (Lokasi Fisik)';
+                    $details = $userInterview->interview_type === 'online' ? $userInterview->interview_meet_link : $userInterview->interview_location;
+                    $vacancyTitle = $candidate->vacancy?->title ?? 'Umum';
 
-                $eval = RecruitmentUserInterviewEvaluation::where('candidate_id', $candidate->id)
-                    ->where('round', $payload['round'])
-                    ->where('interviewer_nik', $firstNik)
-                    ->first();
-                $cvLink = '';
-                if ($eval) {
-                    $frontendUrl = config('app.frontend_url');
-                    $longCvLink = rtrim((string) $frontendUrl, '/')."/public/evaluation/{$eval->token}/resume";
-                    $cvLink = app(\App\Services\RecruitmentShortUrlService::class)->shorten($longCvLink);
+                    $eval = RecruitmentUserInterviewEvaluation::where('candidate_id', $candidate->id)
+                        ->where('round', $payload['round'])
+                        ->where('interviewer_nik', $nik)
+                        ->first();
+                    $cvLink = '';
+                    if ($eval) {
+                        $frontendUrl = config('app.frontend_url');
+                        $longCvLink = rtrim((string) $frontendUrl, '/')."/public/evaluation/{$eval->token}/resume";
+                        $cvLink = app(\App\Services\RecruitmentShortUrlService::class)->shorten($longCvLink);
+                    }
+
+                    $waMessage = "Halo Bapak/Ibu {$interviewer->nama_karyawan},\n\n".
+                                 "Akan ada jadwal interview rekrutmen baru dengan detail seperti berikut :\n\n".
+                                 "- Kandidat: {$candidate->name}\n".
+                                 "- Posisi Dilamar: {$vacancyTitle}\n".
+                                 "- Tanggal: {$formattedDate}\n".
+                                 "- Waktu: {$time} WIB\n".
+                                 "- Tipe: {$type}\n".
+                                 "- Lokasi/Link: {$details}\n\n".
+                                 "- Link CV : {$cvLink}\n".
+                                 "- Password CV : 123456\n\n".
+                                 'Mohon konfirmasi kepada HRD jika pada tanggal tersebut tidak bisa melakukan interview. Terima kasih.';
+
+                    $sent = app(WhatsAppService::class)->sendMessage($interviewer->no_hp, $waMessage);
+                    if ($sent) {
+                        $waSentCount++;
+                    }
+                } catch (\Exception $e) {
+                    Log::error('Failed sending WA notification to user interviewer', ['error' => $e->getMessage(), 'nik' => $nik]);
                 }
-
-                $waMessage = "Halo Bapak/Ibu {$interviewer->nama_karyawan},\n\n".
-                             "Akan ada jadwal interview rekrutmen baru dengan detail seperti berikut :\n\n".
-                             "- Kandidat: {$candidate->name}\n".
-                             "- Posisi Dilamar: {$vacancyTitle}\n".
-                             "- Tanggal: {$formattedDate}\n".
-                             "- Waktu: {$time} WIB\n".
-                             "- Tipe: {$type}\n".
-                             "- Lokasi/Link: {$details}\n\n".
-                             "- Link CV : {$cvLink}\n".
-                             "- Password CV : 123456\n\n".
-                             'Mohon konfirmasi kepada HRD jika pada tanggal tersebut tidak bisa melakukan interview. Terima kasih.';
-
-                app(WhatsAppService::class)->sendMessage($interviewer->no_hp, $waMessage);
-            } catch (\Exception $e) {
-                Log::error('Failed sending WA notification to user interviewer', ['error' => $e->getMessage()]);
             }
         }
+
+        // Note: wa_sent_at is reserved for candidate WA notification (triggered by "Kirim info WA" button)
+        // Interviewer WA notifications above do NOT update wa_sent_at
 
         app(HrdAuditLogService::class)->record(
             $request,
@@ -1351,7 +1359,7 @@ class HrRecruitmentCandidateController extends Controller
 
         return response()->json([
             'message' => "Jadwal wawancara User Tahap {$userInterview->round} berhasil disimpan.",
-            'data' => $candidate->load(['vacancy', 'interviewer', 'userInterviews.interviewer', 'references', 'pkbSigners.employee']),
+            'data' => $candidate->load(['vacancy', 'interviewer', 'pic', 'atasanLangsung', 'userInterviews.interviewer', 'userInterviewEvaluations.interviewer', 'references', 'pkbSigners.employee']),
         ]);
     }
 
