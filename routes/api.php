@@ -250,6 +250,9 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/approvals/{type}', [HrApprovalController::class, 'index']);
             Route::post('/approvals/{type}/{id}', [HrApprovalController::class, 'decide']);
             Route::post('/approvals/{type}/{id}/cancel', [HrApprovalController::class, 'cancel']);
+            Route::get('/leave-balances', [\App\Http\Controllers\Api\HrLeaveBalanceController::class, 'index']);
+            Route::get('/leave-balances/export', [\App\Http\Controllers\Api\HrLeaveBalanceController::class, 'export']);
+            Route::get('/leave-balances/{nik}', [\App\Http\Controllers\Api\HrLeaveBalanceController::class, 'show']);
             Route::get('/schedules/options', [HrScheduleController::class, 'options']);
             Route::get('/schedules/template', [HrScheduleController::class, 'template']);
             Route::get('/schedules', [HrScheduleController::class, 'index']);
