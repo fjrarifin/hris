@@ -33,13 +33,15 @@ class HrRecruitmentCandidateController extends Controller
     {
         return response()->json(
             RecruitmentCandidate::query()
-                ->with(['vacancy', 'interviewer', 'pic'])
+                ->with(['vacancy', 'interviewer', 'pic', 'atasanLangsung'])
+                ->whereNull('profile_candidate_id') // hanya tampilkan profil utama
                 ->when($request->filled('vacancy_id'), fn ($query) => $query->where('vacancy_id', $request->input('vacancy_id')))
                 ->when($request->filled('status'), fn ($query) => $query->where('status', $request->input('status')))
                 ->latest()
                 ->get()
         );
     }
+
 
     public function store(Request $request): JsonResponse
     {
@@ -58,7 +60,9 @@ class HrRecruitmentCandidateController extends Controller
             'known_person' => ['nullable', 'string', 'max:150'],
             'referred_from' => ['nullable', 'string', 'max:150'],
             'pic_nik' => ['required', 'string', 'exists:m_karyawan,nik'],
+            'atasan_langsung_nik' => ['nullable', 'string', 'exists:m_karyawan,nik'],
             'last_company' => ['nullable', 'string', 'max:255'],
+
             'resume' => ['required', 'file', 'mimes:pdf', 'max:5120'],
 
             // Interview fields
@@ -103,12 +107,13 @@ class HrRecruitmentCandidateController extends Controller
             $candidate->id
         );
 
-        return response()->json(['message' => 'Kandidat berhasil ditambahkan.', 'data' => $candidate->load(['vacancy', 'interviewer', 'pic'])], 201);
+        return response()->json(['message' => 'Kandidat berhasil ditambahkan.', 'data' => $candidate->load(['vacancy', 'interviewer', 'pic', 'atasanLangsung'])], 201);
     }
 
     public function show(RecruitmentCandidate $candidate): JsonResponse
     {
-        $candidate->load(['vacancy', 'interviewer', 'pic', 'userInterviews.interviewer', 'references', 'pkbSigners.employee']);
+        $candidate->load(['vacancy', 'interviewer', 'pic', 'atasanLangsung', 'userInterviews.interviewer', 'references', 'pkbSigners.employee']);
+
 
         // Auto-generate missing evaluation records for pre-existing scheduled interviews
         foreach ($candidate->userInterviews as $userInterview) {
@@ -123,10 +128,10 @@ class HrRecruitmentCandidateController extends Controller
 
                 if (! $exists) {
                     RecruitmentUserInterviewEvaluation::create([
-                        'candidate_id' => $candidate->id,
-                        'round' => $userInterview->round,
+                        'candidate_id'    => $candidate->id,
+                        'round'           => $userInterview->round,
                         'interviewer_nik' => $nik,
-                        'token' => \Illuminate\Support\Str::random(40),
+                        'token'           => \Illuminate\Support\Str::random(40),
                     ]);
                 }
             }
@@ -142,19 +147,174 @@ class HrRecruitmentCandidateController extends Controller
             ->latest()
             ->get()
             ->map(fn ($log) => [
-                'id' => $log->id,
-                'action' => $log->action,
-                'actor_name' => $log->actor_name,
+                'id'             => $log->id,
+                'action'         => $log->action,
+                'actor_name'     => $log->actor_name,
                 'actor_username' => $log->actor_username,
-                'changes' => $log->changes,
-                'occurred_at' => $log->occurred_at ? $log->occurred_at->toIso8601String() : $log->created_at->toIso8601String(),
+                'changes'        => $log->changes,
+                'occurred_at'    => $log->occurred_at ? $log->occurred_at->toIso8601String() : $log->created_at->toIso8601String(),
             ]);
 
+        // --- Lamaran Sebelumnya: linked via profile_candidate_id ---
+        // Kandidat lama yang ber-profile_candidate_id = kandidat aktif ini
+        $linkedApplications = RecruitmentCandidate::query()
+            ->with([
+                'vacancy:id,title',
+                'stageHistories',
+                'userInterviews.interviewer',
+                'userInterviewEvaluations.interviewer',
+                'references',
+            ])
+            ->where('profile_candidate_id', $candidate->id)
+            ->latest('created_at')
+            ->get()
+            ->map(fn ($prev) => [
+                'id'                             => $prev->id,
+                'source'                         => 'linked',
+                'vacancy_id'                     => $prev->vacancy_id,
+                'vacancy_title'                  => $prev->vacancy ? $prev->vacancy->title : 'Umum (Tanpa Lowongan Spesifik)',
+                'status'                         => $prev->status,
+                'applied_at'                     => $prev->created_at ? $prev->created_at->toIso8601String() : null,
+                'notes'                          => $prev->notes,
+                'expected_salary'                => $prev->expected_salary,
+                'previous_salary'                => $prev->previous_salary,
+                'last_company'                   => $prev->last_company,
+                'interview_hr_text_summary'      => $prev->interview_hr_text_summary,
+                'interview_hr_summary_path'      => $prev->interview_hr_summary_path,
+                'interview_hr_date'              => $prev->interview_hr_date,
+                'interview_hr_time'              => $prev->interview_hr_time,
+                'interview_hr_completed_at'      => $prev->interview_hr_completed_at,
+                'case_study_submitted_file_path' => $prev->case_study_submitted_file_path,
+                'case_study_submitted_at'        => $prev->case_study_submitted_at,
+                'offered_salary'                 => $prev->offered_salary,
+                'join_date'                      => $prev->join_date,
+                'offering_letter_path'           => $prev->offering_letter_path,
+                'offering_letter_signed_at'      => $prev->offering_letter_signed_at,
+                'user_interviews'                => $prev->userInterviews,
+                'user_interview_evaluations'     => $prev->userInterviewEvaluations,
+                'references'                     => $prev->references,
+                'stage_histories'                => $prev->stageHistories
+                    ? $prev->stageHistories->map(fn ($sh) => [
+                        'stage'      => $sh->stage,
+                        'changed_at' => $sh->created_at ? $sh->created_at->toIso8601String() : null,
+                    ])
+                    : [],
+            ]);
+
+        // --- Juga ambil archived histories dari sistem lama (backward compat) ---
+        $archivedHistories = \App\Models\RecruitmentCandidateApplicationHistory::query()
+            ->with('vacancy:id,title')
+            ->where('candidate_id', $candidate->id)
+            ->latest('created_at')
+            ->get()
+            ->map(function ($hist) {
+                $snapshot = $hist->snapshot_data ?? [];
+                return [
+                    'id'                             => 'archived_' . $hist->id,
+                    'source'                         => 'archived',
+                    'vacancy_id'                     => $hist->vacancy_id,
+                    'vacancy_title'                  => $hist->vacancy_title ?: ($hist->vacancy ? $hist->vacancy->title : 'Umum (Tanpa Lowongan Spesifik)'),
+                    'status'                         => $hist->status,
+                    'applied_at'                     => $hist->applied_at ? $hist->applied_at->toIso8601String() : $hist->created_at->toIso8601String(),
+                    'notes'                          => $hist->notes,
+                    'interview_hr_text_summary'      => $hist->interview_hr_text_summary,
+                    'interview_hr_summary_path'      => $hist->interview_hr_summary_path,
+                    'case_study_submitted_file_path' => $hist->case_study_submitted_file_path,
+                    'case_study_submitted_at'        => $hist->case_study_submitted_at ? $hist->case_study_submitted_at->toIso8601String() : null,
+                    'offered_salary'                 => $hist->offered_salary,
+                    'join_date'                      => $hist->join_date,
+                    'offering_letter_path'           => $hist->offering_letter_path,
+                    'offering_letter_signed_at'      => $hist->offering_letter_signed_at ? $hist->offering_letter_signed_at->toIso8601String() : null,
+                    'user_interview_evaluations'     => $snapshot['user_interview_evaluations'] ?? [],
+                    'references'                     => $snapshot['references'] ?? [],
+                    'stage_histories'                => [],
+                ];
+            });
+
+        $previousApplications = $linkedApplications->concat($archivedHistories);
+
         return response()->json([
-            'candidate' => $candidate,
-            'change_logs' => $logs,
+            'candidate'             => $candidate,
+            'change_logs'           => $logs,
+            'previous_applications' => $previousApplications,
         ]);
     }
+
+    /**
+     * Import field penilaian dari lamaran lama (linked / archived) ke lamaran aktif.
+     */
+    public function importAssessment(Request $request, RecruitmentCandidate $candidate): JsonResponse
+    {
+        $validated = $request->validate([
+            'from_candidate_id' => ['required'],
+            'fields'            => ['required', 'array'],
+            'restore_status'    => ['nullable', 'boolean'],
+        ]);
+
+        $fromId = $validated['from_candidate_id'];
+        $fieldsToImport = $validated['fields'];
+        $restoreStatus = !empty($validated['restore_status']);
+
+        $sourceData = [];
+        $sourceStatus = null;
+
+        if (str_starts_with((string)$fromId, 'archived_')) {
+            $historyId = (int) str_replace('archived_', '', (string)$fromId);
+            $history = \App\Models\RecruitmentCandidateApplicationHistory::findOrFail($historyId);
+            $sourceData = [
+                'interview_hr_text_summary'      => $history->interview_hr_text_summary,
+                'interview_hr_summary_path'      => $history->interview_hr_summary_path,
+                'case_study_submitted_file_path' => $history->case_study_submitted_file_path,
+                'offered_salary'                 => $history->offered_salary,
+                'join_date'                      => $history->join_date ? (is_string($history->join_date) ? $history->join_date : $history->join_date->format('Y-m-d')) : null,
+                'notes'                          => $history->notes,
+            ];
+            $sourceStatus = $history->status;
+        } else {
+            $sourceCand = RecruitmentCandidate::findOrFail($fromId);
+            $sourceData = [
+                'interview_hr_text_summary'      => $sourceCand->interview_hr_text_summary,
+                'interview_hr_summary_path'      => $sourceCand->interview_hr_summary_path,
+                'case_study_submitted_file_path' => $sourceCand->case_study_submitted_file_path,
+                'offered_salary'                 => $sourceCand->offered_salary,
+                'join_date'                      => $sourceCand->join_date ? (is_string($sourceCand->join_date) ? $sourceCand->join_date : $sourceCand->join_date->format('Y-m-d')) : null,
+                'notes'                          => $sourceCand->notes,
+            ];
+            $sourceStatus = $sourceCand->status;
+        }
+
+        $allowedFields = [
+            'interview_hr_text_summary',
+            'interview_hr_summary_path',
+            'case_study_submitted_file_path',
+            'offered_salary',
+            'join_date',
+            'notes',
+        ];
+
+        $updatePayload = [];
+        foreach ($fieldsToImport as $field) {
+            if (in_array($field, $allowedFields) && array_key_exists($field, $sourceData) && !is_null($sourceData[$field])) {
+                $updatePayload[$field] = $sourceData[$field];
+            }
+        }
+
+        if ($restoreStatus && $sourceStatus) {
+            $updatePayload['status'] = $sourceStatus;
+        }
+
+        if (!empty($updatePayload)) {
+            $candidate->update($updatePayload);
+        }
+
+        return response()->json([
+            'message'   => $restoreStatus ? 'Lamaran berhasil dipulihkan ke tahap sebelumnya dan penilaian diimport.' : 'Penilaian berhasil diimport ke lamaran aktif.',
+            'candidate' => $candidate->fresh(['vacancy', 'interviewer', 'userInterviews.interviewer', 'references']),
+        ]);
+    }
+
+
+
 
     public function update(Request $request, RecruitmentCandidate $candidate): JsonResponse
     {
@@ -174,7 +334,9 @@ class HrRecruitmentCandidateController extends Controller
             'known_person' => ['nullable', 'string', 'max:150'],
             'referred_from' => ['nullable', 'string', 'max:150'],
             'pic_nik' => ['nullable', 'string', 'exists:m_karyawan,nik'],
+            'atasan_langsung_nik' => ['nullable', 'string', 'exists:m_karyawan,nik'],
             'last_company' => ['nullable', 'string', 'max:255'],
+
             'interview_hr_summary_path' => ['nullable', 'string', 'max:255'],
             'interview_hr_text_summary' => ['nullable', 'string'],
             'case_study_submitted_file_path' => ['nullable', 'string', 'max:255'],
@@ -237,7 +399,8 @@ class HrRecruitmentCandidateController extends Controller
             $candidate->id
         );
 
-        return response()->json(['message' => 'Kandidat berhasil diperbarui.', 'data' => $candidate->load(['vacancy', 'interviewer'])]);
+        return response()->json(['message' => 'Kandidat berhasil diperbarui.', 'data' => $candidate->load(['vacancy', 'interviewer', 'pic', 'atasanLangsung'])]);
+
     }
 
     public function destroy(Request $request, RecruitmentCandidate $candidate): JsonResponse
@@ -347,6 +510,21 @@ class HrRecruitmentCandidateController extends Controller
             'content_base64' => base64_encode(Storage::disk('local')->get($path)),
         ])->header('Cache-Control', 'private, no-store');
     }
+
+    public function previewCaseStudyQuestion(RecruitmentCandidate $candidate): JsonResponse
+    {
+        abort_unless($candidate->case_study_document_path && Storage::disk('local')->exists($candidate->case_study_document_path), 404);
+
+        $path = $candidate->case_study_document_path;
+        $mime = Storage::disk('local')->mimeType($path) ?: 'application/octet-stream';
+
+        return response()->json([
+            'filename' => basename($path),
+            'mime_type' => $mime,
+            'content_base64' => base64_encode(Storage::disk('local')->get($path)),
+        ])->header('Cache-Control', 'private, no-store');
+    }
+
 
     public function uploadPhoto(Request $request, RecruitmentCandidate $candidate): JsonResponse
     {
@@ -513,10 +691,17 @@ class HrRecruitmentCandidateController extends Controller
     public function scheduleHrInterview(Request $request, RecruitmentCandidate $candidate): JsonResponse
     {
         abort_if(
+            empty($candidate->pic_nik),
+            422,
+            'PIC Screening wajib diisi terlebih dahulu sebelum menjadwalkan Wawancara HR.',
+        );
+
+        abort_if(
             $candidate->interview_hr_completed_at,
             422,
             'Wawancara HR sudah ditandai selesai dan jadwal tidak dapat diubah.',
         );
+
 
         $payload = $request->validate([
             'interview_hr_date' => ['required', 'date'],
@@ -748,16 +933,10 @@ class HrRecruitmentCandidateController extends Controller
         }
 
         $scheduledAt = Carbon::parse(Carbon::parse($candidate->interview_hr_date)->toDateString().' '.$candidate->interview_hr_time);
-        $completionAvailableAt = $scheduledAt->copy()->addHour();
-        abort_if(
-            now()->lt($completionAvailableAt),
-            422,
-            'Wawancara HR hanya dapat ditandai selesai paling cepat 1 jam setelah jadwal interview.',
-        );
-
         $completedAt = Carbon::parse(Carbon::parse($candidate->interview_hr_date)->toDateString().' '.$payload['completed_time']);
         abort_if($completedAt->lte($scheduledAt), 422, 'Jam selesai wawancara HR harus lebih akhir dari jam mulai wawancara.');
-        abort_if($completedAt->isFuture(), 422, 'Jam selesai wawancara HR tidak boleh melebihi waktu sekarang.');
+
+
 
         $beforeAudit = app(HrdAuditLogService::class)->snapshot($candidate);
         $candidate->update([
@@ -984,16 +1163,10 @@ class HrRecruitmentCandidateController extends Controller
         }
 
         $scheduledAt = Carbon::parse($userInterview->interview_date.' '.$userInterview->interview_time);
-        $completionAvailableAt = $scheduledAt->copy()->addHour();
-        abort_if(
-            now()->lt($completionAvailableAt),
-            422,
-            "Wawancara User Tahap {$round} hanya dapat ditandai selesai paling cepat 1 jam setelah jadwal interview.",
-        );
-
         $completedAt = Carbon::parse($userInterview->interview_date.' '.$payload['completed_time']);
         abort_if($completedAt->lte($scheduledAt), 422, "Jam selesai Wawancara User Tahap {$round} harus lebih akhir dari jam mulai wawancara.");
-        abort_if($completedAt->isFuture(), 422, "Jam selesai Wawancara User Tahap {$round} tidak boleh melebihi waktu sekarang.");
+
+
 
         $beforeAudit = app(HrdAuditLogService::class)->snapshot($candidate);
         $userInterview->update([
@@ -1177,7 +1350,7 @@ class HrRecruitmentCandidateController extends Controller
         );
 
         return response()->json([
-            'message' => "Jadwal wawancara User Round {$userInterview->round} berhasil disimpan.",
+            'message' => "Jadwal wawancara User Tahap {$userInterview->round} berhasil disimpan.",
             'data' => $candidate->load(['vacancy', 'interviewer', 'userInterviews.interviewer', 'references', 'pkbSigners.employee']),
         ]);
     }
@@ -1501,49 +1674,66 @@ class HrRecruitmentCandidateController extends Controller
         abort_unless($candidate->status === 'offering', 422, 'Ubah status kandidat ke Offering terlebih dahulu.');
 
         $request->validate([
-            'offering_letter' => ['required', 'file', 'mimes:pdf', 'max:5120'],
-            'last_company' => ['required', 'string', 'max:255'],
+            'offering_letter' => ['nullable', 'file', 'mimes:pdf', 'max:5120'],
+            'last_company' => ['nullable', 'string', 'max:255'],
             'offered_salary' => ['required', 'integer', 'min:0'],
             'join_date' => ['required', 'date'],
         ]);
 
         $beforeAudit = app(HrdAuditLogService::class)->snapshot($candidate);
 
-        $path = $request->file('offering_letter')->store('recruitment-offerings', 'local');
-        $oldPath = $candidate->offering_letter_path;
+        if ($request->hasFile('offering_letter')) {
+            $path = $request->file('offering_letter')->store('recruitment-offerings', 'local');
+            $oldPath = $candidate->offering_letter_path;
 
-        $token = Str::random(40);
-        $offeringPassword = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+            $token = Str::random(40);
+            $offeringPassword = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
 
-        $candidate->update([
-            'offering_letter_path' => $path,
-            'offering_letter_token' => $token,
-            'offering_letter_password' => Hash::make($offeringPassword),
-            'offering_letter_sent_at' => null,
-            'offering_letter_signature_data' => null,
-            'offering_letter_signed_at' => null,
-            'last_company' => $request->input('last_company'),
-            'offered_salary' => $request->input('offered_salary'),
-            'join_date' => $request->input('join_date'),
-        ]);
+            $candidate->update([
+                'offering_letter_path' => $path,
+                'offering_letter_token' => $token,
+                'offering_letter_password' => Hash::make($offeringPassword),
+                'offering_letter_sent_at' => null,
+                'offering_letter_signature_data' => null,
+                'offering_letter_signed_at' => null,
+                'last_company' => $request->input('last_company'),
+                'offered_salary' => $request->input('offered_salary'),
+                'join_date' => $request->input('join_date'),
+            ]);
 
-        if ($oldPath) {
-            Storage::disk('local')->delete($oldPath);
-        }
+            if ($oldPath) {
+                Storage::disk('local')->delete($oldPath);
+            }
 
-        try {
-            $signLinkLong = rtrim((string) config('app.frontend_url'), '/')."/public/offering/review/{$token}";
-            $signLink = app(\App\Services\RecruitmentShortUrlService::class)->shorten($signLinkLong, now()->addDays(3));
-            Mail::to($candidate->email)->send(new OfferingLetterMail($candidate, $signLink, $offeringPassword));
-            $candidate->update(['offering_letter_sent_at' => now()]);
-        } catch (\Exception $e) {
-            Log::error('Gagal mengirim email offering letter', ['error' => $e->getMessage()]);
+            try {
+                $signLinkLong = rtrim((string) config('app.frontend_url'), '/')."/public/offering/review/{$token}";
+                $signLink = app(\App\Services\RecruitmentShortUrlService::class)->shorten($signLinkLong, now()->addDays(3));
+                Mail::to($candidate->email)->send(new OfferingLetterMail($candidate, $signLink, $offeringPassword));
+                $candidate->update(['offering_letter_sent_at' => now()]);
+            } catch (\Exception $e) {
+                Log::error('Gagal mengirim email offering letter', ['error' => $e->getMessage()]);
+
+                app(HrdAuditLogService::class)->record(
+                    $request,
+                    'RecruitmentCandidate',
+                    'updated',
+                    "Candidate #{$candidate->id}: {$candidate->name} (Uploaded Offering Letter - Email Failed)",
+                    $beforeAudit,
+                    $candidate->fresh(),
+                    RecruitmentCandidate::class,
+                    $candidate->id
+                );
+
+                return response()->json([
+                    'message' => 'Offering letter tersimpan, tetapi email gagal dikirim. Silakan coba kirim ulang.',
+                ], 500);
+            }
 
             app(HrdAuditLogService::class)->record(
                 $request,
                 'RecruitmentCandidate',
                 'updated',
-                "Candidate #{$candidate->id}: {$candidate->name} (Uploaded Offering Letter - Email Failed)",
+                "Candidate #{$candidate->id}: {$candidate->name} (Uploaded Offering Letter & Sent Signature Request)",
                 $beforeAudit,
                 $candidate->fresh(),
                 RecruitmentCandidate::class,
@@ -1551,15 +1741,22 @@ class HrRecruitmentCandidateController extends Controller
             );
 
             return response()->json([
-                'message' => 'Offering letter tersimpan, tetapi email gagal dikirim. Silakan coba kirim ulang.',
-            ], 500);
+                'message' => 'Offering letter berhasil diunggah dan dikirim ke kandidat.',
+                'data' => $candidate->fresh()->load(['vacancy', 'interviewer', 'userInterviews.interviewer', 'references', 'pkbSigners.employee']),
+            ]);
         }
+
+        $candidate->update([
+            'last_company' => $request->input('last_company'),
+            'offered_salary' => $request->input('offered_salary'),
+            'join_date' => $request->input('join_date'),
+        ]);
 
         app(HrdAuditLogService::class)->record(
             $request,
             'RecruitmentCandidate',
             'updated',
-            "Candidate #{$candidate->id}: {$candidate->name} (Uploaded Offering Letter & Sent Signature Request)",
+            "Candidate #{$candidate->id}: {$candidate->name} (Updated Offering Details Without File)",
             $beforeAudit,
             $candidate->fresh(),
             RecruitmentCandidate::class,
@@ -1567,8 +1764,8 @@ class HrRecruitmentCandidateController extends Controller
         );
 
         return response()->json([
-            'message' => 'Offering letter berhasil diunggah dan dikirim ke kandidat.',
-            'data' => $candidate->load(['vacancy', 'interviewer', 'userInterviews.interviewer', 'references', 'pkbSigners.employee']),
+            'message' => 'Detail gaji offering berhasil disimpan.',
+            'data' => $candidate->fresh()->load(['vacancy', 'interviewer', 'userInterviews.interviewer', 'references', 'pkbSigners.employee']),
         ]);
     }
 
@@ -2423,6 +2620,9 @@ class HrRecruitmentCandidateController extends Controller
             'vacancy_title' => $candidate->vacancy?->title ?? 'Umum',
             'email' => $candidate->email,
             'phone' => $candidate->phone,
+            'education_level' => $candidate->education_level,
+            'education_major' => $candidate->education_major,
+            'marital_status' => $candidate->marital_status,
         ]);
     }
 
@@ -2494,6 +2694,10 @@ class HrRecruitmentCandidateController extends Controller
             $diffInMinutes = abs($proposedTime->diffInMinutes($existingTime));
 
             if ($diffInMinutes < 120) {
+                // Skip if the existing HR interview is already completed
+                if ($c->interview_hr_completed_at) {
+                    continue;
+                }
                 // If it is the SAME candidate, it's a conflict
                 if ($candidateId && $c->id == $candidateId) {
                     $conflicts[] = [
@@ -2542,13 +2746,17 @@ class HrRecruitmentCandidateController extends Controller
             $diffInMinutes = abs($proposedTime->diffInMinutes($existingTime));
 
             if ($diffInMinutes < 120) {
+                // Skip if this user interview is already completed
+                if ($ui->completed_at) {
+                    continue;
+                }
                 // If it is the SAME candidate, it's a conflict
                 if ($candidateId && $ui->candidate_id == $candidateId) {
                     $conflicts[] = [
                         'nik' => 'CANDIDATE',
                         'interviewer_name' => "Kandidat sendiri (Wawancara User Tahap {$ui->round})",
                         'conflict_type' => "Jadwal Wawancara User Tahap {$ui->round} Kandidat",
-                        'candidate_name' => $ui->candidate?->name ?? $c->name,
+                        'candidate_name' => $ui->candidate?->name ?? '',
                         'time' => Carbon::parse($ui->interview_time)->format('H:i'),
                     ];
                 } else {
@@ -2931,7 +3139,7 @@ class HrRecruitmentCandidateController extends Controller
             ->get();
 
         foreach ($candidates as $c) {
-            if (! $c->interview_time) {
+            if (! $c->interview_time || $c->interview_hr_completed_at) {
                 continue;
             }
             $existingTime = Carbon::parse($c->interview_time);
@@ -2961,7 +3169,7 @@ class HrRecruitmentCandidateController extends Controller
             if ($ui->candidate_id == $candidateId && $ui->round == $round) {
                 continue;
             }
-            if (! $ui->interview_time) {
+            if (! $ui->interview_time || $ui->completed_at) {
                 continue;
             }
             $existingTime = Carbon::parse($ui->interview_time);
@@ -3053,3 +3261,5 @@ class HrRecruitmentCandidateController extends Controller
         ]);
     }
 }
+
+

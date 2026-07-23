@@ -79,7 +79,7 @@ class PublicCareerController extends Controller
         $payload = $request->validate([
             'name' => ['required', 'string', 'min:2', 'max:150'],
             'email' => ['required', 'email:rfc', 'max:100'],
-            'phone' => ['required', 'regex:/^\+62[1-9][0-9]{7,12}$/'],
+            'phone' => ['required', 'regex:/^0[1-9][0-9]{7,12}$/'],
             'marital_status' => ['required', 'in:Belum Menikah,Menikah,Duda / Janda'],
             'known_person' => ['nullable', 'string', 'max:150'],
             'last_company' => ['nullable', 'string', 'max:255'],
@@ -91,45 +91,87 @@ class PublicCareerController extends Controller
             'resume' => ['required', 'file', 'mimes:pdf', 'max:5120'],
             'website' => ['nullable', 'max:0'],
         ], [
-            'phone.regex' => 'Nomor telepon Indonesia tidak valid.',
+            'phone.regex' => 'Nomor WhatsApp Indonesia tidak valid (gunakan format 08xxx).',
             'resume.mimes' => 'CV harus berupa file PDF.',
             'resume.max' => 'Ukuran CV maksimal 5 MB.',
             'website.max' => 'Lamaran tidak dapat diproses.',
         ]);
 
-        $duplicate = RecruitmentCandidate::query()
-            ->where('vacancy_id', $vacancy->id)
-            ->where(fn ($q) => $q->whereRaw('LOWER(email) = ?', [$payload['email']])->orWhere('phone', $payload['phone']))
-            ->exists();
-        if ($duplicate) {
-            throw ValidationException::withMessages(['email' => 'Lamaran untuk lowongan ini sudah pernah diterima.']);
-        }
+
+        // Cari kandidat utama (profile_candidate_id IS NULL) berdasarkan email atau phone
+        $existingCandidate = RecruitmentCandidate::query()
+            ->whereNull('profile_candidate_id') // hanya cari profil utama
+            ->where(function ($q) use ($payload) {
+                $q->whereRaw('LOWER(email) = ?', [strtolower($payload['email'])]);
+                if (!empty($payload['phone'])) {
+                    $q->orWhere('phone', $payload['phone']);
+                }
+            })
+            ->first();
 
         $path = $request->file('resume')->store('recruitment-resumes/public', 'local');
         try {
-            $candidate = DB::transaction(function () use ($payload, $vacancy, $path): RecruitmentCandidate {
-                $candidate = RecruitmentCandidate::query()->create([
-                    'vacancy_id' => $vacancy->id,
-                    'name' => trim($payload['name']),
-                    'email' => $payload['email'],
-                    'phone' => $payload['phone'],
-                    'marital_status' => $payload['marital_status'],
-                    'known_person' => $payload['known_person'] ?? null,
-                    'last_company' => $payload['last_company'] ?? null,
-                    'education_level' => $payload['education_level'],
-                    'education_major' => trim($payload['education_major']),
-                    'previous_salary' => $payload['previous_salary'],
-                    'expected_salary' => $payload['expected_salary'],
-                    'referred_from' => $payload['referred_from'],
-                    'resume_path' => $path,
-                    'status' => 'applied',
-                    'notes' => 'Lamaran dari web career public.',
-                ]);
-                if (Schema::hasTable('recruitment_candidate_stage_histories')) {
-                    app(RecruitmentStageService::class)->recordInitial($candidate);
+            $candidate = DB::transaction(function () use ($payload, $vacancy, $path, $existingCandidate): RecruitmentCandidate {
+                if ($existingCandidate) {
+                    // Re-apply: buat baris kandidat BARU yang linked ke profil utama.
+                    // Profil utama tidak diubah datanya — hanya di-link.
+                    // Baris baru ini akan menjadi lamaran aktif yang tampil ke HR.
+
+                    // 1. Buat baris lamaran baru (profil aktif baru)
+                    $newCandidate = RecruitmentCandidate::query()->create([
+                        'profile_candidate_id' => null, // ini akan jadi profil utama baru
+                        'vacancy_id'       => $vacancy->id,
+                        'name'             => trim($payload['name']),
+                        'email'            => $payload['email'],
+                        'phone'            => $payload['phone'],
+                        'marital_status'   => $payload['marital_status'],
+                        'known_person'     => $payload['known_person'] ?? null,
+                        'last_company'     => $payload['last_company'] ?? null,
+                        'education_level'  => $payload['education_level'],
+                        'education_major'  => trim($payload['education_major']),
+                        'previous_salary'  => $payload['previous_salary'],
+                        'expected_salary'  => $payload['expected_salary'],
+                        'referred_from'    => $payload['referred_from'],
+                        'resume_path'      => $path,
+                        'status'           => 'applied',
+                        'notes'            => 'Lamaran dari web career public. [MELAMAR KEMBALI dari lamaran #' . $existingCandidate->id . ']',
+                    ]);
+
+                    // 2. Tandai kandidat lama sebagai "linked" ke profil baru ini
+                    //    sehingga tidak muncul di daftar HR, tapi bisa di-switch
+                    $existingCandidate->update([
+                        'profile_candidate_id' => $newCandidate->id,
+                    ]);
+
+                    if (Schema::hasTable('recruitment_candidate_stage_histories')) {
+                        app(RecruitmentStageService::class)->recordInitial($newCandidate);
+                    }
+                    return $newCandidate;
+                } else {
+                    $candidate = RecruitmentCandidate::query()->create([
+                        'vacancy_id'       => $vacancy->id,
+                        'name'             => trim($payload['name']),
+                        'email'            => $payload['email'],
+                        'phone'            => $payload['phone'],
+                        'marital_status'   => $payload['marital_status'],
+                        'known_person'     => $payload['known_person'] ?? null,
+                        'last_company'     => $payload['last_company'] ?? null,
+                        'education_level'  => $payload['education_level'],
+                        'education_major'  => trim($payload['education_major']),
+                        'previous_salary'  => $payload['previous_salary'],
+                        'expected_salary'  => $payload['expected_salary'],
+                        'referred_from'    => $payload['referred_from'],
+                        'resume_path'      => $path,
+                        'status'           => 'applied',
+                        'notes'            => 'Lamaran dari web career public.',
+                    ]);
+                    if (Schema::hasTable('recruitment_candidate_stage_histories')) {
+                        app(RecruitmentStageService::class)->recordInitial($candidate);
+                    }
+                    return $candidate;
                 }
-                return $candidate;
             });
+
         } catch (\Throwable $exception) {
             Storage::disk('local')->delete($path);
             throw $exception;
@@ -178,13 +220,21 @@ class PublicCareerController extends Controller
 
     private function normalizePhone(string $phone): string
     {
+        // Strip semua karakter selain angka dan +
         $phone = preg_replace('/[^0-9+]/', '', trim($phone)) ?? '';
-        if (str_starts_with($phone, '08')) {
-            return '+62'.substr($phone, 1);
+
+        // +628xxx atau 628xxx → 08xxx
+        if (str_starts_with($phone, '+628')) {
+            return '0' . substr($phone, 3);
         }
         if (str_starts_with($phone, '628')) {
-            return '+'.$phone;
+            return '0' . substr($phone, 2);
         }
+        // +62xxx (tanpa 8 setelah kode negara, misalnya +627xxx) → 07xxx
+        if (str_starts_with($phone, '+62')) {
+            return '0' . substr($phone, 3);
+        }
+        // Sudah format lokal 08xxx, biarkan
         return $phone;
     }
 

@@ -12,8 +12,9 @@
         @endif
         
         <p>Halo <strong>{{ $candidate->name }}</strong>,</p>
-        
-        <p>Perkenalkan, saya Amalia dari Hompim Play (CV 3 Detik).</p>
+
+        <p>Perkenalkan, saya {{ $candidate->pic?->nama_karyawan ?? $candidate->pic?->name ?? 'Tim HRBP' }} dari Hompim Play (CV 3 Detik).</p>
+
         
         @if($isReschedule)
             <p>Mohon maaf, terdapat perubahan jadwal untuk tahapan HR Interview Anda untuk posisi <strong>{{ $candidate->vacancy->title ?? '[posisi]' }}</strong> yang sebelumnya direncanakan pada <strong>{{ $prevFormattedDate }}</strong> pukul <strong>{{ $prevTime }} WIB</strong>. Jadwal tersebut diubah menjadi sebagai berikut:</p>

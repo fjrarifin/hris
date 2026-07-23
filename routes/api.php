@@ -225,11 +225,12 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::put('/{commandServiceToggle}', [\App\Http\Controllers\Api\CommandServiceToggleController::class, 'update']);
             });
 
+        Route::middleware('level:0,1,2')->get('/employees', [EmployeeController::class, 'frontendIndex']);
+
         Route::middleware('frontend.menu:employees')->group(function () {
             Route::get('/employee/fingerspot/clouds', [EmployeeController::class, 'fingerspotClouds']);
             Route::post('/employee/{employee}/fingerspot-userinfo', [EmployeeController::class, 'sendFingerspotUserinfo']);
             Route::apiResource('employee', EmployeeController::class);
-            Route::get('/employees', [EmployeeController::class, 'frontendIndex']);
             Route::get('/employees/export', [EmployeeController::class, 'export']);
         });
 
@@ -314,6 +315,8 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::get('recruitment/candidates/{candidate}/resume-preview', [HrRecruitmentCandidateController::class, 'previewResume']);
                 Route::get('recruitment/candidates/{candidate}/hr-interview-summary-preview', [HrRecruitmentCandidateController::class, 'previewHrInterviewSummary']);
                 Route::get('recruitment/candidates/{candidate}/case-study-submission-preview', [HrRecruitmentCandidateController::class, 'previewCaseStudySubmission']);
+                Route::get('recruitment/candidates/{candidate}/case-study-question-preview', [HrRecruitmentCandidateController::class, 'previewCaseStudyQuestion']);
+
                 Route::post('recruitment/candidates/{candidate}/upload-photo', [HrRecruitmentCandidateController::class, 'uploadPhoto']);
                 Route::get('recruitment/candidates/{candidate}/photo', [HrRecruitmentCandidateController::class, 'previewPhoto']);
                 Route::post('recruitment/candidates/{candidate}/upload-offering', [HrRecruitmentCandidateController::class, 'uploadOfferingLetter']);
@@ -351,7 +354,9 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::post('recruitment/candidates/{candidate}/send-onboarding-wa', [HrRecruitmentCandidateController::class, 'sendOnboardingWa']);
                 Route::post('recruitment/candidates/{candidate}/import-onboarding', [HrRecruitmentCandidateController::class, 'importCandidateOnboarding']);
                 Route::post('recruitment/candidates/{candidate}/save-onboarding-draft', [HrRecruitmentCandidateController::class, 'saveCandidateOnboardingData']);
+                Route::post('recruitment/candidates/{candidate}/import-assessment', [HrRecruitmentCandidateController::class, 'importAssessment']);
             });
+
 
             Route::middleware('frontend.menu:hr-recruitment-requests')->group(function () {
                 Route::get('recruitment/requests', [HrRecruitmentRequestController::class, 'index']);

@@ -60,6 +60,13 @@ class RecruitmentStageService
             $lockedCandidate = RecruitmentCandidate::query()->lockForUpdate()->findOrFail($candidate->id);
             $fromStage = $this->normalize($lockedCandidate->status);
 
+            if ($toStage === 'interview_hr' && empty($lockedCandidate->pic_nik)) {
+                throw ValidationException::withMessages([
+                    'pic_nik' => 'PIC Screening wajib diisi terlebih dahulu sebelum melanjutkan kandidat ke tahap Wawancara HR.',
+                ]);
+            }
+
+
             $openHistory = RecruitmentCandidateStageHistory::query()
                 ->where('candidate_id', $lockedCandidate->id)
                 ->whereNull('exited_at')

@@ -73,25 +73,34 @@ class HrRecruitmentVacancyController extends Controller
     public function store(Request $request): JsonResponse
     {
         $payload = $request->validate([
-            'title' => ['required', 'string', 'max:150'],
-            'division' => ['nullable', 'string', 'max:100'],
-            'department' => ['nullable', 'string', 'max:100'],
-            'unit' => ['nullable', 'string', 'max:100'],
-            'position' => ['nullable', 'string', 'max:100'],
-            'supervisor_nik' => ['nullable', 'string', 'max:30'],
-            'supervisor_name' => ['nullable', 'string', 'max:150'],
-            'description' => ['nullable', 'string'],
-            'employment_type' => ['nullable', 'in:full_time,part_time,contract,internship,temporary'],
-            'workplace_type' => ['nullable', 'in:onsite,hybrid,remote'],
-            'location' => ['nullable', 'string', 'max:150'],
-            'responsibilities' => ['nullable', 'string'],
-            'requirements' => ['nullable', 'string'],
-            'benefits' => ['nullable', 'string'],
-            'published_at' => ['nullable', 'date'],
-            'expires_at' => ['nullable', 'date', 'after:published_at'],
-            'application_deadline' => ['nullable', 'date'],
-            'status' => ['required', 'in:draft,open,closed'],
+            'title'                  => ['required', 'string', 'max:150'],
+            'division'               => ['nullable', 'string', 'max:100'],
+            'department'             => ['nullable', 'string', 'max:100'],
+            'unit'                   => ['nullable', 'string', 'max:100'],
+            'position'               => ['nullable', 'string', 'max:100'],
+            'supervisor_nik'         => ['nullable', 'string', 'max:30'],
+            'supervisor_name'        => ['nullable', 'string', 'max:150'],
+            'description'            => ['nullable', 'string'],
+            'employment_type'        => ['nullable', 'in:full_time,part_time,contract,internship,temporary'],
+            'workplace_type'         => ['nullable', 'in:onsite,hybrid,remote'],
+            'location'               => ['nullable', 'string', 'max:150'],
+            'responsibilities'       => ['nullable', 'string'],
+            'requirements'           => ['nullable', 'string'],
+            'benefits'               => ['nullable', 'string'],
+            'published_at'           => ['nullable', 'date'],
+            'expires_at'             => ['nullable', 'date', 'after:published_at'],
+            'application_deadline'   => ['nullable', 'date'],
+            'status'                 => ['required', 'in:draft,open,closed'],
+            'hire_type'              => ['nullable', 'in:new_hire,replacement'],
+            'replaced_employee_nik'  => ['nullable', 'string', 'max:30'],
+            'replaced_employee_name' => ['nullable', 'string', 'max:150'],
         ]);
+
+        // Jika tipe new_hire, pastikan field replacement kosong
+        if (($payload['hire_type'] ?? 'new_hire') !== 'replacement') {
+            $payload['replaced_employee_nik']  = null;
+            $payload['replaced_employee_name'] = null;
+        }
 
         if ($payload['status'] === 'open' && empty($payload['published_at'])) {
             $payload['published_at'] = now();
@@ -116,25 +125,34 @@ class HrRecruitmentVacancyController extends Controller
     public function update(Request $request, RecruitmentVacancy $vacancy): JsonResponse
     {
         $payload = $request->validate([
-            'title' => ['required', 'string', 'max:150'],
-            'division' => ['nullable', 'string', 'max:100'],
-            'department' => ['nullable', 'string', 'max:100'],
-            'unit' => ['nullable', 'string', 'max:100'],
-            'position' => ['nullable', 'string', 'max:100'],
-            'supervisor_nik' => ['nullable', 'string', 'max:30'],
-            'supervisor_name' => ['nullable', 'string', 'max:150'],
-            'description' => ['nullable', 'string'],
-            'employment_type' => ['nullable', 'in:full_time,part_time,contract,internship,temporary'],
-            'workplace_type' => ['nullable', 'in:onsite,hybrid,remote'],
-            'location' => ['nullable', 'string', 'max:150'],
-            'responsibilities' => ['nullable', 'string'],
-            'requirements' => ['nullable', 'string'],
-            'benefits' => ['nullable', 'string'],
-            'published_at' => ['nullable', 'date'],
-            'expires_at' => ['nullable', 'date', 'after:published_at'],
-            'application_deadline' => ['nullable', 'date'],
-            'status' => ['required', 'in:draft,open,closed'],
+            'title'                  => ['required', 'string', 'max:150'],
+            'division'               => ['nullable', 'string', 'max:100'],
+            'department'             => ['nullable', 'string', 'max:100'],
+            'unit'                   => ['nullable', 'string', 'max:100'],
+            'position'               => ['nullable', 'string', 'max:100'],
+            'supervisor_nik'         => ['nullable', 'string', 'max:30'],
+            'supervisor_name'        => ['nullable', 'string', 'max:150'],
+            'description'            => ['nullable', 'string'],
+            'employment_type'        => ['nullable', 'in:full_time,part_time,contract,internship,temporary'],
+            'workplace_type'         => ['nullable', 'in:onsite,hybrid,remote'],
+            'location'               => ['nullable', 'string', 'max:150'],
+            'responsibilities'       => ['nullable', 'string'],
+            'requirements'           => ['nullable', 'string'],
+            'benefits'               => ['nullable', 'string'],
+            'published_at'           => ['nullable', 'date'],
+            'expires_at'             => ['nullable', 'date', 'after:published_at'],
+            'application_deadline'   => ['nullable', 'date'],
+            'status'                 => ['required', 'in:draft,open,closed'],
+            'hire_type'              => ['nullable', 'in:new_hire,replacement'],
+            'replaced_employee_nik'  => ['nullable', 'string', 'max:30'],
+            'replaced_employee_name' => ['nullable', 'string', 'max:150'],
         ]);
+
+        // Jika tipe new_hire, pastikan field replacement kosong
+        if (($payload['hire_type'] ?? 'new_hire') !== 'replacement') {
+            $payload['replaced_employee_nik']  = null;
+            $payload['replaced_employee_name'] = null;
+        }
 
         if ($payload['status'] === 'open' && empty($payload['published_at'])) {
             $payload['published_at'] = $vacancy->published_at ?: now();

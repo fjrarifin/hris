@@ -18,6 +18,7 @@ class RecruitmentCandidate extends Model
     ];
 
     protected $fillable = [
+        'profile_candidate_id',
         'vacancy_id',
         'name',
         'email',
@@ -32,7 +33,9 @@ class RecruitmentCandidate extends Model
         'known_person',
         'referred_from',
         'pic_nik',
+        'atasan_langsung_nik',
         'photo_path',
+
         'interview_date',
         'interview_time',
         'interviewer_nik',
@@ -180,4 +183,24 @@ class RecruitmentCandidate extends Model
 
         return Karyawan::whereIn('nik', $niks)->get();
     }
+
+    public function applicationHistories(): HasMany
+    {
+        return $this->hasMany(RecruitmentCandidateApplicationHistory::class, 'candidate_id')->latest('created_at');
+    }
+
+    /**
+     * Lamaran sebelumnya yang terhubung ke kandidat ini sebagai profil utama.
+     * (Kandidat lama yang di-link saat re-apply)
+     */
+    public function linkedApplications(): HasMany
+    {
+        return $this->hasMany(self::class, 'profile_candidate_id')->latest('created_at');
+    }
+
+    public function atasanLangsung(): BelongsTo
+    {
+        return $this->belongsTo(Karyawan::class, 'atasan_langsung_nik', 'nik');
+    }
 }
+

@@ -9,12 +9,12 @@
         
         <p>Halo Bapak/Ibu <strong>{{ $candidate->name }}</strong>,</p>
         
-        @if($userInterview->round == 2)
+        @if($userInterview->round > 1)
             <p>Terima kasih telah mengikuti proses seleksi di Hompim Play (CV 3 Detik).</p>
-            <p>Dengan senang hati kami menginformasikan bahwa Bapak/Ibu lolos ke tahap selanjutnya, yaitu <strong>User Interview II</strong>.</p>
+            <p>Dengan senang hati kami menginformasikan bahwa Bapak/Ibu lolos ke tahap selanjutnya, yaitu <strong>Wawancara User Tahap {{ $userInterview->round }}</strong>.</p>
         @else
             <p>Terima kasih telah mengikuti proses HR Interview di Hompim Play (CV 3 Detik).</p>
-            <p>Dengan senang hati kami menginformasikan bahwa Bapak/Ibu lolos ke tahap selanjutnya, yaitu <strong>User Interview</strong>.</p>
+            <p>Dengan senang hati kami menginformasikan bahwa Bapak/Ibu lolos ke tahap selanjutnya, yaitu <strong>Wawancara User Tahap 1</strong>.</p>
         @endif
         
         <p>Berikut detail jadwal interview:</p>

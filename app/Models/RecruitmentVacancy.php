@@ -30,7 +30,11 @@ class RecruitmentVacancy extends Model
         'expires_at',
         'application_deadline',
         'status',
+        'hire_type',
+        'replaced_employee_nik',
+        'replaced_employee_name',
     ];
+
 
     protected function casts(): array
     {
