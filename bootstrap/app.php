@@ -33,6 +33,7 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withCommands([
         \App\Console\Commands\AutoRejectExpiredLeave::class,
+        \App\Console\Commands\CleanupCancelledAttendanceCorrections::class,
     ])
     ->withSchedule(function ($schedule) {
         $schedule->command('leave:auto-reject')

@@ -1061,15 +1061,14 @@ class StaffPortalController extends Controller
     {
         $user = $request->user();
         $eligibleHolidays = $this->eligiblePublicHolidays($user);
-        $approvedIds = PublicHolidayRequest::query()
+        $usedHolidayIds = PublicHolidayRequest::query()
             ->where('user_id', $user->id)
-            ->whereNotNull('manager_approved_at')
-            ->where('status', 'approved')
+            ->whereNotIn('status', ['rejected', 'cancelled'])
             ->pluck('public_holiday_id');
 
         return response()->json([
             'balance' => $this->publicHolidayBalance($user),
-            'holidays' => $eligibleHolidays->whereNotIn('id', $approvedIds)->values(),
+            'holidays' => $eligibleHolidays->whereNotIn('id', $usedHolidayIds)->values(),
             'requests' => PublicHolidayRequest::query()
                 ->with('holiday')
                 ->where('user_id', $user->id)
@@ -1680,14 +1679,13 @@ class StaffPortalController extends Controller
 
     private function publicHolidayBalance(User $user): int
     {
-        $approvedIds = PublicHolidayRequest::query()
+        $usedHolidayIds = PublicHolidayRequest::query()
             ->where('user_id', $user->id)
-            ->whereNotNull('manager_approved_at')
-            ->where('status', 'approved')
+            ->whereNotIn('status', ['rejected', 'cancelled'])
             ->pluck('public_holiday_id');
 
         return $this->eligiblePublicHolidays($user)
-            ->whereNotIn('id', $approvedIds)
+            ->whereNotIn('id', $usedHolidayIds)
             ->count();
     }
 

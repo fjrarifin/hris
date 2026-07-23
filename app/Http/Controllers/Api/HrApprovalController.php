@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AttendanceCorrection;
 use App\Models\EmployeePermission;
 use App\Models\ExtraOffRequest;
 use App\Models\FingerspotAttendanceLog;
+use App\Models\LeaveAccrual;
 use App\Models\LeaveRequest;
 use App\Models\OvertimeRequest;
 use App\Models\PublicHolidayRequest;
@@ -15,6 +17,7 @@ use App\Notifications\RequestStatusNotification;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -89,11 +92,15 @@ class HrApprovalController extends Controller
         $item = $this->query($this->model($type), $type)->findOrFail($id);
         abort_unless($this->canCancel($item), 422, 'Hanya pengajuan final yang dapat dibatalkan.');
 
-        $item->update([
-            'status' => 'cancelled',
-            'reject_reason' => $validated['reason'],
-            'hr_approved_by' => $request->user()->id,
-        ]);
+        DB::transaction(function () use ($item, $request, $validated): void {
+            $item->update([
+                'status' => 'cancelled',
+                'reject_reason' => $validated['reason'],
+                'hr_approved_by' => $request->user()->id,
+            ]);
+
+            $this->releaseAttendanceCorrectionForCancelledAbsence($item);
+        });
 
         $this->notify($type, $item, 'cancelled', $validated['reason']);
 
@@ -192,6 +199,25 @@ class HrApprovalController extends Controller
     private function canCancel(object $item): bool
     {
         return $item->status === 'approved' && $item->hr_approved_at !== null;
+    }
+
+    private function releaseAttendanceCorrectionForCancelledAbsence(object $item): void
+    {
+        $corrections = AttendanceCorrection::query()
+            ->where('absence_type', $item::class)
+            ->where('absence_id', $item->id)
+            ->lockForUpdate()
+            ->get();
+
+        foreach ($corrections as $correction) {
+            if ($correction->leave_accrual_id) {
+                LeaveAccrual::query()
+                    ->whereKey($correction->leave_accrual_id)
+                    ->update(['is_used' => false]);
+            }
+
+            $correction->delete();
+        }
     }
 
 }
