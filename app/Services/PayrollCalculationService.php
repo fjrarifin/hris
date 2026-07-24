@@ -216,6 +216,8 @@ class PayrollCalculationService
                 - $totalBpjsEmployee,
             0
         );
+        $tttDailyRate = (int) round($tttFull / $periodWorkdays);
+        $tttProrata = (int) round(($tttFull / $periodWorkdays) * $paidHariMasuk);
         $tttComponent = PayrollComponent::query()->where('nama', 'Tunjangan Tidak Tetap')->first();
         $isTttManual = $tttComponent ? ($tttComponent->input_mode === 'manual') : true;
 
