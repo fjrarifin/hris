@@ -96,6 +96,11 @@ class PayrollValidationService
             }
         }
 
+        $tttItem = $payroll->getItemByComponentName('Tunjangan Tidak Tetap');
+        if (! $tttItem || (int) $tttItem->amount <= 0) {
+            $warnings[] = 'Komponen Tunjangan Tidak Tetap belum diisi pada Adjustment Payroll.';
+        }
+
         foreach ($payroll->items as $item) {
             $name = $item->component?->nama ?? $item->nama_item ?? 'Komponen payroll';
 

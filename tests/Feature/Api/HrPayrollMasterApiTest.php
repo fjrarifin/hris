@@ -61,9 +61,14 @@ class HrPayrollMasterApiTest extends TestCase
             $table->unsignedBigInteger('gaji_pokok')->default(0);
             $table->unsignedBigInteger('tunjangan_jabatan')->default(0);
             $table->unsignedBigInteger('tunjangan_tidak_tetap')->default(0);
-            $table->unsignedBigInteger('dasar_bpjs')->default(0);
-            $table->unsignedBigInteger('dasar_jp')->default(0);
+            $table->decimal('rate_jkn_karyawan_percent', 5, 2)->default(1.00);
+            $table->decimal('rate_jkn_perusahaan_percent', 5, 2)->default(4.00);
+            $table->decimal('rate_jht_karyawan_percent', 5, 2)->default(2.00);
+            $table->decimal('rate_jht_perusahaan_percent', 5, 2)->default(3.70);
+            $table->decimal('rate_jp_karyawan_percent', 5, 2)->default(1.00);
+            $table->decimal('rate_jp_perusahaan_percent', 5, 2)->default(2.00);
             $table->decimal('rate_jkk_percent', 5, 2)->default(0.54);
+            $table->decimal('rate_jkm_percent', 5, 2)->default(0.30);
             $table->boolean('is_active')->default(true);
             $table->text('notes')->nullable();
             $table->unsignedBigInteger('updated_by')->nullable();

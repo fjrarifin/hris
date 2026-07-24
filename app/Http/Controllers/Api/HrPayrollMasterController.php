@@ -81,12 +81,26 @@ class HrPayrollMasterController extends Controller
             'payroll_group' => ['required', Rule::in(['staff', 'operator'])],
             'dasar_bpjs' => ['required', 'integer', 'min:0'],
             'dasar_jp' => ['required', 'integer', 'min:0'],
+            'rate_jkn_karyawan_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'rate_jkn_perusahaan_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'rate_jht_karyawan_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'rate_jht_perusahaan_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'rate_jp_karyawan_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'rate_jp_perusahaan_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'rate_jkk_percent' => ['required', 'numeric', 'min:0', 'max:100'],
+            'rate_jkm_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'is_active' => ['required', 'boolean'],
             'notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
         $payload['tunjangan_tidak_tetap'] = (int) ($payload['tunjangan_tidak_tetap'] ?? 0);
+        $payload['rate_jkn_karyawan_percent'] = (float) ($payload['rate_jkn_karyawan_percent'] ?? 1.00);
+        $payload['rate_jkn_perusahaan_percent'] = (float) ($payload['rate_jkn_perusahaan_percent'] ?? 4.00);
+        $payload['rate_jht_karyawan_percent'] = (float) ($payload['rate_jht_karyawan_percent'] ?? 2.00);
+        $payload['rate_jht_perusahaan_percent'] = (float) ($payload['rate_jht_perusahaan_percent'] ?? 3.70);
+        $payload['rate_jp_karyawan_percent'] = (float) ($payload['rate_jp_karyawan_percent'] ?? 1.00);
+        $payload['rate_jp_perusahaan_percent'] = (float) ($payload['rate_jp_perusahaan_percent'] ?? 2.00);
+        $payload['rate_jkm_percent'] = (float) ($payload['rate_jkm_percent'] ?? 0.30);
         $existingProfile = EmployeePayrollProfile::query()->where('karyawan_nik', $employee->nik)->first();
         $beforeAudit = $existingProfile ? app(HrdAuditLogService::class)->snapshot($existingProfile) : null;
         $profile = EmployeePayrollProfile::updateOrCreate(
@@ -180,7 +194,14 @@ class HrPayrollMasterController extends Controller
                 'payroll_group' => $profile?->payroll_group ?: $this->defaultPayrollGroup($employee),
                 'dasar_bpjs' => (int) ($profile?->dasar_bpjs ?? 0),
                 'dasar_jp' => (int) ($profile?->dasar_jp ?? 0),
+                'rate_jkn_karyawan_percent' => (string) ($profile?->rate_jkn_karyawan_percent ?? '1.00'),
+                'rate_jkn_perusahaan_percent' => (string) ($profile?->rate_jkn_perusahaan_percent ?? '4.00'),
+                'rate_jht_karyawan_percent' => (string) ($profile?->rate_jht_karyawan_percent ?? '2.00'),
+                'rate_jht_perusahaan_percent' => (string) ($profile?->rate_jht_perusahaan_percent ?? '3.70'),
+                'rate_jp_karyawan_percent' => (string) ($profile?->rate_jp_karyawan_percent ?? '1.00'),
+                'rate_jp_perusahaan_percent' => (string) ($profile?->rate_jp_perusahaan_percent ?? '2.00'),
                 'rate_jkk_percent' => (string) ($profile?->rate_jkk_percent ?? '0.54'),
+                'rate_jkm_percent' => (string) ($profile?->rate_jkm_percent ?? '0.30'),
                 'is_active' => (bool) ($profile?->is_active ?? true),
                 'notes' => $profile?->notes,
             ],

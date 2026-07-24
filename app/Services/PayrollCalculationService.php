@@ -18,7 +18,7 @@ class PayrollCalculationService
     private const REQUIRED_COMPONENTS = [
         ['nama' => 'Gaji Pokok', 'type' => 'earning', 'input_mode' => 'calculated'],
         ['nama' => 'Tunjangan Jabatan', 'type' => 'earning', 'input_mode' => 'calculated'],
-        ['nama' => 'Tunjangan Tidak Tetap', 'type' => 'earning', 'input_mode' => 'calculated'],
+        ['nama' => 'Tunjangan Tidak Tetap', 'type' => 'earning', 'input_mode' => 'manual'],
         ['nama' => 'Lembur', 'type' => 'earning', 'input_mode' => 'calculated'],
         ['nama' => 'Kekurangan bulan sebelumnya', 'type' => 'earning', 'input_mode' => 'manual'],
         ['nama' => 'Lain-lain', 'type' => 'earning', 'input_mode' => 'manual'],
@@ -204,8 +204,8 @@ class PayrollCalculationService
         $alphaDays = 0;
         $extraOffDays = max($totalHariMasuk - $periodWorkdays, 0);
         $basicSalary = (int) $profile->gaji_pokok + (int) $profile->tunjangan_jabatan;
-        $bpjsEmployee = $bpjsActive ? $this->bpjsEmployee($basicSalary) : ['jkn' => 0, 'jht' => 0, 'jp' => 0];
-        $bpjsCompany = $bpjsActive ? $this->bpjsCompany($basicSalary, (float) $profile->rate_jkk_percent) : ['jkn' => 0, 'jht' => 0, 'jp' => 0, 'jkk' => 0, 'jkm' => 0];
+        $bpjsEmployee = $bpjsActive ? $this->bpjsEmployee($basicSalary, $profile) : ['jkn' => 0, 'jht' => 0, 'jp' => 0];
+        $bpjsCompany = $bpjsActive ? $this->bpjsCompany($basicSalary, $profile) : ['jkn' => 0, 'jht' => 0, 'jp' => 0, 'jkk' => 0, 'jkm' => 0];
         $totalBpjsEmployee = array_sum($bpjsEmployee);
         $totalBpjsCompany = array_sum($bpjsCompany);
         $tttFull = max(
@@ -216,16 +216,20 @@ class PayrollCalculationService
                 - $totalBpjsEmployee,
             0
         );
-        $tttDailyRate = (int) round($tttFull / $periodWorkdays);
-        $tttProrata = (int) round(($tttFull / $periodWorkdays) * $paidHariMasuk);
+        $tttComponent = PayrollComponent::query()->where('nama', 'Tunjangan Tidak Tetap')->first();
+        $isTttManual = $tttComponent ? ($tttComponent->input_mode === 'manual') : true;
+
         $items = collect([
             $this->item('Gaji Pokok', 'earning', $profile->gaji_pokok),
             $this->item('Tunjangan Jabatan', 'earning', $profile->tunjangan_jabatan),
-            $this->item('Tunjangan Tidak Tetap', 'earning', $tttProrata),
             $this->item('Lembur', 'earning', round(($profile->gaji_pokok / 173) * (((int) $attendance['overtime_minutes']) / 60) * 1.5)),
             $this->item('Potongan Izin', 'deduction', $permissionDays * $tttDailyRate),
             $this->item('Potongan Sakit Tanpa Surat', 'deduction', $sickWithoutDocumentDays * $tttDailyRate),
         ]);
+
+        if (! $isTttManual) {
+            $items->push($this->item('Tunjangan Tidak Tetap', 'earning', $tttProrata));
+        }
 
         if ($bpjsActive) {
             $bpjsItems = [
@@ -273,23 +277,33 @@ class PayrollCalculationService
         ];
     }
 
-    private function bpjsEmployee(int $basicSalary): array
+    private function bpjsEmployee(int $basicSalary, ?EmployeePayrollProfile $profile = null): array
     {
+        $jknRate = (float) ($profile?->rate_jkn_karyawan_percent ?? 1.00);
+        $jhtRate = (float) ($profile?->rate_jht_karyawan_percent ?? 2.00);
+        $jpRate = (float) ($profile?->rate_jp_karyawan_percent ?? 1.00);
+
         return [
-            'jkn' => (int) round($basicSalary * 0.01),
-            'jht' => (int) round($basicSalary * 0.02),
-            'jp' => (int) round($basicSalary * 0.01),
+            'jkn' => (int) round($basicSalary * ($jknRate / 100)),
+            'jht' => (int) round($basicSalary * ($jhtRate / 100)),
+            'jp' => (int) round($basicSalary * ($jpRate / 100)),
         ];
     }
 
-    private function bpjsCompany(int $basicSalary, float $jkkRatePercent): array
+    private function bpjsCompany(int $basicSalary, ?EmployeePayrollProfile $profile = null): array
     {
+        $jknRate = (float) ($profile?->rate_jkn_perusahaan_percent ?? 4.00);
+        $jhtRate = (float) ($profile?->rate_jht_perusahaan_percent ?? 3.70);
+        $jpRate = (float) ($profile?->rate_jp_perusahaan_percent ?? 2.00);
+        $jkkRate = (float) ($profile?->rate_jkk_percent ?? 0.54);
+        $jkmRate = (float) ($profile?->rate_jkm_percent ?? 0.30);
+
         return [
-            'jkn' => (int) round($basicSalary * 0.04),
-            'jht' => (int) round($basicSalary * 0.037),
-            'jp' => (int) round($basicSalary * 0.02),
-            'jkk' => (int) round($basicSalary * ($jkkRatePercent / 100)),
-            'jkm' => (int) round($basicSalary * 0.003),
+            'jkn' => (int) round($basicSalary * ($jknRate / 100)),
+            'jht' => (int) round($basicSalary * ($jhtRate / 100)),
+            'jp' => (int) round($basicSalary * ($jpRate / 100)),
+            'jkk' => (int) round($basicSalary * ($jkkRate / 100)),
+            'jkm' => (int) round($basicSalary * ($jkmRate / 100)),
         ];
     }
 
