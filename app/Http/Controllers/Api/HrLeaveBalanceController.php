@@ -122,64 +122,87 @@ class HrLeaveBalanceController extends Controller
                 ->orderByDesc('year')
                 ->orderByDesc('month')
                 ->get()
-                ->map(fn ($accrual) => [
-                    'id' => $accrual->id,
-                    'year' => $accrual->year,
-                    'month' => $accrual->month,
-                    'days' => (int) $accrual->days,
-                    'accrued_at' => $accrual->accrued_at?->toDateString(),
-                    'expired_at' => $accrual->expired_at?->toDateString(),
-                    'is_expired' => $accrual->expired_at ? Carbon::parse($accrual->expired_at)->isPast() : false,
-                ]);
+                ->map(function ($accrual) {
+                    $accruedAt = $accrual->accrued_at ? Carbon::parse($accrual->accrued_at) : null;
+                    $expiredAt = $accrual->expired_at ? Carbon::parse($accrual->expired_at) : null;
+                    return [
+                        'id' => $accrual->id,
+                        'year' => $accrual->year,
+                        'month' => $accrual->month,
+                        'days' => (int) $accrual->days,
+                        'accrued_at' => $accruedAt?->toDateString(),
+                        'expired_at' => $expiredAt?->toDateString(),
+                        'is_expired' => $expiredAt ? $expiredAt->isPast() : false,
+                    ];
+                });
 
             // Leave Requests
             $leaveRequests = LeaveRequest::query()
                 ->where('user_id', $user->id)
                 ->orderByDesc('start_date')
                 ->get()
-                ->map(fn ($req) => [
-                    'id' => $req->id,
-                    'leave_type' => $req->leave_type,
-                    'leave_type_label' => LeaveRequest::LEAVE_TYPES[$req->leave_type] ?? $req->leave_type,
-                    'start_date' => Carbon::parse($req->start_date)->toDateString(),
-                    'end_date' => Carbon::parse($req->end_date)->toDateString(),
-                    'days' => Carbon::parse($req->start_date)->diffInDays(Carbon::parse($req->end_date)) + 1,
-                    'status' => $req->status,
-                    'reason' => $req->reason,
-                ]);
+                ->map(function ($req) {
+                    $startDate = $req->start_date ? Carbon::parse($req->start_date) : null;
+                    $endDate = $req->end_date ? Carbon::parse($req->end_date) : null;
+                    $days = ($startDate && $endDate) ? ($startDate->diffInDays($endDate) + 1) : 0;
+                    return [
+                        'id' => $req->id,
+                        'leave_type' => $req->leave_type,
+                        'leave_type_label' => LeaveRequest::LEAVE_TYPES[$req->leave_type] ?? $req->leave_type,
+                        'start_date' => $startDate?->toDateString(),
+                        'end_date' => $endDate?->toDateString(),
+                        'days' => $days,
+                        'status' => $req->status,
+                        'reason' => $req->reason,
+                    ];
+                });
 
             // Public Holidays Eligible & Requests
             $phRequests = PublicHolidayRequest::with('holiday')
                 ->where('user_id', $user->id)
                 ->orderByDesc('claim_date')
                 ->get()
-                ->map(fn ($ph) => [
-                    'id' => $ph->id,
-                    'claim_date' => $ph->claim_date?->toDateString(),
-                    'holiday_name' => $ph->holiday?->name ?? 'Hari Libur Nasional',
-                    'holiday_date' => $ph->holiday?->holiday_date?->toDateString(),
-                    'status' => $ph->status,
-                ]);
+                ->map(function ($ph) {
+                    $claimDate = $ph->claim_date ? Carbon::parse($ph->claim_date) : null;
+                    $holidayDate = $ph->holiday?->holiday_date ? Carbon::parse($ph->holiday->holiday_date) : null;
+                    return [
+                        'id' => $ph->id,
+                        'claim_date' => $claimDate?->toDateString(),
+                        'holiday_name' => $ph->holiday?->name ?? 'Hari Libur Nasional',
+                        'holiday_date' => $holidayDate?->toDateString(),
+                        'status' => $ph->status,
+                    ];
+                });
 
             $eligiblePhs = $this->getEligiblePublicHolidaysForUser($user, $employee);
-            $phEligibleList = $eligiblePhs->map(fn ($ph) => [
-                'id' => $ph->id,
-                'name' => $ph->name,
-                'holiday_date' => $ph->holiday_date?->toDateString(),
-                'claimed' => $phRequests->contains('holiday_name', $ph->name),
-            ]);
+            $phEligibleList = $eligiblePhs->map(function ($ph) use ($phRequests) {
+                $hDate = $ph->holiday_date ? Carbon::parse($ph->holiday_date) : null;
+                return [
+                    'id' => $ph->id,
+                    'name' => $ph->name,
+                    'holiday_date' => $hDate?->toDateString(),
+                    'claimed' => $phRequests->contains('holiday_name', $ph->name),
+                ];
+            });
 
             // Extra Off Requests
             $eoRequests = ExtraOffRequest::query()
                 ->where('user_id', $user->id)
                 ->orderByDesc('claim_date')
                 ->get()
-                ->map(fn ($eo) => [
-                    'id' => $eo->id,
-                    'claim_date' => $eo->claim_date?->toDateString(),
-                    'source_period' => $eo->source_period_start?->format('d M Y').' - '.$eo->source_period_end?->format('d M Y'),
-                    'status' => $eo->status,
-                ]);
+                ->map(function ($eo) {
+                    $cDate = $eo->claim_date ? Carbon::parse($eo->claim_date) : null;
+                    $start = $eo->source_period_start ? Carbon::parse($eo->source_period_start) : null;
+                    $end = $eo->source_period_end ? Carbon::parse($eo->source_period_end) : null;
+                    $periodStr = ($start && $end) ? ($start->format('d M Y').' - '.$end->format('d M Y')) : '-';
+
+                    return [
+                        'id' => $eo->id,
+                        'claim_date' => $cDate?->toDateString(),
+                        'source_period' => $periodStr,
+                        'status' => $eo->status,
+                    ];
+                });
         }
 
         // Extra Off Sources (linked by NIK)
@@ -189,21 +212,25 @@ class HrLeaveBalanceController extends Controller
             ->get()
             ->map(function ($source) use ($user) {
                 $used = 0;
-                if ($user) {
+                $pStart = $source->periode_start ? Carbon::parse($source->periode_start) : null;
+                $pEnd = $source->periode_end ? Carbon::parse($source->periode_end) : null;
+
+                if ($user && $pStart && $pEnd) {
                     $used = ExtraOffRequest::query()
                         ->where('user_id', $user->id)
-                        ->whereDate('source_period_start', $source->periode_start)
-                        ->whereDate('source_period_end', $source->periode_end)
+                        ->whereDate('source_period_start', $pStart)
+                        ->whereDate('source_period_end', $pEnd)
                         ->whereNotIn('status', ['rejected', 'cancelled'])
                         ->count();
                 }
                 $remaining = max((int) $source->days - $used, 0);
+                $labelStr = ($pStart && $pEnd) ? ($pStart->format('d M Y').' - '.$pEnd->format('d M Y')) : '-';
 
                 return [
                     'id' => $source->id,
-                    'periode_start' => $source->periode_start?->toDateString(),
-                    'periode_end' => $source->periode_end?->toDateString(),
-                    'label' => $source->periode_start?->format('d M Y').' - '.$source->periode_end?->format('d M Y'),
+                    'periode_start' => $pStart?->toDateString(),
+                    'periode_end' => $pEnd?->toDateString(),
+                    'label' => $labelStr,
                     'days' => (int) $source->days,
                     'used_days' => $used,
                     'remaining_days' => $remaining,
@@ -225,7 +252,7 @@ class HrLeaveBalanceController extends Controller
                 'divisi' => $employee->divisi,
                 'unit' => $employee->unit,
                 'status_karyawan' => $employee->status_karyawan,
-                'join_date' => $employee->join_date?->toDateString(),
+                'join_date' => $employee->join_date ? Carbon::parse($employee->join_date)->toDateString() : null,
                 'email' => $employee->email,
                 'no_hp' => $employee->no_hp,
             ],
@@ -403,9 +430,11 @@ class HrLeaveBalanceController extends Controller
                 $accruedDays = (int) $accruals->sum(fn ($a) => (int) ($a->days ?: 1));
 
                 $leaveRequests = $leaveRequestsGrouped->get($userId, collect());
-                $usedLeaveDays = (int) $leaveRequests->sum(
-                    fn ($req) => Carbon::parse($req->start_date)->diffInDays(Carbon::parse($req->end_date)) + 1
-                );
+                $usedLeaveDays = (int) $leaveRequests->sum(function ($req) {
+                    $s = $req->start_date ? Carbon::parse($req->start_date) : null;
+                    $e = $req->end_date ? Carbon::parse($req->end_date) : null;
+                    return ($s && $e) ? ($s->diffInDays($e) + 1) : 0;
+                });
             }
             $remainingLeaveDays = max($accruedDays - $usedLeaveDays, 0);
 
@@ -415,7 +444,8 @@ class HrLeaveBalanceController extends Controller
             if ($userId) {
                 $userScanDates = $pin ? $attendanceLogsGrouped->get($pin, collect()) : collect();
                 $eligiblePhs = $pastHolidays->filter(function ($holiday) use ($userScanDates) {
-                    $holidayDate = $holiday->holiday_date;
+                    $holidayDate = $holiday->holiday_date ? Carbon::parse($holiday->holiday_date) : null;
+                    if (! $holidayDate) return false;
                     $requiresAttendance = $holidayDate->gte(Carbon::parse(self::PUBLIC_HOLIDAY_ATTENDANCE_REQUIRED_FROM));
                     return ! $requiresAttendance || $userScanDates->contains($holidayDate->toDateString());
                 });
@@ -440,8 +470,9 @@ class HrLeaveBalanceController extends Controller
 
                 foreach ($eoSources as $source) {
                     $usedForSource = $eoRequests->filter(function ($req) use ($source) {
-                        return Carbon::parse($req->source_period_start)->equalTo($source->periode_start)
-                            && Carbon::parse($req->source_period_end)->equalTo($source->periode_end);
+                        if (! $req->source_period_start || ! $source->periode_start) return false;
+                        return Carbon::parse($req->source_period_start)->equalTo(Carbon::parse($source->periode_start))
+                            && Carbon::parse($req->source_period_end)->equalTo(Carbon::parse($source->periode_end));
                     })->count();
                     $remainingEoDays += max((int) $source->days - $usedForSource, 0);
                 }
@@ -458,7 +489,7 @@ class HrLeaveBalanceController extends Controller
                 'divisi' => $emp->divisi ?? '-',
                 'unit' => $emp->unit ?? '-',
                 'status_karyawan' => $emp->status_karyawan ?? '-',
-                'join_date' => $emp->join_date?->toDateString() ?? '-',
+                'join_date' => $emp->join_date ? Carbon::parse($emp->join_date)->toDateString() : '-',
                 'leave' => [
                     'accrued' => $accruedDays,
                     'used' => $usedLeaveDays,
@@ -486,7 +517,7 @@ class HrLeaveBalanceController extends Controller
                 ->whereBetween('scan_date', [now()->subDays(90)->startOfDay(), now()->startOfDay()])
                 ->get(['scan_date'])
                 ->pluck('scan_date')
-                ->map(fn (Carbon $date) => $date->toDateString())
+                ->map(fn ($date) => Carbon::parse($date)->toDateString())
                 ->unique()
             : collect();
 
@@ -496,8 +527,8 @@ class HrLeaveBalanceController extends Controller
             ->whereDate('holiday_date', '>', now()->subDays(90))
             ->orderByDesc('holiday_date')
             ->get()
-            ->filter(fn (PublicHoliday $holiday) => $holiday->holiday_date->lt(Carbon::parse(self::PUBLIC_HOLIDAY_ATTENDANCE_REQUIRED_FROM))
-                || $attendedDates->contains($holiday->holiday_date->toDateString()))
+            ->filter(fn (PublicHoliday $holiday) => Carbon::parse($holiday->holiday_date)->lt(Carbon::parse(self::PUBLIC_HOLIDAY_ATTENDANCE_REQUIRED_FROM))
+                || $attendedDates->contains(Carbon::parse($holiday->holiday_date)->toDateString()))
             ->values();
     }
 }
