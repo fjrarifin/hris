@@ -70,7 +70,7 @@ class FrontendNavigation
         $payrollKeys = ['payroll', 'hr-payroll-master', 'hr-payroll-process'];
         $payrollChildren = $menus->whereIn('key', $payrollKeys)->values()->all();
         $payrollAnchor = $payrollChildren[0]['key'] ?? null;
-        $employeeKeys = ['employees', 'hr-contracts', 'hr-leave-balances', 'hr-master-positions', 'hr-master-divisions', 'hr-master-departments', 'hr-master-units'];
+        $employeeKeys = ['employees', 'hr-contracts', 'hr-master-positions', 'hr-master-divisions', 'hr-master-departments', 'hr-master-units'];
         $employeeAnchor = $menus
             ->first(fn (array $menu) => in_array($menu['key'], $employeeKeys, true))['key'] ?? null;
         $employeeChildren = $menus
@@ -86,7 +86,7 @@ class FrontendNavigation
             ->values()
             ->all();
 
-        $attendanceKeys = ['attendance', 'hr-attendance-minimum', 'hr-attendance-corrections', 'hr-schedules'];
+        $attendanceKeys = ['attendance', 'hr-leave-balances', 'hr-attendance-minimum', 'hr-attendance-corrections', 'hr-schedules'];
         $attendanceAnchor = $menus
             ->first(fn (array $menu) => in_array($menu['key'], $attendanceKeys, true))['key'] ?? null;
         $attendanceChildren = $menus
