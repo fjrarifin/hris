@@ -237,11 +237,16 @@ class FingerspotUserinfoService
                 $template = json_encode($template);
             }
 
+            $existing = FingerspotUserTemplate::where('pin', $pin)->first();
+            $existingClouds = is_array($existing?->synced_clouds) ? $existing->synced_clouds : [];
+            $syncedClouds = array_values(array_unique(array_filter(array_merge($existingClouds, array_filter([$cloudId])))));
+
             $userTemplate = FingerspotUserTemplate::updateOrCreate(
                 ['pin' => $pin],
                 [
                     'name' => $name ?: null,
-                    'cloud_id' => $cloudId,
+                    'cloud_id' => $cloudId ?: $existing?->cloud_id,
+                    'synced_clouds' => $syncedClouds,
                     'privilege' => $privilege,
                     'password' => $password,
                     'card' => $card ?: null,
@@ -283,6 +288,7 @@ class FingerspotUserinfoService
             'template' => $stored,
             'last_pulled_at' => $stored?->last_pulled_at?->format('d M Y H:i:s'),
             'source_cloud_id' => $stored?->cloud_id,
+            'synced_clouds' => $stored?->synced_clouds ?? [],
             'card' => $stored?->card,
         ];
     }
@@ -330,6 +336,25 @@ class FingerspotUserinfoService
             ->asJson()
             ->timeout(30)
             ->post(rtrim((string) config('fingerspot.base_url'), '/').'/set_userinfo', $payload);
+
+        if ($response->successful()) {
+            $existingClouds = is_array($stored?->synced_clouds) ? $stored->synced_clouds : [];
+            $newClouds = array_values(array_unique(array_filter(array_merge($existingClouds, [$cloud['id']]))));
+
+            FingerspotUserTemplate::updateOrCreate(
+                ['pin' => $pin],
+                [
+                    'name' => $name ?: null,
+                    'cloud_id' => $stored?->cloud_id ?? $cloud['id'],
+                    'synced_clouds' => $newClouds,
+                    'privilege' => $stored?->privilege ?? '0',
+                    'password' => $stored?->password ?? '',
+                    'card' => $stored?->card ?: null,
+                    'template' => $stored?->template ? (string) $stored->template : null,
+                    'last_pulled_at' => $stored?->last_pulled_at ?? now(),
+                ]
+            );
+        }
 
         $result = [
             'ok' => $response->successful(),

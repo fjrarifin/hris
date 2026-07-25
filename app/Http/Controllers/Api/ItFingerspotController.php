@@ -54,6 +54,7 @@ class ItFingerspotController extends Controller
                 'has_template' => $tpl && ! empty($tpl->template),
                 'card' => $tpl?->card,
                 'source_cloud_id' => $tpl?->cloud_id ?? '-',
+                'synced_clouds' => $tpl?->synced_clouds ?? ($tpl?->cloud_id ? [$tpl->cloud_id] : []),
                 'last_pulled_at' => $tpl?->last_pulled_at?->format('d/m/Y H:i') ?? '-',
             ];
         });

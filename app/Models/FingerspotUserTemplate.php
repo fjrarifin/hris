@@ -15,6 +15,7 @@ class FingerspotUserTemplate extends Model
         'pin',
         'name',
         'cloud_id',
+        'synced_clouds',
         'privilege',
         'password',
         'card',
@@ -25,6 +26,7 @@ class FingerspotUserTemplate extends Model
 
     protected $casts = [
         'raw_data' => 'array',
+        'synced_clouds' => 'array',
         'last_pulled_at' => 'datetime',
     ];
 }
