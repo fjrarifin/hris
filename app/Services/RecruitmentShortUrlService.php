@@ -15,7 +15,7 @@ class RecruitmentShortUrlService
      * @param Carbon|null $expiresAt
      * @return string
      */
-    public function shorten(string $destinationUrl, ?Carbon $expiresAt = null): string
+    public function shorten(string $destinationUrl, ?Carbon $expiresAt = null, ?string $customBaseUrl = null): string
     {
         do {
             $code = Str::random(6);
@@ -27,9 +27,12 @@ class RecruitmentShortUrlService
             'expires_at' => $expiresAt,
         ]);
 
-        $baseUrl = config('app.frontend_url') 
-            ?: (request()?->getSchemeAndHttpHost() ?: (config('app.url') ?: 'http://localhost:8000'));
-        
+        $baseUrl = $customBaseUrl
+            ?: (config('services.public_approval.base_url')
+            ?: (request()?->getSchemeAndHttpHost()
+            ?: (config('app.frontend_url')
+            ?: (config('app.url') ?: 'http://localhost:8000'))));
+
         return rtrim((string) $baseUrl, '/') . '/s/' . $code;
     }
 }

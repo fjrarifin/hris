@@ -163,6 +163,9 @@ class PublicApprovalController extends Controller
                 ->first()
             ?? EmployeePermission::with('user')
                 ->where('approval_token', $token)
+                ->first()
+            ?? OvertimeRequest::with('user')
+                ->where('approval_token', $token)
                 ->first();
     }
 
@@ -189,6 +192,10 @@ class PublicApprovalController extends Controller
             return 'extra_off';
         }
 
+        if ($request instanceof OvertimeRequest) {
+            return 'overtime';
+        }
+
         return 'unknown';
     }
 
@@ -199,6 +206,7 @@ class PublicApprovalController extends Controller
             $request instanceof PublicHolidayRequest => 'PH',
             $request instanceof ExtraOffRequest => 'EO',
             $request instanceof EmployeePermission => 'IZIN',
+            $request instanceof OvertimeRequest => 'LEMBUR',
             default => 'UNKNOWN',
         };
     }
@@ -234,6 +242,11 @@ class PublicApprovalController extends Controller
             );
         }
 
+        if ($request instanceof OvertimeRequest) {
+            $request->user->notify(
+                new RequestStatusNotification($request, 'LEMBUR', $status)
+            );
+        }
     }
 
     private function hasWorkedOnPublicHoliday(PublicHolidayRequest $request): bool

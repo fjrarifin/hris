@@ -35,6 +35,12 @@ Route::prefix('api/approval')->group(function () {
         ->name('approval.reject');
 });
 
+Route::prefix('approval')->group(function () {
+    Route::get('{token}', [PublicApprovalController::class, 'show']);
+    Route::post('{token}/approve', [PublicApprovalController::class, 'approve']);
+    Route::post('{token}/reject', [PublicApprovalController::class, 'reject']);
+});
+
 Route::get('/', fn () => redirect()->away(config('services.frontend.base_url')));
 Route::get('/dashboard', fn () => redirect()->away(config('services.frontend.base_url')))
     ->name('dashboard');

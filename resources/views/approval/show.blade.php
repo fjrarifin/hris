@@ -26,6 +26,13 @@
                 <div class="detail"><p class="label">Jenis</p><p class="value">{{ $request->type === 'sakit' ? 'Sakit' : 'Izin Tidak Masuk' }}</p></div>
                 <div class="detail"><p class="label">Tanggal</p><p class="value">{{ \Carbon\Carbon::parse($request->date)->isoFormat('D MMM YYYY') }}</p></div>
                 @if($request->reason)<div class="detail"><p class="label">Alasan</p><p class="value">{{ $request->reason }}</p></div>@endif
+            @elseif($type === 'overtime')
+                <div class="detail"><p class="label">Tanggal Lembur</p><p class="value">{{ \Carbon\Carbon::parse($request->date)->isoFormat('D MMM YYYY') }}</p></div>
+                <div class="detail"><p class="label">Jam Lembur</p><p class="value">{{ $request->start_time }} - {{ $request->end_time }}</p></div>
+                @if($request->reason)<div class="detail"><p class="label">Pekerjaan / Alasan</p><p class="value">{{ $request->reason }}</p></div>@endif
+            @elseif($type === 'extra_off')
+                <div class="detail"><p class="label">Tanggal Extra Off</p><p class="value">{{ \Carbon\Carbon::parse($request->claim_date)->isoFormat('D MMM YYYY') }}</p></div>
+                @if($request->notes)<div class="detail"><p class="label">Keterangan</p><p class="value">{{ $request->notes }}</p></div>@endif
             @endif
         </div>
         <div class="notice">Keputusan bersifat final. Pastikan data pengajuan sudah benar sebelum melanjutkan.</div>
@@ -34,6 +41,6 @@
             <form method="POST" action="{{ route('approval.approve', $request->approval_token) }}" onsubmit="return confirm('Setujui pengajuan ini?')">@csrf<button class="button approve" type="submit">Setujui</button></form>
         </div>
     </div>
-    <footer class="card-footer">Link rahasia ini berlaku selama {{ config('services.public_approval.expires_hours') }} jam dan hanya dapat digunakan satu kali.</footer>
+    <footer class="card-footer">Link ini berlaku selama {{ config('services.public_approval.expires_hours') }} jam dan hanya dapat digunakan satu kali.</footer>
 </section>
 @endsection

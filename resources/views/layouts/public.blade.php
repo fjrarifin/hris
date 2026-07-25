@@ -11,7 +11,7 @@
         body { min-height: 100vh; margin: 0; padding: 24px; background: #f8fafc; color: #0f172a; display: grid; place-items: center; }
         .shell { width: min(100%, 620px); }
         .brand { display: flex; align-items: center; gap: 12px; margin: 0 auto 16px; width: fit-content; color: #334155; }
-        .brand-mark { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 14px; background: #0f766e; color: white; font-weight: 800; }
+        .brand-logo { width: 44px; height: 44px; object-fit: contain; border-radius: 10px; }
         .brand-title { margin: 0; font-size: 16px; font-weight: 750; }
         .brand-subtitle { margin: 2px 0 0; color: #64748b; font-size: 12px; }
         .card { overflow: hidden; border: 1px solid #e2e8f0; border-radius: 20px; background: white; box-shadow: 0 18px 50px rgba(15, 23, 42, .09); }
@@ -42,7 +42,7 @@
 <body>
     <main class="shell">
         <div class="brand">
-            <div class="brand-mark">HP</div>
+            <img src="{{ asset('hompimplay_icon.png') }}" alt="HomPim Play Logo" class="brand-logo" />
             <div>
                 <p class="brand-title">HomPim Play HRIS</p>
                 <p class="brand-subtitle">Portal persetujuan pengajuan</p>

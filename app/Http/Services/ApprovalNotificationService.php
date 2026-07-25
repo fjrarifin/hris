@@ -115,7 +115,7 @@ class ApprovalNotificationService
 
     private function buildMessage($request, $karyawan): string
     {
-        $link = $this->publicApprovalUrl($request->approval_token);
+        $link = $this->publicApprovalUrl($request->approval_token, $request->approval_token_expires_at);
         $header = "━━━━━━━━━━━━━━━━━━━━━━━\n🏢 *HomPim Play*\n━━━━━━━━━━━━━━━━━━━━━━━";
         $footer = "_Pesan ini dikirim otomatis oleh sistem HomPim Play._\n_Harap tidak membalas pesan ini._\n━━━━━━━━━━━━━━━━━━━━━━━";
 
@@ -272,7 +272,7 @@ class ApprovalNotificationService
 
             Silakan lakukan approval tahap kedua.
 
-            🔗 ".$this->publicApprovalUrl($request->approval_token);
+            🔗 ".$this->publicApprovalUrl($request->approval_token, $request->approval_token_expires_at);
 
             $this->whatsAppService->sendMessage(
                 $atasan->no_hp,
@@ -569,7 +569,7 @@ class ApprovalNotificationService
             ."Pengajuan bawahan Anda belum di-approve dan akan expired jika tidak segera diproses.\n\n"
             .$this->approvalSummary($request, $type, $employee)."\n\n"
             ."Expired: {$expiresAt} WIB\n"
-            ."Link approval:\n".$this->publicApprovalUrl($request->approval_token);
+            ."Link approval:\n".$this->publicApprovalUrl($request->approval_token, $request->approval_token_expires_at);
     }
 
     private function approvalSummary(object $request, string $type, ?Karyawan $employee = null): string
@@ -584,11 +584,6 @@ class ApprovalNotificationService
             'EO' => 'Extra Off',
             'SAKIT' => 'Sakit',
             'IZIN' => 'Izin',
-            default => $type,
-        };
-
-        $detail = match (true) {
-            $request instanceof LeaveRequest => 'Periode: '.Carbon::parse($request->start_date)->format('d M Y').' - '.Carbon::parse($request->end_date)->format('d M Y')."\nAlasan: ".($request->reason ?: '-'),
             $request instanceof PublicHolidayRequest => 'Tanggal Pengambilan: '.Carbon::parse($request->claim_date)->format('d M Y')."\nPH: ".(optional($request->holiday)->name ?: '-'),
             $request instanceof ExtraOffRequest => 'Tanggal Pengambilan: '.Carbon::parse($request->claim_date)->format('d M Y')."\nSumber EO: ".Carbon::parse($request->source_period_start)->format('d M Y').' - '.Carbon::parse($request->source_period_end)->format('d M Y'),
             $request instanceof EmployeePermission => 'Tanggal: '.Carbon::parse($request->date)->format('d M Y').(($request->end_date && ! $request->end_date->isSameDay($request->date)) ? ' - '.$request->end_date->format('d M Y') : '')."\nAlasan: ".($request->reason ?: '-'),
@@ -782,8 +777,22 @@ class ApprovalNotificationService
         return $phone;
     }
 
-    private function publicApprovalUrl(string $token): string
+    private function publicApprovalUrl(?string $token, $expiresAt = null): string
     {
-        return rtrim((string) config('services.public_approval.base_url'), '/').'/approval/'.$token;
+        if (! $token) {
+            return '';
+        }
+
+        $baseUrl = config('services.public_approval.base_url')
+            ?: (request()?->getSchemeAndHttpHost() ?: (config('app.url') ?: 'http://localhost:8000'));
+
+        $longUrl = rtrim((string) $baseUrl, '/').'/api/approval/'.$token;
+
+        try {
+            $expiry = $expiresAt ? Carbon::parse($expiresAt) : null;
+            return app(\App\Services\RecruitmentShortUrlService::class)->shorten($longUrl, $expiry, $baseUrl);
+        } catch (\Throwable $e) {
+            return $longUrl;
+        }
     }
 }
