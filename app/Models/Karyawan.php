@@ -70,6 +70,7 @@ class Karyawan extends Model
         'kontak_darurat_no_hp',
         'bank',
         'no_rekening',
+        'nama_pemilik_rekening',
         'bpjs',
         'no_bpjs',
     ];

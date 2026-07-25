@@ -94,6 +94,7 @@ class HrRecruitmentVacancyController extends Controller
             'hire_type'              => ['nullable', 'in:new_hire,replacement'],
             'replaced_employee_nik'  => ['nullable', 'string', 'max:30'],
             'replaced_employee_name' => ['nullable', 'string', 'max:150'],
+            'custom_questions'       => ['nullable', 'array'],
         ]);
 
         // Jika tipe new_hire, pastikan field replacement kosong
@@ -146,6 +147,7 @@ class HrRecruitmentVacancyController extends Controller
             'hire_type'              => ['nullable', 'in:new_hire,replacement'],
             'replaced_employee_nik'  => ['nullable', 'string', 'max:30'],
             'replaced_employee_name' => ['nullable', 'string', 'max:150'],
+            'custom_questions'       => ['nullable', 'array'],
         ]);
 
         // Jika tipe new_hire, pastikan field replacement kosong

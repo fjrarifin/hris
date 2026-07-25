@@ -32,6 +32,9 @@ class RecruitmentCandidate extends Model
         'marital_status',
         'known_person',
         'referred_from',
+        'years_of_experience',
+        'willing_to_work_in_bandung',
+        'custom_answers',
         'pic_nik',
         'atasan_langsung_nik',
         'photo_path',
@@ -170,6 +173,7 @@ class RecruitmentCandidate extends Model
         'onboarding_sent_at' => 'datetime',
         'onboarding_wa_sent_at' => 'datetime',
         'onboarding_data' => 'array',
+        'custom_answers' => 'array',
     ];
 
     public function getInterviewersAttribute(): \Illuminate\Database\Eloquent\Collection

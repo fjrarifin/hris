@@ -33,6 +33,7 @@ class RecruitmentVacancy extends Model
         'hire_type',
         'replaced_employee_nik',
         'replaced_employee_name',
+        'custom_questions',
     ];
 
 
@@ -42,6 +43,7 @@ class RecruitmentVacancy extends Model
             'published_at' => 'datetime',
             'expires_at' => 'datetime',
             'application_deadline' => 'date',
+            'custom_questions' => 'array',
         ];
     }
 

@@ -88,6 +88,9 @@ class PublicCareerController extends Controller
             'previous_salary' => ['required', 'integer', 'min:0', 'max:4294967295'],
             'expected_salary' => ['required', 'integer', 'min:0', 'max:4294967295'],
             'referred_from' => ['required', 'in:LinkedIn,JobStreet,Indeed,Instagram,Website Resmi,Lainnya'],
+            'years_of_experience' => ['nullable', 'string', 'max:50'],
+            'willing_to_work_in_bandung' => ['nullable', 'in:Ya,Tidak'],
+            'custom_answers' => ['nullable'],
             'resume' => ['required', 'file', 'mimes:pdf', 'max:5120'],
             'website' => ['nullable', 'max:0'],
         ], [
@@ -96,6 +99,13 @@ class PublicCareerController extends Controller
             'resume.max' => 'Ukuran CV maksimal 5 MB.',
             'website.max' => 'Lamaran tidak dapat diproses.',
         ]);
+
+        if (is_string($payload['custom_answers'] ?? null)) {
+            $decoded = json_decode($payload['custom_answers'], true);
+            if (is_array($decoded)) {
+                $payload['custom_answers'] = $decoded;
+            }
+        }
 
 
         // Cari kandidat utama (profile_candidate_id IS NULL) berdasarkan email atau phone
@@ -112,33 +122,33 @@ class PublicCareerController extends Controller
         $path = $request->file('resume')->store('recruitment-resumes/public', 'local');
         try {
             $candidate = DB::transaction(function () use ($payload, $vacancy, $path, $existingCandidate): RecruitmentCandidate {
+                $createData = [
+                    'vacancy_id'       => $vacancy->id,
+                    'name'             => trim($payload['name']),
+                    'email'            => $payload['email'],
+                    'phone'            => $payload['phone'],
+                    'marital_status'   => $payload['marital_status'],
+                    'known_person'     => $payload['known_person'] ?? null,
+                    'last_company'     => $payload['last_company'] ?? null,
+                    'education_level'  => $payload['education_level'],
+                    'education_major'  => trim($payload['education_major']),
+                    'previous_salary'  => $payload['previous_salary'],
+                    'expected_salary'  => $payload['expected_salary'],
+                    'referred_from'    => $payload['referred_from'],
+                    'years_of_experience' => $payload['years_of_experience'] ?? null,
+                    'willing_to_work_in_bandung' => $payload['willing_to_work_in_bandung'] ?? null,
+                    'custom_answers'   => $payload['custom_answers'] ?? null,
+                    'resume_path'      => $path,
+                    'status'           => 'applied',
+                ];
+
                 if ($existingCandidate) {
                     // Re-apply: buat baris kandidat BARU yang linked ke profil utama.
-                    // Profil utama tidak diubah datanya — hanya di-link.
-                    // Baris baru ini akan menjadi lamaran aktif yang tampil ke HR.
+                    $newCandidate = RecruitmentCandidate::query()->create(array_merge($createData, [
+                        'profile_candidate_id' => null,
+                        'notes' => 'Lamaran dari web career public. [MELAMAR KEMBALI dari lamaran #' . $existingCandidate->id . ']',
+                    ]));
 
-                    // 1. Buat baris lamaran baru (profil aktif baru)
-                    $newCandidate = RecruitmentCandidate::query()->create([
-                        'profile_candidate_id' => null, // ini akan jadi profil utama baru
-                        'vacancy_id'       => $vacancy->id,
-                        'name'             => trim($payload['name']),
-                        'email'            => $payload['email'],
-                        'phone'            => $payload['phone'],
-                        'marital_status'   => $payload['marital_status'],
-                        'known_person'     => $payload['known_person'] ?? null,
-                        'last_company'     => $payload['last_company'] ?? null,
-                        'education_level'  => $payload['education_level'],
-                        'education_major'  => trim($payload['education_major']),
-                        'previous_salary'  => $payload['previous_salary'],
-                        'expected_salary'  => $payload['expected_salary'],
-                        'referred_from'    => $payload['referred_from'],
-                        'resume_path'      => $path,
-                        'status'           => 'applied',
-                        'notes'            => 'Lamaran dari web career public. [MELAMAR KEMBALI dari lamaran #' . $existingCandidate->id . ']',
-                    ]);
-
-                    // 2. Tandai kandidat lama sebagai "linked" ke profil baru ini
-                    //    sehingga tidak muncul di daftar HR, tapi bisa di-switch
                     $existingCandidate->update([
                         'profile_candidate_id' => $newCandidate->id,
                     ]);
@@ -148,23 +158,9 @@ class PublicCareerController extends Controller
                     }
                     return $newCandidate;
                 } else {
-                    $candidate = RecruitmentCandidate::query()->create([
-                        'vacancy_id'       => $vacancy->id,
-                        'name'             => trim($payload['name']),
-                        'email'            => $payload['email'],
-                        'phone'            => $payload['phone'],
-                        'marital_status'   => $payload['marital_status'],
-                        'known_person'     => $payload['known_person'] ?? null,
-                        'last_company'     => $payload['last_company'] ?? null,
-                        'education_level'  => $payload['education_level'],
-                        'education_major'  => trim($payload['education_major']),
-                        'previous_salary'  => $payload['previous_salary'],
-                        'expected_salary'  => $payload['expected_salary'],
-                        'referred_from'    => $payload['referred_from'],
-                        'resume_path'      => $path,
-                        'status'           => 'applied',
-                        'notes'            => 'Lamaran dari web career public.',
-                    ]);
+                    $candidate = RecruitmentCandidate::query()->create(array_merge($createData, [
+                        'notes' => 'Lamaran dari web career public.',
+                    ]));
                     if (Schema::hasTable('recruitment_candidate_stage_histories')) {
                         app(RecruitmentStageService::class)->recordInitial($candidate);
                     }
