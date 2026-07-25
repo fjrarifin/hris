@@ -94,51 +94,61 @@ class FingerspotUserinfoService
     public function saveUserInfoPayload(array $payload, ?string $defaultCloudId = null): ?FingerspotUserTemplate
     {
         $cloudId = Arr::get($payload, 'cloud_id') ?: $defaultCloudId;
-        $data = Arr::get($payload, 'data') ?: $payload;
+        $rawItems = Arr::get($payload, 'data') ?: $payload;
 
-        if (is_array($data) && isset($data[0]) && is_array($data[0])) {
-            $data = $data[0];
-        }
+        $items = (is_array($rawItems) && isset($rawItems[0]) && is_array($rawItems[0]))
+            ? $rawItems
+            : [$rawItems];
 
-        $pin = trim((string) (Arr::get($data, 'pin') ?: Arr::get($payload, 'pin')));
+        $lastSaved = null;
 
-        if ($pin === '') {
-            return null;
-        }
+        foreach ($items as $data) {
+            if (! is_array($data)) {
+                continue;
+            }
 
-        $name = trim((string) (Arr::get($data, 'name') ?: Arr::get($data, 'user_name') ?: ''));
-        $privilege = (string) (Arr::get($data, 'privilege') ?? '0');
-        $password = (string) (Arr::get($data, 'password') ?? '');
-        $card = (string) (Arr::get($data, 'card') ?: Arr::get($data, 'rfid') ?: '');
-        $template = Arr::get($data, 'template') ?: Arr::get($data, 'fingerprint');
+            $pin = trim((string) (Arr::get($data, 'pin') ?: Arr::get($payload, 'pin')));
 
-        if (is_array($template) || is_object($template)) {
-            $template = json_encode($template);
-        }
+            if ($pin === '') {
+                continue;
+            }
 
-        $userTemplate = FingerspotUserTemplate::updateOrCreate(
-            ['pin' => $pin],
-            [
-                'name' => $name ?: null,
+            $name = trim((string) (Arr::get($data, 'name') ?: Arr::get($data, 'user_name') ?: ''));
+            $privilege = (string) (Arr::get($data, 'privilege') ?? '0');
+            $password = (string) (Arr::get($data, 'password') ?? '');
+            $card = (string) (Arr::get($data, 'card') ?: Arr::get($data, 'rfid') ?: '');
+            $template = Arr::get($data, 'template') ?: Arr::get($data, 'fingerprint');
+
+            if (is_array($template) || is_object($template)) {
+                $template = json_encode($template);
+            }
+
+            $userTemplate = FingerspotUserTemplate::updateOrCreate(
+                ['pin' => $pin],
+                [
+                    'name' => $name ?: null,
+                    'cloud_id' => $cloudId,
+                    'privilege' => $privilege,
+                    'password' => $password,
+                    'card' => $card ?: null,
+                    'template' => $template ? (string) $template : null,
+                    'raw_data' => $payload,
+                    'last_pulled_at' => now(),
+                ]
+            );
+
+            Log::info('Fingerspot user template saved to DB', [
+                'pin' => $pin,
+                'name' => $name,
                 'cloud_id' => $cloudId,
-                'privilege' => $privilege,
-                'password' => $password,
-                'card' => $card ?: null,
-                'template' => $template ? (string) $template : null,
-                'raw_data' => $payload,
-                'last_pulled_at' => now(),
-            ]
-        );
+                'has_template' => ! empty($template),
+                'card' => $card,
+            ]);
 
-        Log::info('Fingerspot user template saved to DB', [
-            'pin' => $pin,
-            'name' => $name,
-            'cloud_id' => $cloudId,
-            'has_template' => ! empty($template),
-            'card' => $card,
-        ]);
+            $lastSaved = $userTemplate;
+        }
 
-        return $userTemplate;
+        return $lastSaved;
     }
 
     public function getEmployeeTemplate(Karyawan $employee): array

@@ -212,7 +212,7 @@ class FingerspotController extends Controller
         $this->whatsAppNotifier->notify($webhookLog);
 
         $savedTemplate = null;
-        if (($payload['type'] ?? null) === 'get_userinfo' || isset($payload['template']) || isset($payload['data']['template'])) {
+        if (($payload['type'] ?? null) === 'get_userinfo' || isset($payload['template']) || isset($payload['data']['template']) || isset($payload['data'][0]['template']) || isset($payload['data']['fingerprint']) || isset($payload['data'][0]['fingerprint'])) {
             $savedTemplate = $this->userinfoService->saveUserInfoPayload($payload);
         }
 
