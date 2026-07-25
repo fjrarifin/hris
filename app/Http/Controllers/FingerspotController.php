@@ -14,9 +14,9 @@ class FingerspotController extends Controller
 {
     public function __construct(
         private FingerspotAttendanceService $attendanceService,
-        private FingerspotAttendanceWhatsAppNotifier $whatsAppNotifier
-    )
-    {
+        private FingerspotAttendanceWhatsAppNotifier $whatsAppNotifier,
+        private \App\Services\FingerspotUserinfoService $userinfoService
+    ) {
     }
 
     private function sendToFingerspot(string $endpoint, array $payload, bool $storeAttendance = false)
@@ -211,11 +211,17 @@ class FingerspotController extends Controller
         $storeResult = $this->attendanceService->storeFromWebhook($payload);
         $this->whatsAppNotifier->notify($webhookLog);
 
+        $savedTemplate = null;
+        if (($payload['type'] ?? null) === 'get_userinfo' || isset($payload['template']) || isset($payload['data']['template'])) {
+            $savedTemplate = $this->userinfoService->saveUserInfoPayload($payload);
+        }
+
         return response()->json([
             'success' => true,
             'message' => 'Webhook received',
             'webhook_log_id' => $webhookLog->id,
             'attendance_sync' => $storeResult,
+            'template_saved' => $savedTemplate !== null,
         ]);
     }
 }

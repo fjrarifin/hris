@@ -214,6 +214,42 @@ class EmployeeController extends Controller
         ]);
     }
 
+    public function pullFingerspotUserinfo(
+        Request $request,
+        Karyawan $employee,
+        FingerspotUserinfoService $fingerspot
+    ): JsonResponse {
+        $validated = $request->validate([
+            'cloud_id' => ['required', 'string', 'max:100'],
+        ]);
+
+        try {
+            $result = $fingerspot->pullEmployeeUserinfo($employee, $validated['cloud_id']);
+        } catch (InvalidArgumentException $e) {
+            return response()->json([
+                'ok' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+
+        return response()->json([
+            'ok' => $result['ok'],
+            'message' => $result['ok']
+                ? "Perintah tarik data/biometrik userinfo {$employee->nama_karyawan} berhasil dikirim ke mesin. Data template akan tersimpan setelah callback mesin diterima."
+                : "Gagal memicu penarikan data userinfo dari mesin.",
+            'data' => $result,
+        ]);
+    }
+
+    public function getFingerspotTemplate(
+        Karyawan $employee,
+        FingerspotUserinfoService $fingerspot
+    ): JsonResponse {
+        return response()->json([
+            'data' => $fingerspot->getEmployeeTemplate($employee),
+        ]);
+    }
+
     public function update(Request $request, Karyawan $employee): JsonResponse
     {
         $payload = $this->validatedPayload($request, $employee);

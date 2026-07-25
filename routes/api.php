@@ -230,6 +230,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::middleware('frontend.menu:employees')->group(function () {
             Route::get('/employee/fingerspot/clouds', [EmployeeController::class, 'fingerspotClouds']);
             Route::post('/employee/{employee}/fingerspot-userinfo', [EmployeeController::class, 'sendFingerspotUserinfo']);
+            Route::post('/employee/{employee}/fingerspot-pull-userinfo', [EmployeeController::class, 'pullFingerspotUserinfo']);
+            Route::get('/employee/{employee}/fingerspot-template', [EmployeeController::class, 'getFingerspotTemplate']);
             Route::apiResource('employee', EmployeeController::class);
             Route::get('/employees/export', [EmployeeController::class, 'export']);
         });
@@ -250,6 +252,8 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/approvals/{type}', [HrApprovalController::class, 'index']);
             Route::post('/approvals/{type}/{id}', [HrApprovalController::class, 'decide']);
             Route::post('/approvals/{type}/{id}/cancel', [HrApprovalController::class, 'cancel']);
+            Route::get('/overtime-recap', [\App\Http\Controllers\Api\HrOvertimeRecapController::class, 'index']);
+            Route::get('/overtime-recap/export', [\App\Http\Controllers\Api\HrOvertimeRecapController::class, 'export']);
             Route::get('/leave-balances', [\App\Http\Controllers\Api\HrLeaveBalanceController::class, 'index']);
             Route::get('/leave-balances/export', [\App\Http\Controllers\Api\HrLeaveBalanceController::class, 'export']);
             Route::get('/leave-balances/{nik}', [\App\Http\Controllers\Api\HrLeaveBalanceController::class, 'show']);

@@ -398,28 +398,65 @@ class EmployeeApiTest extends TestCase
             && $request['data']['template'] === '');
     }
 
-    public function test_it_requires_employee_pin_before_sending_userinfo_to_fingerspot(): void
+    public function test_it_can_pull_and_push_fingerspot_biometric_templates(): void
     {
+        config()->set('fingerspot.base_url', 'https://developer.fingerspot.io/api');
         config()->set('fingerspot.api_token', 'test-token');
         config()->set('fingerspot.clouds', [
             ['id' => 'cloud-office', 'name' => 'Office'],
+            ['id' => 'cloud-branch', 'name' => 'Branch'],
         ]);
 
-        Karyawan::create([
-            'nik' => 'EMP778',
-            'nama_karyawan' => 'Tanpa PIN',
+        $employee = Karyawan::create([
+            'nik' => 'EMP999',
+            'pin' => 'PIN-999',
+            'nama_karyawan' => 'User Biometrics',
             'jabatan' => 'Staff',
         ]);
 
-        Http::fake();
+        Http::fake([
+            'https://developer.fingerspot.io/api/get_userinfo' => Http::response([
+                'success' => true,
+                'message' => 'queued',
+                'cloud_id' => 'cloud-office',
+                'data' => [
+                    'pin' => 'PIN-999',
+                    'name' => 'User Biometrics',
+                    'card' => 'RFID-12345',
+                    'template' => 'FINGERPRINT_TEMPLATE_DATA_XYZ',
+                ],
+            ]),
+            'https://developer.fingerspot.io/api/set_userinfo' => Http::response([
+                'success' => true,
+                'message' => 'queued',
+            ]),
+        ]);
 
-        $this->postJson('/api/employee/EMP778/fingerspot-userinfo', [
+        // 1. Pull userinfo from cloud-office
+        $this->postJson('/api/employee/EMP999/fingerspot-pull-userinfo', [
             'cloud_id' => 'cloud-office',
         ])
-            ->assertUnprocessable()
-            ->assertJsonPath('message', 'PIN absensi karyawan belum diisi.');
+            ->assertOk()
+            ->assertJsonPath('ok', true);
 
-        Http::assertNothingSent();
+        // 2. Check template status
+        $this->getJson('/api/employee/EMP999/fingerspot-template')
+            ->assertOk()
+            ->assertJsonPath('data.has_template', true)
+            ->assertJsonPath('data.card', 'RFID-12345');
+
+        // 3. Push userinfo + biometric template to cloud-branch
+        $this->postJson('/api/employee/EMP999/fingerspot-userinfo', [
+            'cloud_id' => 'cloud-branch',
+        ])
+            ->assertOk()
+            ->assertJsonPath('ok', true);
+
+        Http::assertSent(fn ($request): bool => $request->url() === 'https://developer.fingerspot.io/api/set_userinfo'
+            && $request['cloud_id'] === 'cloud-branch'
+            && $request['data']['pin'] === 'PIN-999'
+            && $request['data']['rfid'] === 'RFID-12345'
+            && $request['data']['template'] === 'FINGERPRINT_TEMPLATE_DATA_XYZ');
     }
 
     public function test_level_zero_can_receive_and_manage_its_allowed_frontend_menu(): void
