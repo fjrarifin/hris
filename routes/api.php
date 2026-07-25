@@ -224,6 +224,16 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::get('/', [\App\Http\Controllers\Api\CommandServiceToggleController::class, 'index']);
                 Route::put('/{commandServiceToggle}', [\App\Http\Controllers\Api\CommandServiceToggleController::class, 'update']);
             });
+        Route::prefix('it/fingerspot')
+            ->middleware(['level:0', 'frontend.menu:it-fingerspot'])
+            ->group(function () {
+                Route::get('/', [\App\Http\Controllers\Api\ItFingerspotController::class, 'index']);
+                Route::post('/pull-all', [\App\Http\Controllers\Api\ItFingerspotController::class, 'pullAll']);
+                Route::post('/send-all', [\App\Http\Controllers\Api\ItFingerspotController::class, 'sendAll']);
+                Route::post('/pull-attlog', [\App\Http\Controllers\Api\ItFingerspotController::class, 'pullAttlog']);
+                Route::post('/employees/{nik}/pull', [\App\Http\Controllers\Api\ItFingerspotController::class, 'pullEmployee']);
+                Route::post('/employees/{nik}/send', [\App\Http\Controllers\Api\ItFingerspotController::class, 'sendEmployee']);
+            });
 
         Route::middleware('level:0,1,2')->get('/employees', [EmployeeController::class, 'frontendIndex']);
 

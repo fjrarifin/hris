@@ -34,6 +34,120 @@ class FingerspotUserinfoService
             ->all();
     }
 
+    public function pullAllBiometrics(?string $cloudId = null): array
+    {
+        $targetClouds = $cloudId
+            ? collect($this->clouds())->where('id', $cloudId)->values()
+            : collect($this->clouds());
+
+        if ($targetClouds->isEmpty()) {
+            throw new InvalidArgumentException('Mesin absensi tidak ditemukan.');
+        }
+
+        $employees = Karyawan::query()
+            ->whereNotNull('pin')
+            ->where('pin', '!=', '')
+            ->get();
+
+        $successCount = 0;
+        $failedCount = 0;
+        $details = [];
+
+        foreach ($employees as $employee) {
+            foreach ($targetClouds as $cloud) {
+                try {
+                    $res = $this->pullEmployeeUserinfo($employee, $cloud['id']);
+                    if ($res['ok'] ?? false) {
+                        $successCount++;
+                    } else {
+                        $failedCount++;
+                    }
+                    $details[] = [
+                        'pin' => $employee->pin,
+                        'name' => $employee->nama_karyawan,
+                        'cloud_id' => $cloud['id'],
+                        'ok' => $res['ok'] ?? false,
+                    ];
+                } catch (\Throwable $e) {
+                    $failedCount++;
+                    $details[] = [
+                        'pin' => $employee->pin,
+                        'name' => $employee->nama_karyawan,
+                        'cloud_id' => $cloud['id'],
+                        'ok' => false,
+                        'error' => $e->getMessage(),
+                    ];
+                }
+            }
+        }
+
+        return [
+            'total_employees' => $employees->count(),
+            'total_clouds' => $targetClouds->count(),
+            'commands_sent' => $successCount + $failedCount,
+            'success_count' => $successCount,
+            'failed_count' => $failedCount,
+            'details' => $details,
+        ];
+    }
+
+    public function sendAllEmployees(?string $cloudId = null): array
+    {
+        $targetClouds = $cloudId
+            ? collect($this->clouds())->where('id', $cloudId)->values()
+            : collect($this->clouds());
+
+        if ($targetClouds->isEmpty()) {
+            throw new InvalidArgumentException('Mesin absensi tidak ditemukan.');
+        }
+
+        $employees = Karyawan::query()
+            ->whereNotNull('pin')
+            ->where('pin', '!=', '')
+            ->get();
+
+        $successCount = 0;
+        $failedCount = 0;
+        $details = [];
+
+        foreach ($employees as $employee) {
+            foreach ($targetClouds as $cloud) {
+                try {
+                    $res = $this->sendEmployee($employee, $cloud['id']);
+                    if ($res['ok'] ?? false) {
+                        $successCount++;
+                    } else {
+                        $failedCount++;
+                    }
+                    $details[] = [
+                        'pin' => $employee->pin,
+                        'name' => $employee->nama_karyawan,
+                        'cloud_id' => $cloud['id'],
+                        'ok' => $res['ok'] ?? false,
+                    ];
+                } catch (\Throwable $e) {
+                    $failedCount++;
+                    $details[] = [
+                        'pin' => $employee->pin,
+                        'name' => $employee->nama_karyawan,
+                        'cloud_id' => $cloud['id'],
+                        'ok' => false,
+                        'error' => $e->getMessage(),
+                    ];
+                }
+            }
+        }
+
+        return [
+            'total_employees' => $employees->count(),
+            'total_clouds' => $targetClouds->count(),
+            'commands_sent' => $successCount + $failedCount,
+            'success_count' => $successCount,
+            'failed_count' => $failedCount,
+            'details' => $details,
+        ];
+    }
+
     public function pullEmployeeUserinfo(Karyawan $employee, string $cloudId): array
     {
         $cloud = collect($this->clouds())->firstWhere('id', $cloudId);
