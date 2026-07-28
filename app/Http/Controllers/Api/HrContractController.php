@@ -463,6 +463,10 @@ class HrContractController extends Controller
         Karyawan::query()->where('nik', $nik)->update([
             'status_karyawan' => $active ? 'AKTIF' : 'NONAKTIF',
         ]);
+
+        User::query()->where('username', $nik)->update([
+            'is_active' => $active,
+        ]);
     }
 
     private function expireContracts(Carbon $today, ?string $nik = null): void

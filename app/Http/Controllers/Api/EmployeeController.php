@@ -724,9 +724,13 @@ class EmployeeController extends Controller
 
     private function syncEmployeeStatus(Karyawan $employee): void
     {
+        $status = $this->employeeStatus($employee->nik);
+
         $employee->update([
-            'status_karyawan' => $this->employeeStatus($employee->nik),
+            'status_karyawan' => $status,
         ]);
+
+        User::syncIsActiveForNik($employee->nik);
     }
 
     private function hasEmptyDocumentPlaceholder(Request $request): bool

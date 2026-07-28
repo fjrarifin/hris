@@ -51,6 +51,10 @@ class ExpireEmployeeContracts extends Command
             Karyawan::query()->where('nik', $nik)->update([
                 'status_karyawan' => $hasActiveContract ? 'AKTIF' : 'NONAKTIF',
             ]);
+
+            User::query()->where('username', $nik)->update([
+                'is_active' => $hasActiveContract,
+            ]);
         }
 
         $reminders = $reminderService->sendDueReminders($today);

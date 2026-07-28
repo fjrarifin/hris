@@ -3,9 +3,11 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
@@ -104,5 +106,52 @@ class User extends Authenticatable
     public function mobileDeviceTokens()
     {
         return $this->hasMany(MobileDeviceToken::class);
+    }
+
+    /**
+     * Check if user has at least one active contract.
+     */
+    public function hasActiveContract(?Carbon $date = null): bool
+    {
+        $today = $date ?? now()->startOfDay();
+
+        return DB::table('t_kontrak_karyawan')
+            ->where('nik', $this->username)
+            ->where('status_kontrak', 'AKTIF')
+            ->whereDate('start_date', '<=', $today->copy()->addMonthNoOverflow())
+            ->whereDate('end_date', '>=', $today)
+            ->exists();
+    }
+
+    /**
+     * Synchronize `is_active` attribute based on active contracts.
+     */
+    public function syncIsActiveFromContracts(?Carbon $date = null): bool
+    {
+        $hasActive = $this->hasActiveContract($date);
+
+        if ((bool) $this->is_active !== $hasActive) {
+            $this->forceFill(['is_active' => $hasActive])->save();
+        }
+
+        return $hasActive;
+    }
+
+    /**
+     * Static helper to sync `is_active` for a given NIK/username.
+     */
+    public static function syncIsActiveForNik(string $nik, ?Carbon $date = null): void
+    {
+        $today = $date ?? now()->startOfDay();
+        $hasActive = DB::table('t_kontrak_karyawan')
+            ->where('nik', $nik)
+            ->where('status_kontrak', 'AKTIF')
+            ->whereDate('start_date', '<=', $today->copy()->addMonthNoOverflow())
+            ->whereDate('end_date', '>=', $today)
+            ->exists();
+
+        static::query()->where('username', $nik)->update([
+            'is_active' => $hasActive,
+        ]);
     }
 }
