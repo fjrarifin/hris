@@ -344,6 +344,10 @@ class HrAttendanceCorrectionController extends Controller
                 $this->cancelLinkedAbsence($lockedCorrection);
             }
 
+            if ($employeeUser) {
+                $this->cancelPendingAbsencesOnDate($employeeUser, $date);
+            }
+
             $absence = $correctionType === 'time'
                 ? ['type' => null, 'id' => null, 'leave_accrual_id' => null]
                 : $this->createApprovedAbsenceFromCorrection($request, $employeeUser, $employee, $date, $correctionType, $validated);
@@ -621,27 +625,65 @@ class HrAttendanceCorrectionController extends Controller
         }
     }
 
+    private function cancelPendingAbsencesOnDate(User $user, Carbon $date): void
+    {
+        LeaveRequest::query()
+            ->where('user_id', $user->id)
+            ->where('status', 'pending')
+            ->whereDate('start_date', '<=', $date)
+            ->whereDate('end_date', '>=', $date)
+            ->get()
+            ->each(fn ($req) => $req->forceFill(['status' => 'cancelled', 'reject_reason' => 'Dibatalkan otomatis karena koreksi absensi HRD pada tanggal ini.'])->save());
+
+        PublicHolidayRequest::query()
+            ->where('user_id', $user->id)
+            ->where('status', 'pending')
+            ->whereDate('claim_date', $date)
+            ->get()
+            ->each(fn ($req) => $req->forceFill(['status' => 'cancelled', 'reject_reason' => 'Dibatalkan otomatis karena koreksi absensi HRD pada tanggal ini.'])->save());
+
+        ExtraOffRequest::query()
+            ->where('user_id', $user->id)
+            ->where('status', 'pending')
+            ->whereDate('claim_date', $date)
+            ->get()
+            ->each(fn ($req) => $req->forceFill(['status' => 'cancelled', 'reject_reason' => 'Dibatalkan otomatis karena koreksi absensi HRD pada tanggal ini.'])->save());
+
+        EmployeePermission::query()
+            ->where('user_id', $user->id)
+            ->where('status', 'pending')
+            ->whereDate('date', '<=', $date)
+            ->whereDate('end_date', '>=', $date)
+            ->get()
+            ->each(fn ($req) => $req->forceFill(['status' => 'cancelled', 'reject_reason' => 'Dibatalkan otomatis karena koreksi absensi HRD pada tanggal ini.'])->save());
+    }
+
     private function ensureNoAbsenceConflict(User $user, Carbon $date): void
     {
+        $isPastDate = $date->lt(now()->startOfDay());
+        $statusFilter = fn ($query) => $isPastDate
+            ? $query->where('status', 'approved')
+            : $query->whereNotIn('status', ['rejected', 'cancelled']);
+
         if (LeaveRequest::query()
             ->where('user_id', $user->id)
-            ->whereNotIn('status', ['rejected', 'cancelled'])
+            ->where($statusFilter)
             ->whereDate('start_date', '<=', $date)
             ->whereDate('end_date', '>=', $date)
             ->exists()
             || PublicHolidayRequest::query()
                 ->where('user_id', $user->id)
-                ->whereNotIn('status', ['rejected', 'cancelled'])
+                ->where($statusFilter)
                 ->whereDate('claim_date', $date)
                 ->exists()
             || ExtraOffRequest::query()
                 ->where('user_id', $user->id)
-                ->whereNotIn('status', ['rejected', 'cancelled'])
+                ->where($statusFilter)
                 ->whereDate('claim_date', $date)
                 ->exists()
             || EmployeePermission::query()
                 ->where('user_id', $user->id)
-                ->whereNotIn('status', ['rejected', 'cancelled'])
+                ->where($statusFilter)
                 ->whereDate('date', '<=', $date)
                 ->whereDate('end_date', '>=', $date)
                 ->exists()) {
@@ -673,7 +715,13 @@ class HrAttendanceCorrectionController extends Controller
             : collect();
         $approvedIds = PublicHolidayRequest::query()
             ->where('user_id', $user->id)
-            ->whereNotIn('status', ['rejected', 'cancelled'])
+            ->where(function ($q) {
+                $q->where('status', 'approved')
+                    ->orWhere(function ($pendingQ) {
+                        $pendingQ->where('status', 'pending')
+                            ->whereDate('claim_date', '>=', now()->startOfDay());
+                    });
+            })
             ->when($currentRequestId, fn ($query) => $query->whereKeyNot($currentRequestId))
             ->pluck('public_holiday_id');
 
@@ -722,7 +770,13 @@ class HrAttendanceCorrectionController extends Controller
             ->where('user_id', $user->id)
             ->whereDate('source_period_start', $source->periode_start)
             ->whereDate('source_period_end', $source->periode_end)
-            ->whereNotIn('status', ['rejected', 'cancelled'])
+            ->where(function ($q) {
+                $q->where('status', 'approved')
+                    ->orWhere(function ($pendingQ) {
+                        $pendingQ->where('status', 'pending')
+                            ->whereDate('claim_date', '>=', now()->startOfDay());
+                    });
+            })
             ->when($exceptRequestId, fn ($query) => $query->whereKeyNot($exceptRequestId))
             ->count();
     }
