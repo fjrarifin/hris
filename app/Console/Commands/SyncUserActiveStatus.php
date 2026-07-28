@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -41,16 +42,28 @@ class SyncUserActiveStatus extends Command
         $deactivatedCount = DB::table('users')
             ->whereIn('username', $allContractNiks)
             ->whereNotIn('username', $activeNiks)
+            ->where('is_active', '!=', 0)
             ->update(['is_active' => 0]);
 
         // Pastikan user yang memiliki kontrak aktif tetap is_active = 1
         $activatedCount = DB::table('users')
             ->whereIn('username', $activeNiks)
+            ->where('is_active', '!=', 1)
             ->update(['is_active' => 1]);
 
+        $totalActive = User::query()->where('is_active', true)->count();
+        $totalInactive = User::query()->where('is_active', false)->count();
+
         $this->info('Sinkronisasi akun user selesai!');
-        $this->info("- User aktif (memiliki kontrak aktif): {$activatedCount}");
-        $this->info("- User dinonaktifkan (tanpa kontrak aktif): {$deactivatedCount}");
+        $this->info("==========================================");
+        $this->info(" Perubahan Status Akun:");
+        $this->info(" - Akun baru dinonaktifkan : {$deactivatedCount}");
+        $this->info(" - Akun baru diaktifkan    : {$activatedCount}");
+        $this->info("------------------------------------------");
+        $this->info(" Status Total User di Database saat ini:");
+        $this->info(" - Total User Aktif (is_active = 1)   : {$totalActive}");
+        $this->info(" - Total User Nonaktif (is_active = 0): {$totalInactive}");
+        $this->info("==========================================");
 
         return self::SUCCESS;
     }
