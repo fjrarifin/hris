@@ -1104,8 +1104,10 @@ class StaffPortalController extends Controller
             throw ValidationException::withMessages(['claim_date' => 'Tanggal pengambilan tidak boleh sebelum tanggal PH.']);
         }
 
-        if ($claimDate->gt($expiredAt)) {
-            throw ValidationException::withMessages(['claim_date' => 'Tanggal pengambilan melewati masa berlaku PH.']);
+        $maxClaimDate = now()->startOfDay()->addDays(60);
+
+        if ($claimDate->gt($maxClaimDate)) {
+            throw ValidationException::withMessages(['claim_date' => 'Tanggal pengambilan maksimal 60 hari ke depan.']);
         }
 
         if (LeaveRequest::query()
