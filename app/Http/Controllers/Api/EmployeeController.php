@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\EmployeeChangeLog;
 use App\Models\Karyawan;
+use App\Models\User;
 use App\Services\FingerspotUserinfoService;
 use App\Services\HrdAuditLogService;
 use Carbon\Carbon;

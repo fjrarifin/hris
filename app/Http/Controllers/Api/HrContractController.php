@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\HrdAuditLog;
 use App\Models\Karyawan;
+use App\Models\User;
 use App\Services\HrdAuditLogService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
