@@ -23,6 +23,12 @@ class RecruitmentVacancy extends Model
         'employment_type',
         'workplace_type',
         'location',
+        'street_address',
+        'address_region',
+        'postal_code',
+        'salary_min',
+        'salary_max',
+        'hide_salary',
         'responsibilities',
         'requirements',
         'benefits',
@@ -44,6 +50,9 @@ class RecruitmentVacancy extends Model
             'expires_at' => 'datetime',
             'application_deadline' => 'date',
             'custom_questions' => 'array',
+            'salary_min' => 'integer',
+            'salary_max' => 'integer',
+            'hide_salary' => 'boolean',
         ];
     }
 

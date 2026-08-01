@@ -236,6 +236,11 @@ class PublicCareerController extends Controller
 
     private function resource(RecruitmentVacancy $vacancy, bool $detail): array
     {
+        $publishedAt = $vacancy->published_at ?? $vacancy->created_at;
+        $deadline = $vacancy->application_deadline
+            ? $vacancy->application_deadline->toDateString()
+            : ($publishedAt ? $publishedAt->copy()->addDays(90)->toDateString() : null);
+
         $data = [
             'slug' => $vacancy->slug,
             'title' => $vacancy->title,
@@ -246,9 +251,16 @@ class PublicCareerController extends Controller
             'employment_type' => $vacancy->employment_type,
             'workplace_type' => $vacancy->workplace_type,
             'location' => $vacancy->location,
+            'street_address' => $vacancy->street_address,
+            'address_region' => $vacancy->address_region,
+            'postal_code' => $vacancy->postal_code,
+            'salary_min' => $vacancy->hide_salary ? null : $vacancy->salary_min,
+            'salary_max' => $vacancy->hide_salary ? null : $vacancy->salary_max,
+            'hide_salary' => (bool) $vacancy->hide_salary,
             'description' => $vacancy->description,
             'published_at' => $vacancy->published_at?->toIso8601String(),
             'application_deadline' => $vacancy->application_deadline?->toDateString(),
+            'valid_through' => $deadline,
         ];
 
         return $detail ? $data + [
