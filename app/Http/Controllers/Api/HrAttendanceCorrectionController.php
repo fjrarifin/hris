@@ -90,7 +90,7 @@ class HrAttendanceCorrectionController extends Controller
                             'duration' => $day['duration_label'] ?? null,
                             'duration_minutes' => $day['duration_minutes'] ?? 0,
                             'finding' => $this->findingLabel($day),
-                            'is_resolved' => in_array($day['status'], ['C', 'PH', 'EO', 'SDC'], true)
+                            'is_resolved' => in_array($day['status'], ['C', 'PH', 'EO', 'SDC', 'S', 'I'], true)
                                 || (($day['correction']['correction_type'] ?? null) === 'sdc')
                                 || (! blank($day['scan_in']) && ! blank($day['scan_out']) && ! ($day['needs_attention'] ?? false)),
                             'needs_attention' => $day['needs_attention'] ?? false,
@@ -413,7 +413,7 @@ class HrAttendanceCorrectionController extends Controller
                 'raw_scan_in' => $freshDay['raw_scan_in'] ?? null,
                 'raw_scan_out' => $freshDay['raw_scan_out'] ?? null,
                 'finding' => blank($freshDay['raw_scan_in']) && blank($freshDay['raw_scan_out']) ? 'Tidak ada absen' : (blank($freshDay['raw_scan_in']) ? 'Tidak scan masuk' : 'Tidak scan pulang'),
-                'is_resolved' => in_array($freshDay['status'], ['C', 'PH', 'EO', 'SDC'], true)
+                'is_resolved' => in_array($freshDay['status'], ['C', 'PH', 'EO', 'SDC', 'S', 'I'], true)
                     || (! blank($freshDay['scan_in']) && ! blank($freshDay['scan_out']) && ! ($freshDay['needs_attention'] ?? false)),
                 'needs_attention' => $freshDay['needs_attention'] ?? false,
                 'has_incomplete_scan' => $freshDay['has_incomplete_scan'] ?? false,
