@@ -169,7 +169,7 @@ class HrApprovalController extends Controller
             'time' => $type === 'overtime' ? "{$item->start_time} - {$item->end_time}" : null,
             'reason' => $item->reason ?? null,
             'document_url' => $type === 'permission' && $item->document
-                ? asset('storage/'.$item->document)
+                ? (request()->schemeAndHttpHost().'/storage/'.ltrim($item->document, '/'))
                 : null,
             'status' => $workflowStatus,
             'source_status' => $item->status,

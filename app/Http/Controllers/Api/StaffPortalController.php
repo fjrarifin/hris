@@ -2269,7 +2269,9 @@ class StaffPortalController extends Controller
             ...$permission->toArray(),
             'start_date' => $permission->date?->toDateString(),
             'end_date' => ($permission->end_date ?? $permission->date)?->toDateString(),
-            'document_url' => $permission->document ? asset('storage/'.$permission->document) : null,
+            'document_url' => $permission->document
+                ? (request()->schemeAndHttpHost().'/storage/'.ltrim($permission->document, '/'))
+                : null,
         ];
     }
 
