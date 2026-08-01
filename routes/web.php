@@ -140,3 +140,16 @@ Route::get('/s/{code}', [\App\Http\Controllers\RecruitmentShortUrlController::cl
     ->middleware('throttle:60,1')
     ->name('short-url.redirect');
 
+Route::get('/storage/{path}', function ($path) {
+    $filePath = storage_path('app/public/' . $path);
+    if (!file_exists($filePath)) {
+        $filePath = storage_path('app/' . $path);
+    }
+    if (!file_exists($filePath)) {
+        abort(404);
+    }
+    $mimeType = mime_content_type($filePath) ?: 'application/octet-stream';
+    return response()->file($filePath, ['Content-Type' => $mimeType]);
+})->where('path', '.*');
+
+
