@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Exports\HrAttendanceCorrectionExport;
 use App\Http\Controllers\Controller;
 use App\Models\AttendanceCorrection;
 use App\Models\EmployeeExtraOff;
@@ -22,6 +23,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Maatwebsite\Excel\Facades\Excel;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class HrAttendanceCorrectionController extends Controller
 {
@@ -30,6 +33,53 @@ class HrAttendanceCorrectionController extends Controller
     public function __construct(private readonly HrAttendanceReportService $reportService) {}
 
     public function index(Request $request): JsonResponse
+    {
+        $filtered = $this->fetchFilteredRecords($request);
+        $records = $filtered['records'];
+        $start = $filtered['start'];
+        $end = $filtered['end'];
+        $keyword = $filtered['keyword'];
+        $validated = $filtered['validated'];
+
+        $perPage = 10;
+        $page = max((int) ($validated['page'] ?? 1), 1);
+
+        $pageRecords = $records
+            ->forPage($page, $perPage)
+            ->map(fn (array $record): array => [
+                ...$record,
+                'absence_options' => $this->absenceOptions($record['nik'], Carbon::parse($record['date']), $record['correction'] ?? null),
+            ])
+            ->values();
+
+        return response()->json([
+            'date' => $start->toDateString(),
+            'start_date' => $start->toDateString(),
+            'end_date' => $end->toDateString(),
+            'records' => $pageRecords,
+            'audit_logs' => $this->auditLogs($records, $start, $end, $keyword),
+            'pagination' => [
+                'current_page' => $page,
+                'per_page' => $perPage,
+                'total' => $records->count(),
+                'last_page' => max((int) ceil($records->count() / $perPage), 1),
+            ],
+        ]);
+    }
+
+    public function export(Request $request): BinaryFileResponse
+    {
+        $filtered = $this->fetchFilteredRecords($request);
+        $records = $filtered['records'];
+        $start = $filtered['start'];
+        $end = $filtered['end'];
+
+        $filename = 'rekap_koreksi_absensi_'.$start->format('Ymd').'_'.$end->format('Ymd').'.xlsx';
+
+        return Excel::download(new HrAttendanceCorrectionExport($records), $filename);
+    }
+
+    private function fetchFilteredRecords(Request $request): array
     {
         $validated = $request->validate([
             'date' => ['nullable', 'date'],
@@ -147,30 +197,13 @@ class HrAttendanceCorrectionController extends Controller
             })
             ->values();
 
-        $perPage = 10;
-        $page = max((int) ($validated['page'] ?? 1), 1);
-
-        $pageRecords = $records
-            ->forPage($page, $perPage)
-            ->map(fn (array $record): array => [
-                ...$record,
-                'absence_options' => $this->absenceOptions($record['nik'], Carbon::parse($record['date']), $record['correction'] ?? null),
-            ])
-            ->values();
-
-        return response()->json([
-            'date' => $start->toDateString(),
-            'start_date' => $start->toDateString(),
-            'end_date' => $end->toDateString(),
-            'records' => $pageRecords,
-            'audit_logs' => $this->auditLogs($records, $start, $end, $keyword),
-            'pagination' => [
-                'current_page' => $page,
-                'per_page' => $perPage,
-                'total' => $records->count(),
-                'last_page' => max((int) ceil($records->count() / $perPage), 1),
-            ],
-        ]);
+        return [
+            'records' => $records,
+            'start' => $start,
+            'end' => $end,
+            'keyword' => $keyword,
+            'validated' => $validated,
+        ];
     }
 
     private function findingLabel(array $day): string

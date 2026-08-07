@@ -235,6 +235,7 @@ class HrAttendanceReportService
     private function applyCorrections(Collection $attendanceDays, Carbon $start, Carbon $end, Collection $selectedNiks): void
     {
         AttendanceCorrection::query()
+            ->with('corrector')
             ->whereIn('nik', $selectedNiks)
             ->whereBetween('attendance_date', [$start->toDateString(), $end->toDateString()])
             ->get()
@@ -272,6 +273,7 @@ class HrAttendanceReportService
                     'absence_type' => $correction->absence_type,
                     'absence_id' => $correction->absence_id,
                     'leave_accrual_id' => $correction->leave_accrual_id,
+                    'corrected_by_name' => $correction->corrector?->name ?? $correction->corrector?->username ?? '-',
                     'updated_at' => $correction->updated_at?->toIso8601String(),
                 ];
                 if ($correction->absence_type === PublicHolidayRequest::class && $correction->absence_id) {

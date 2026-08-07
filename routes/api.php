@@ -250,6 +250,7 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/dashboard', HrDashboardController::class);
             Route::middleware('frontend.menu:hr-attendance-corrections')->group(function () {
                 Route::get('/attendance-corrections', [HrAttendanceCorrectionController::class, 'index']);
+                Route::get('/attendance-corrections/export', [HrAttendanceCorrectionController::class, 'export']);
                 Route::put('/attendance-corrections/{nik}', [HrAttendanceCorrectionController::class, 'store']);
             });
             Route::middleware('frontend.menu:hr-contracts')->group(function () {

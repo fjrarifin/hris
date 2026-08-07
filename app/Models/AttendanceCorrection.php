@@ -24,4 +24,9 @@ class AttendanceCorrection extends Model
         'attendance_date' => 'date',
         'has_missing_attendance_form' => 'boolean',
     ];
+
+    public function corrector()
+    {
+        return $this->belongsTo(User::class, 'corrected_by');
+    }
 }
