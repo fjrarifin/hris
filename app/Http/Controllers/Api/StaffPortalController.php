@@ -185,6 +185,24 @@ class StaffPortalController extends Controller
             'content_base64' => base64_encode(Storage::disk($disk)->get($contract->document)),
         ])->header('Cache-Control', 'private, no-store');
     }
+    public function gateQrUsages(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $employee = $this->employeeFor($user);
+
+        $logs = GateQrUsageLog::query()
+            ->where(function ($q) use ($user, $employee): void {
+                $q->where('user_id', $user->id);
+                if ($employee && $employee->nik) {
+                    $q->orWhere('nik', $employee->nik);
+                }
+            })
+            ->latest('used_at')
+            ->latest('id')
+            ->paginate($request->integer('per_page', 10));
+
+        return response()->json($logs);
+    }
 
     public function storeGateQrUsage(Request $request): JsonResponse
     {

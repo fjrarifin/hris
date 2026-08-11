@@ -432,6 +432,7 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('/profile/contact/phone-otp', [StaffPortalController::class, 'requestProfilePhoneOtp'])
                 ->middleware('throttle:5,1');
             Route::post('/profile/photo', [StaffPortalController::class, 'updateProfilePhoto']);
+            Route::get('/profile/gate-qr-usage', [StaffPortalController::class, 'gateQrUsages']);
             Route::post('/profile/gate-qr-usage', [StaffPortalController::class, 'storeGateQrUsage']);
 
             Route::middleware('frontend.menu:staff-contracts')->group(function () {
