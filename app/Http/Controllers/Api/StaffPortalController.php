@@ -982,9 +982,11 @@ class StaffPortalController extends Controller
             ],
             'leave_types' => LeaveRequest::LEAVE_TYPES,
             'requests' => LeaveRequest::query()
+                ->with('user.karyawan')
                 ->where('user_id', $user->id)
                 ->latest()
-                ->get(),
+                ->get()
+                ->map(fn ($r) => array_merge($r->toArray(), $this->enrichRequestStatusInfo($r, $user))),
         ]);
     }
 
@@ -1070,10 +1072,11 @@ class StaffPortalController extends Controller
             'balance' => $this->publicHolidayBalance($user),
             'holidays' => $eligibleHolidays->whereNotIn('id', $usedHolidayIds)->values(),
             'requests' => PublicHolidayRequest::query()
-                ->with('holiday')
+                ->with(['holiday', 'user.karyawan'])
                 ->where('user_id', $user->id)
                 ->latest()
-                ->get(),
+                ->get()
+                ->map(fn ($r) => array_merge($r->toArray(), $this->enrichRequestStatusInfo($r, $user))),
         ]);
     }
 
@@ -1172,9 +1175,11 @@ class StaffPortalController extends Controller
             'balance' => $this->extraOffBalance($user),
             'sources' => $this->availableExtraOffSources($user)->values(),
             'requests' => ExtraOffRequest::query()
+                ->with('user.karyawan')
                 ->where('user_id', $user->id)
                 ->latest()
-                ->get(),
+                ->get()
+                ->map(fn ($r) => array_merge($r->toArray(), $this->enrichRequestStatusInfo($r, $user))),
         ]);
     }
 
@@ -2263,10 +2268,39 @@ class StaffPortalController extends Controller
             && $this->subordinateNiks($manager)->contains($approvalRequest->user->username);
     }
 
+    private function enrichRequestStatusInfo(object $item, ?User $user = null): array
+    {
+        $managerUser = ! empty($item->manager_approved_by) ? User::find($item->manager_approved_by) : null;
+        $hrUser = ! empty($item->hr_approved_by) ? User::find($item->hr_approved_by) : null;
+        $employeeUser = $user ?? $item->user ?? null;
+        $employeeKaryawan = $employeeUser?->karyawan;
+        $managerName = $managerUser?->name ?? $employeeKaryawan?->nama_atasan_langsung ?? 'Atasan Langsung';
+
+        $pendingWith = match (true) {
+            $item->status === 'pending' && ! $item->manager_approved_at => 'Atasan ('.$managerName.')',
+            $item->status === 'pending' && $item->manager_approved_at !== null => 'HRD',
+            default => null,
+        };
+
+        $rejectedByName = match (true) {
+            $item->status === 'rejected' && $item->hr_approved_by !== null => $hrUser?->name ?? 'HRD',
+            $item->status === 'rejected' && $item->manager_approved_at !== null => $managerName,
+            $item->status === 'rejected' => 'Atasan / HRD',
+            default => null,
+        };
+
+        return [
+            'pending_with' => $pendingWith,
+            'rejected_by_name' => $rejectedByName,
+            'reject_reason' => $item->reject_reason ?? null,
+        ];
+    }
+
     private function serializePermission(EmployeePermission $permission): array
     {
         return [
             ...$permission->toArray(),
+            ...$this->enrichRequestStatusInfo($permission, $permission->user),
             'start_date' => $permission->date?->toDateString(),
             'end_date' => ($permission->end_date ?? $permission->date)?->toDateString(),
             'document_url' => $permission->document
@@ -2278,6 +2312,7 @@ class StaffPortalController extends Controller
     private function serializeApproval(string $type, object $item): array
     {
         $canDecide = $item->status === 'pending' && $item->manager_approved_at === null;
+        $statusInfo = $this->enrichRequestStatusInfo($item, $item->user);
 
         return [
             'id' => $item->id,
@@ -2307,6 +2342,8 @@ class StaffPortalController extends Controller
             'manager_approved_at' => $item->manager_approved_at,
             'hr_approved_at' => $item->hr_approved_at ?? null,
             'reject_reason' => $item->reject_reason ?? null,
+            'pending_with' => $statusInfo['pending_with'],
+            'rejected_by_name' => $statusInfo['rejected_by_name'],
             'created_at' => $item->created_at,
         ];
     }

@@ -174,6 +174,16 @@ class HrApprovalController extends Controller
             'status' => $workflowStatus,
             'source_status' => $item->status,
             'reject_reason' => $item->reject_reason ?? null,
+            'rejected_by_name' => match (true) {
+                $item->status === 'rejected' && $item->hr_approved_by !== null => \App\Models\User::find($item->hr_approved_by)?->name ?? 'HRD',
+                $item->status === 'rejected' && $item->manager_approved_by !== null => \App\Models\User::find($item->manager_approved_by)?->name ?? 'Atasan',
+                $item->status === 'rejected' => 'Atasan / HRD',
+                default => null,
+            },
+            'pending_with' => match (true) {
+                $workflowStatus === 'waiting_hr' => 'HRD',
+                default => null,
+            },
             'hr_approved_at' => $item->hr_approved_at,
             'can_decide' => $this->canDecide($item),
             'can_cancel' => $this->canCancel($item),

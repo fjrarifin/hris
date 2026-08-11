@@ -42,6 +42,7 @@ class DirectManagerDecisionNotification extends Notification
             'request_id' => $this->request->id,
             'type' => $this->type,
             'status' => $this->status,
+            'path' => '/staff/approvals',
             'model' => match (true) {
                 $this->request instanceof LeaveRequest => LeaveRequest::class,
                 $this->request instanceof PublicHolidayRequest => PublicHolidayRequest::class,

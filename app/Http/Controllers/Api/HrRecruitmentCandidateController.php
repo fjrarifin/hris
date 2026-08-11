@@ -717,28 +717,6 @@ class HrRecruitmentCandidateController extends Controller
             'Wawancara HR',
         );
 
-        // Check if the PIC Screening has another interview on the same day within 90 minutes
-        $picNik = $candidate->pic_nik;
-        if ($picNik) {
-            $proposedTime = \Carbon\Carbon::parse($payload['interview_hr_time']);
-            
-            $conflictingCandidate = RecruitmentCandidate::where('id', '!=', $candidate->id)
-                ->where('pic_nik', $picNik)
-                ->where('interview_hr_date', $payload['interview_hr_date'])
-                ->whereNotNull('interview_hr_time')
-                ->get()
-                ->first(function ($c) use ($proposedTime) {
-                    $existingTime = \Carbon\Carbon::parse($c->interview_hr_time);
-                    return abs($proposedTime->diffInMinutes($existingTime)) < 90;
-                });
-
-            if ($conflictingCandidate) {
-                $existingTimeFormatted = \Carbon\Carbon::parse($conflictingCandidate->interview_hr_time)->format('H:i');
-                return response()->json([
-                    'message' => "PIC Screening sudah memiliki jadwal wawancara HR lain pada tanggal tersebut pukul {$existingTimeFormatted} (Kandidat: {$conflictingCandidate->name}). Harap berikan jeda minimal 90 menit.",
-                ], 422);
-            }
-        }
 
         $beforeAudit = app(HrdAuditLogService::class)->snapshot($candidate);
 
