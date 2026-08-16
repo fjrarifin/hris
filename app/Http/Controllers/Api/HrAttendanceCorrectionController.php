@@ -614,7 +614,20 @@ class HrAttendanceCorrectionController extends Controller
             ->whereDate('periode_end', $validated['extra_off_source_period_end'])
             ->first();
 
-        if (! $source || $this->remainingExtraOffDays($employeeUser, $source) <= 0) {
+        if (! $source) {
+            throw ValidationException::withMessages(['extra_off_source_period_start' => ['Sumber Extra Off periode ini tidak ditemukan.']]);
+        }
+
+        $expiredAt = Carbon::parse($source->periode_end)->addMonths(3)->endOfDay();
+        if (now()->gt($expiredAt)) {
+            throw ValidationException::withMessages([
+                'extra_off_source_period_start' => [
+                    sprintf('Masa berlaku pengajuan Extra Off periode ini telah kadaluwarsa pada %s.', Carbon::parse($source->periode_end)->addMonths(3)->format('d M Y'))
+                ],
+            ]);
+        }
+
+        if ($this->remainingExtraOffDays($employeeUser, $source) <= 0) {
             throw ValidationException::withMessages(['extra_off_source_period_start' => ['Saldo Extra Off periode ini tidak tersedia.']]);
         }
 
@@ -780,20 +793,29 @@ class HrAttendanceCorrectionController extends Controller
             ->map(function (EmployeeExtraOff $source) use ($user, $currentRequestId): array {
                 $used = $this->usedExtraOffDays($user, $source, $currentRequestId);
                 $remaining = max((int) $source->days - $used, 0);
+                $expiredAt = Carbon::parse($source->periode_end)->addMonths(3);
+                $isExpired = now()->startOfDay()->gt($expiredAt->copy()->endOfDay());
 
                 return [
                     'source_period_start' => $source->periode_start->toDateString(),
                     'source_period_end' => $source->periode_end->toDateString(),
                     'label' => $source->periode_start->format('d M Y').' - '.$source->periode_end->format('d M Y'),
-                    'remaining_days' => $remaining,
+                    'remaining_days' => $isExpired ? 0 : $remaining,
+                    'expired_at' => $expiredAt->toDateString(),
+                    'is_expired' => $isExpired,
                 ];
             })
-            ->filter(fn (array $source): bool => $source['remaining_days'] > 0)
+            ->filter(fn (array $source): bool => $source['remaining_days'] > 0 && ! $source['is_expired'])
             ->values();
     }
 
     private function remainingExtraOffDays(User $user, EmployeeExtraOff $source): int
     {
+        $expiredAt = Carbon::parse($source->periode_end)->addMonths(3)->endOfDay();
+        if (now()->gt($expiredAt)) {
+            return 0;
+        }
+
         return max((int) $source->days - $this->usedExtraOffDays($user, $source), 0);
     }
 

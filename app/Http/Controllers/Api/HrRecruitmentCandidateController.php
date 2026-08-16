@@ -31,15 +31,95 @@ class HrRecruitmentCandidateController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        return response()->json(
-            RecruitmentCandidate::query()
-                ->with(['vacancy', 'interviewer', 'pic', 'atasanLangsung', 'userInterviews.interviewer', 'userInterviewEvaluations.interviewer'])
-                ->whereNull('profile_candidate_id') // hanya tampilkan profil utama
-                ->when($request->filled('vacancy_id'), fn ($query) => $query->where('vacancy_id', $request->input('vacancy_id')))
-                ->when($request->filled('status'), fn ($query) => $query->where('status', $request->input('status')))
-                ->latest()
-                ->get()
-        );
+        $candidates = RecruitmentCandidate::query()
+            ->with(['vacancy', 'interviewer', 'pic', 'atasanLangsung', 'userInterviews.interviewer', 'userInterviewEvaluations.interviewer'])
+            ->when($request->filled('vacancy_id'), fn ($query) => $query->where('vacancy_id', $request->input('vacancy_id')))
+            ->when($request->filled('status'), fn ($query) => $query->where('status', $request->input('status')))
+            ->latest()
+            ->get();
+
+        $emailCounts = [];
+        $phoneCounts = [];
+        foreach ($candidates as $c) {
+            $email = strtolower(trim($c->email ?? ''));
+            if ($email !== '') {
+                $emailCounts[$email] = true;
+            }
+            $phone = trim($c->phone ?? '');
+            if ($phone !== '') {
+                $phoneCounts[$phone] = true;
+            }
+        }
+
+        $emails = array_keys($emailCounts);
+        $phones = array_keys($phoneCounts);
+
+        $allMatches = collect();
+        if (!empty($emails) || !empty($phones)) {
+            $allMatches = RecruitmentCandidate::query()
+                ->with('vacancy:id,title,department')
+                ->where(function ($q) use ($emails, $phones) {
+                    if (!empty($emails)) {
+                        $q->whereIn(DB::raw('LOWER(email)'), $emails);
+                    }
+                    if (!empty($phones)) {
+                        $q->orWhereIn('phone', $phones);
+                    }
+                })
+                ->get();
+        }
+
+        $groupedMatches = [];
+        foreach ($allMatches as $match) {
+            $email = strtolower(trim($match->email ?? ''));
+            $phone = trim($match->phone ?? '');
+            if ($email !== '') {
+                $groupedMatches['email:' . $email][$match->id] = $match;
+            }
+            if ($phone !== '') {
+                $groupedMatches['phone:' . $phone][$match->id] = $match;
+            }
+        }
+
+        $result = $candidates->map(function ($candidate) use ($groupedMatches) {
+            $email = strtolower(trim($candidate->email ?? ''));
+            $phone = trim($candidate->phone ?? '');
+
+            $othersMap = [];
+            if ($email !== '' && isset($groupedMatches['email:' . $email])) {
+                foreach ($groupedMatches['email:' . $email] as $m) {
+                    if ($m->id !== $candidate->id) {
+                        $othersMap[$m->id] = $m;
+                    }
+                }
+            }
+            if ($phone !== '' && isset($groupedMatches['phone:' . $phone])) {
+                foreach ($groupedMatches['phone:' . $phone] as $m) {
+                    if ($m->id !== $candidate->id) {
+                        $othersMap[$m->id] = $m;
+                    }
+                }
+            }
+
+            $othersList = array_values(array_map(function ($m) {
+                return [
+                    'id'                 => $m->id,
+                    'vacancy_id'         => $m->vacancy_id,
+                    'vacancy_title'      => $m->vacancy ? $m->vacancy->title : 'Umum',
+                    'vacancy_department' => $m->vacancy ? $m->vacancy->department : null,
+                    'status'             => $m->status,
+                    'created_at'         => $m->created_at ? $m->created_at->toIso8601String() : null,
+                ];
+            }, $othersMap));
+
+            $arr = $candidate->toArray();
+            $arr['is_duplicate'] = count($othersList) > 0;
+            $arr['duplicate_count'] = count($othersList);
+            $arr['other_applications'] = $othersList;
+            return $arr;
+        });
+
+        return response()->json($result);
     }
 
 
@@ -155,17 +235,30 @@ class HrRecruitmentCandidateController extends Controller
                 'occurred_at'    => $log->occurred_at ? $log->occurred_at->toIso8601String() : $log->created_at->toIso8601String(),
             ]);
 
-        // --- Lamaran Sebelumnya: linked via profile_candidate_id ---
-        // Kandidat lama yang ber-profile_candidate_id = kandidat aktif ini
+        // --- Lamaran Lainnya: linked via email / phone / profile_candidate_id ---
         $linkedApplications = RecruitmentCandidate::query()
             ->with([
-                'vacancy:id,title',
+                'vacancy:id,title,department',
                 'stageHistories',
                 'userInterviews.interviewer',
                 'userInterviewEvaluations.interviewer',
                 'references',
             ])
-            ->where('profile_candidate_id', $candidate->id)
+            ->where('id', '!=', $candidate->id)
+            ->where(function ($q) use ($candidate) {
+                $email = strtolower(trim($candidate->email ?? ''));
+                if ($email !== '') {
+                    $q->whereRaw('LOWER(email) = ?', [$email]);
+                }
+                $phone = trim($candidate->phone ?? '');
+                if ($phone !== '') {
+                    $q->orWhere('phone', $phone);
+                }
+                if (!empty($candidate->profile_candidate_id)) {
+                    $q->orWhere('id', $candidate->profile_candidate_id);
+                }
+                $q->orWhere('profile_candidate_id', $candidate->id);
+            })
             ->latest('created_at')
             ->get()
             ->map(fn ($prev) => [
@@ -173,6 +266,7 @@ class HrRecruitmentCandidateController extends Controller
                 'source'                         => 'linked',
                 'vacancy_id'                     => $prev->vacancy_id,
                 'vacancy_title'                  => $prev->vacancy ? $prev->vacancy->title : 'Umum (Tanpa Lowongan Spesifik)',
+                'vacancy_department'             => $prev->vacancy ? $prev->vacancy->department : null,
                 'status'                         => $prev->status,
                 'applied_at'                     => $prev->created_at ? $prev->created_at->toIso8601String() : null,
                 'notes'                          => $prev->notes,
@@ -214,6 +308,7 @@ class HrRecruitmentCandidateController extends Controller
                     'source'                         => 'archived',
                     'vacancy_id'                     => $hist->vacancy_id,
                     'vacancy_title'                  => $hist->vacancy_title ?: ($hist->vacancy ? $hist->vacancy->title : 'Umum (Tanpa Lowongan Spesifik)'),
+                    'vacancy_department'             => null,
                     'status'                         => $hist->status,
                     'applied_at'                     => $hist->applied_at ? $hist->applied_at->toIso8601String() : $hist->created_at->toIso8601String(),
                     'notes'                          => $hist->notes,
@@ -233,8 +328,22 @@ class HrRecruitmentCandidateController extends Controller
 
         $previousApplications = $linkedApplications->concat($archivedHistories);
 
+        $candArray = $candidate->toArray();
+        $otherAppsList = $linkedApplications->map(fn ($prev) => [
+            'id'                 => $prev['id'],
+            'vacancy_id'         => $prev['vacancy_id'],
+            'vacancy_title'      => $prev['vacancy_title'],
+            'vacancy_department' => $prev['vacancy_department'] ?? null,
+            'status'             => $prev['status'],
+            'created_at'         => $prev['applied_at'],
+        ])->values()->all();
+
+        $candArray['is_duplicate'] = count($otherAppsList) > 0;
+        $candArray['duplicate_count'] = count($otherAppsList);
+        $candArray['other_applications'] = $otherAppsList;
+
         return response()->json([
-            'candidate'             => $candidate,
+            'candidate'             => $candArray,
             'change_logs'           => $logs,
             'previous_applications' => $previousApplications,
         ]);

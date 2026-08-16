@@ -108,15 +108,16 @@ class PublicCareerController extends Controller
         }
 
 
-        // Cari kandidat utama (profile_candidate_id IS NULL) berdasarkan email atau phone
+        // Cari kandidat terdahulu berdasarkan email atau phone
         $existingCandidate = RecruitmentCandidate::query()
-            ->whereNull('profile_candidate_id') // hanya cari profil utama
+            ->with('vacancy')
             ->where(function ($q) use ($payload) {
                 $q->whereRaw('LOWER(email) = ?', [strtolower($payload['email'])]);
                 if (!empty($payload['phone'])) {
                     $q->orWhere('phone', $payload['phone']);
                 }
             })
+            ->latest('id')
             ->first();
 
         $path = $request->file('resume')->store('recruitment-resumes/public', 'local');
@@ -143,15 +144,14 @@ class PublicCareerController extends Controller
                 ];
 
                 if ($existingCandidate) {
-                    // Re-apply: buat baris kandidat BARU yang linked ke profil utama.
-                    $newCandidate = RecruitmentCandidate::query()->create(array_merge($createData, [
-                        'profile_candidate_id' => null,
-                        'notes' => 'Lamaran dari web career public. [MELAMAR KEMBALI dari lamaran #' . $existingCandidate->id . ']',
-                    ]));
+                    // Re-apply: buat baris kandidat BARU tanpa menyembunyikan profil terdahulu.
+                    $existingVacancyTitle = $existingCandidate->vacancy ? $existingCandidate->vacancy->title : 'Umum';
+                    $existingDept = $existingCandidate->vacancy && $existingCandidate->vacancy->department ? ' (Unit: ' . $existingCandidate->vacancy->department . ')' : '';
+                    $prevNoteInfo = ' [MELAMAR KEMBALI dari lamaran #' . $existingCandidate->id . ' - Posisi: ' . $existingVacancyTitle . $existingDept . ']';
 
-                    $existingCandidate->update([
-                        'profile_candidate_id' => $newCandidate->id,
-                    ]);
+                    $newCandidate = RecruitmentCandidate::query()->create(array_merge($createData, [
+                        'notes' => 'Lamaran dari web career public.' . $prevNoteInfo,
+                    ]));
 
                     if (Schema::hasTable('recruitment_candidate_stage_histories')) {
                         app(RecruitmentStageService::class)->recordInitial($newCandidate);

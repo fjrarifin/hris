@@ -223,7 +223,9 @@ class HrLeaveBalanceController extends Controller
                         ->whereNotIn('status', ['rejected', 'cancelled'])
                         ->count();
                 }
-                $remaining = max((int) $source->days - $used, 0);
+                $expiredAt = $pEnd ? $pEnd->copy()->addMonths(3) : null;
+                $isExpired = $expiredAt ? now()->gt($expiredAt->copy()->endOfDay()) : false;
+                $remaining = $isExpired ? 0 : max((int) $source->days - $used, 0);
                 $labelStr = ($pStart && $pEnd) ? ($pStart->format('d M Y').' - '.$pEnd->format('d M Y')) : '-';
 
                 return [
@@ -234,6 +236,8 @@ class HrLeaveBalanceController extends Controller
                     'days' => (int) $source->days,
                     'used_days' => $used,
                     'remaining_days' => $remaining,
+                    'expired_at' => $expiredAt?->toDateString(),
+                    'is_expired' => $isExpired,
                     'source' => $source->source,
                     'notes' => $source->notes,
                 ];
@@ -469,6 +473,10 @@ class HrLeaveBalanceController extends Controller
                 $usedEoDays = $eoRequests->count();
 
                 foreach ($eoSources as $source) {
+                    $pEnd = $source->periode_end ? Carbon::parse($source->periode_end) : null;
+                    if ($pEnd && now()->gt($pEnd->copy()->addMonths(3)->endOfDay())) {
+                        continue;
+                    }
                     $usedForSource = $eoRequests->filter(function ($req) use ($source) {
                         if (! $req->source_period_start || ! $source->periode_start) return false;
                         return Carbon::parse($req->source_period_start)->equalTo(Carbon::parse($source->periode_start))

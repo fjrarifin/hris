@@ -888,7 +888,10 @@ class StaffPortalController extends Controller
             'longitude' => ['required', 'numeric'],
         ]);
 
-        $employee = $this->employeeFor($request->user());
+        $user = $request->user();
+        abort_unless($user->allow_mobile_attendance, 403, 'Fitur absensi mandiri/mobile dinonaktifkan untuk akun Anda.');
+
+        $employee = $this->employeeFor($user);
         abort_unless($employee->pin, 422, 'Akun pegawai belum terdaftar PIN absensi.');
 
         $distanceMeters = $this->distanceFromAttendanceCenter(
@@ -896,12 +899,7 @@ class StaffPortalController extends Controller
             (float) $validated['longitude']
         );
         $attendanceRadiusMeters = 300;
-        $attendanceRadiusRequired = $employee->requiresAttendanceRadius();
-        abort_if(
-            $attendanceRadiusRequired && $distanceMeters > $attendanceRadiusMeters,
-            422,
-            sprintf('Absensi mobile hanya bisa dilakukan maksimal %d meter dari HomPim Play. Jarak Anda saat ini sekitar %d meter.', $attendanceRadiusMeters, (int) round($distanceMeters))
-        );
+        $attendanceRadiusRequired = false;
 
         $photoPayload = $validated['photo'];
         $photoType = 'image/jpeg';
@@ -1228,7 +1226,21 @@ class StaffPortalController extends Controller
             ->whereDate('periode_end', $data['source_period_end'])
             ->first();
 
-        if (! $source || $this->remainingExtraOffDays($user, $source) <= 0) {
+        if (! $source) {
+            throw ValidationException::withMessages(['source_period_start' => 'Saldo Extra Off periode ini tidak ditemukan.']);
+        }
+
+        $expiredAt = Carbon::parse($source->periode_end)->addMonths(3)->endOfDay();
+        if (now()->gt($expiredAt)) {
+            throw ValidationException::withMessages([
+                'source_period_start' => sprintf(
+                    'Masa berlaku pengajuan Extra Off periode ini telah kadaluwarsa pada tanggal %s (maksimal pengajuan 3 bulan dari akhir periode payroll).',
+                    Carbon::parse($source->periode_end)->addMonths(3)->format('d M Y')
+                ),
+            ]);
+        }
+
+        if ($this->remainingExtraOffDays($user, $source) <= 0) {
             throw ValidationException::withMessages(['source_period_start' => 'Saldo Extra Off periode ini tidak tersedia.']);
         }
 
@@ -1731,6 +1743,8 @@ class StaffPortalController extends Controller
             ->map(function (EmployeeExtraOff $source) use ($user): array {
                 $used = $this->usedExtraOffDays($user, $source);
                 $remaining = max((int) $source->days - $used, 0);
+                $expiredAt = Carbon::parse($source->periode_end)->addMonths(3);
+                $isExpired = now()->startOfDay()->gt($expiredAt->copy()->endOfDay());
 
                 return [
                     'source_period_start' => $source->periode_start->toDateString(),
@@ -1738,15 +1752,22 @@ class StaffPortalController extends Controller
                     'label' => $source->periode_start->format('d M Y').' - '.$source->periode_end->format('d M Y'),
                     'days' => (int) $source->days,
                     'used_days' => $used,
-                    'remaining_days' => $remaining,
+                    'remaining_days' => $isExpired ? 0 : $remaining,
+                    'expired_at' => $expiredAt->toDateString(),
+                    'is_expired' => $isExpired,
                 ];
             })
-            ->filter(fn (array $source): bool => $source['remaining_days'] > 0)
+            ->filter(fn (array $source): bool => $source['remaining_days'] > 0 && ! $source['is_expired'])
             ->values();
     }
 
     private function remainingExtraOffDays(User $user, EmployeeExtraOff $source): int
     {
+        $expiredAt = Carbon::parse($source->periode_end)->addMonths(3)->endOfDay();
+        if (now()->gt($expiredAt)) {
+            return 0;
+        }
+
         return max((int) $source->days - $this->usedExtraOffDays($user, $source), 0);
     }
 
