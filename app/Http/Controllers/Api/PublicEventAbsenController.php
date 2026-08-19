@@ -94,7 +94,7 @@ class PublicEventAbsenController extends Controller
             'nik.required' => 'NIK Karyawan wajib diisi.',
         ]);
 
-        $nik = trim($request->input('nik'));
+        $nik = strtoupper(trim($request->input('nik')));
 
         $karyawan = Karyawan::query()
             ->where('nik', $nik)
@@ -187,7 +187,7 @@ class PublicEventAbsenController extends Controller
             'photo.required' => 'Foto selfie wajib diambil.',
         ]);
 
-        $nik = trim($request->input('nik'));
+        $nik = strtoupper(trim($request->input('nik')));
 
         $karyawan = Karyawan::query()->where('nik', $nik)->first();
         if (! $karyawan) {

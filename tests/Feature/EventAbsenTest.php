@@ -63,9 +63,9 @@ class EventAbsenTest extends TestCase
             ->assertJsonPath('data.can_attend', true)
             ->assertJsonPath('data.nama_event', 'Gathering Internal 2026');
 
-        // 2. Validate valid NIK
+        // 2. Validate valid NIK (including lowercase test e.g. hpp...)
         $nikRes = $this->postJson("/api/public/event-absen/{$event->slug}/validasi-nik", [
-            'nik' => $karyawan->nik,
+            'nik' => strtolower($karyawan->nik),
         ]);
         $nikRes->assertOk()
             ->assertJsonPath('data.nik', $karyawan->nik);
