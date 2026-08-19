@@ -192,6 +192,7 @@ class AuthController extends Controller
                 'photo_url' => $this->publicFileUrl($user->photo),
                 'allow_mobile_attendance' => (bool) $user->allow_mobile_attendance,
                 'attendance_radius_required' => $employee?->requiresAttendanceRadius() ?? true,
+                'has_mobile_device_token' => $user->mobileDeviceTokens()->exists(),
                 'must_change_password' => $this->mustChangePassword($user),
                 ...$this->passwordChangeAvailability($user),
             ],
