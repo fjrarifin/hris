@@ -50,6 +50,7 @@ class AbsensiEvent extends Model
             return $this->foto_absen;
         }
 
-        return url(Storage::url($this->foto_absen));
+        $filename = basename($this->foto_absen);
+        return url('/api/event-absen/photos/'.$filename);
     }
 }

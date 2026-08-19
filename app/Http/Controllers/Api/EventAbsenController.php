@@ -7,6 +7,7 @@ use App\Models\EventAbsen;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -221,5 +222,16 @@ class EventAbsenController extends Controller
         };
 
         return response()->stream($callback, 200, $headers);
+    }
+
+    public function photo(string $filename)
+    {
+        $path = 'absensi-event/'.$filename;
+
+        abort_unless(Storage::disk('public')->exists($path), 404);
+
+        return Storage::disk('public')->response($path, $filename, [
+            'Cache-Control' => 'public, max-age=86400',
+        ]);
     }
 }

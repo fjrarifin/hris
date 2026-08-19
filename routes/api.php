@@ -130,6 +130,10 @@ Route::post('/public/event-absen/{slug}/validasi-nik', [PublicEventAbsenControll
 Route::post('/public/event-absen/{slug}/absen', [PublicEventAbsenController::class, 'submitAttendance'])
     ->middleware('throttle:60,1')
     ->withoutMiddleware(['auth']);
+Route::get('/event-absen/photos/{filename}', [EventAbsenController::class, 'photo'])
+    ->where('filename', '[A-Za-z0-9_.-]+')
+    ->withoutMiddleware(['auth'])
+    ->name('event-absen.photo');
 
 Route::prefix('fingerspot')->group(function () {
     Route::post('/webhook', [FingerspotController::class, 'webhook']);
