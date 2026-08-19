@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AuthController as ApiAuthController;
 use App\Http\Controllers\Api\EmployeeController;
+use App\Http\Controllers\Api\EventAbsenController;
 use App\Http\Controllers\Api\ForgotPasswordController;
 use App\Http\Controllers\Api\HrApprovalController;
 use App\Http\Controllers\Api\HrAttendanceController;
@@ -22,6 +23,7 @@ use App\Http\Controllers\Api\HrRecruitmentInterviewAgendaController;
 use App\Http\Controllers\Api\HrRecruitmentRequestController;
 use App\Http\Controllers\Api\HrRecruitmentVacancyController;
 use App\Http\Controllers\Api\PublicCareerController;
+use App\Http\Controllers\Api\PublicEventAbsenController;
 use App\Http\Controllers\Api\PublicReferenceEvaluationController;
 use App\Http\Controllers\Api\HrScheduleController;
 use App\Http\Controllers\Api\HrTalentOptionsController;
@@ -118,6 +120,15 @@ Route::post('/public/candidates/evaluation/{token}', [HrRecruitmentCandidateCont
     ->withoutMiddleware(['auth']);
 Route::post('/public/candidates/evaluation/{token}/resume', [HrRecruitmentCandidateController::class, 'getPublicResumeByEvaluationToken'])
     ->middleware('throttle:10,1')
+    ->withoutMiddleware(['auth']);
+
+// Public Event Absen Endpoints
+Route::get('/public/event-absen/{slug}', [PublicEventAbsenController::class, 'show'])
+    ->withoutMiddleware(['auth']);
+Route::post('/public/event-absen/{slug}/validasi-nik', [PublicEventAbsenController::class, 'validateNik'])
+    ->withoutMiddleware(['auth']);
+Route::post('/public/event-absen/{slug}/absen', [PublicEventAbsenController::class, 'submitAttendance'])
+    ->middleware('throttle:60,1')
     ->withoutMiddleware(['auth']);
 
 Route::prefix('fingerspot')->group(function () {
@@ -233,6 +244,17 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::post('/pull-attlog', [\App\Http\Controllers\Api\ItFingerspotController::class, 'pullAttlog']);
                 Route::post('/employees/{nik}/pull', [\App\Http\Controllers\Api\ItFingerspotController::class, 'pullEmployee']);
                 Route::post('/employees/{nik}/send', [\App\Http\Controllers\Api\ItFingerspotController::class, 'sendEmployee']);
+            });
+
+        Route::prefix('event-absen')
+            ->middleware(['level:0,1,2', 'frontend.menu:it-event-absen'])
+            ->group(function () {
+                Route::get('/', [EventAbsenController::class, 'index']);
+                Route::post('/', [EventAbsenController::class, 'store']);
+                Route::get('/{eventAbsen}', [EventAbsenController::class, 'show']);
+                Route::put('/{eventAbsen}', [EventAbsenController::class, 'update']);
+                Route::delete('/{eventAbsen}', [EventAbsenController::class, 'destroy']);
+                Route::get('/{eventAbsen}/export', [EventAbsenController::class, 'export']);
             });
 
         Route::middleware('level:0,1,2')->get('/employees', [EmployeeController::class, 'frontendIndex']);

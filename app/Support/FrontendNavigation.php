@@ -37,7 +37,7 @@ class FrontendNavigation
 
     private function groupItMenus(Collection $menus): Collection
     {
-        $itKeys = ['it-fingerspot', 'it-users', 'it-push-notifications', 'it-active-sessions', 'menu-access', 'audit-logs'];
+        $itKeys = ['it-event-absen', 'it-fingerspot', 'it-users', 'it-push-notifications', 'it-active-sessions', 'menu-access', 'audit-logs'];
         $itChildren = $menus->whereIn('key', $itKeys)->values()->all();
         $itAnchor = $itChildren[0]['key'] ?? null;
 
