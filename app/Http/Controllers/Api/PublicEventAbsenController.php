@@ -265,6 +265,14 @@ class PublicEventAbsenController extends Controller
                 'message' => 'Anda sudah melakukan absensi pada event ini.',
                 'error_code' => 'ALREADY_ATTENDED',
             ], 422);
+        } catch (\Illuminate\Database\QueryException $e) {
+            if ($e->getCode() == 23000 || str_contains($e->getMessage(), 'Duplicate entry') || str_contains($e->getMessage(), 'uniq_absensi_event_nik')) {
+                return response()->json([
+                    'message' => 'Anda sudah melakukan absensi pada event ini.',
+                    'error_code' => 'ALREADY_ATTENDED',
+                ], 422);
+            }
+            throw $e;
         }
 
         $attendance->load(['karyawan:nik,nama_karyawan,jabatan,divisi']);
