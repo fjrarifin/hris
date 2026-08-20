@@ -37,7 +37,7 @@ class FrontendNavigation
 
     private function groupItMenus(Collection $menus): Collection
     {
-        $itKeys = ['it-event-absen', 'it-fingerspot', 'it-users', 'it-push-notifications', 'it-active-sessions', 'menu-access', 'audit-logs'];
+        $itKeys = ['it-event-absen', 'it-visitors', 'it-fingerspot', 'it-users', 'it-push-notifications', 'it-active-sessions', 'menu-access', 'audit-logs'];
         $itChildren = $menus->whereIn('key', $itKeys)->values()->all();
         $itAnchor = $itChildren[0]['key'] ?? null;
 
@@ -70,7 +70,7 @@ class FrontendNavigation
         $payrollKeys = ['payroll', 'hr-payroll-master', 'hr-payroll-process'];
         $payrollChildren = $menus->whereIn('key', $payrollKeys)->values()->all();
         $payrollAnchor = $payrollChildren[0]['key'] ?? null;
-        $employeeKeys = ['employees', 'hr-contracts', 'hr-master-positions', 'hr-master-divisions', 'hr-master-departments', 'hr-master-units'];
+        $employeeKeys = ['employees', 'hr-contracts', 'hr-holding-employees', 'hr-master-positions', 'hr-master-divisions', 'hr-master-departments', 'hr-master-units'];
         $employeeAnchor = $menus
             ->first(fn (array $menu) => in_array($menu['key'], $employeeKeys, true))['key'] ?? null;
         $employeeChildren = $menus

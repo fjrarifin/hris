@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\HrDashboardController;
 use App\Http\Controllers\Api\HrdAuditLogController;
 use App\Http\Controllers\Api\HrJobdeskController;
 use App\Http\Controllers\Api\HrKpiTemplateController;
+use App\Http\Controllers\Api\HoldingEmployeeController;
 use App\Http\Controllers\Api\HrOrgStructureController;
 use App\Http\Controllers\Api\HrPayrollMasterController;
 use App\Http\Controllers\Api\HrPayrollProcessController;
@@ -26,6 +27,8 @@ use App\Http\Controllers\Api\PublicCareerController;
 use App\Http\Controllers\Api\PublicEventAbsenController;
 use App\Http\Controllers\Api\PublicQrHoldingController;
 use App\Http\Controllers\Api\PublicReferenceEvaluationController;
+use App\Http\Controllers\Api\PublicVisitorController;
+use App\Http\Controllers\Api\VisitorManagementController;
 use App\Http\Controllers\Api\HrScheduleController;
 use App\Http\Controllers\Api\HrTalentOptionsController;
 use App\Http\Controllers\Api\ItActiveSessionController;
@@ -138,6 +141,11 @@ Route::get('/event-absen/photos/{filename}', [EventAbsenController::class, 'phot
 
 // Public QR Holding Gate Endpoints
 Route::post('/public/qr-holding/validate-and-generate', [PublicQrHoldingController::class, 'validateAndGenerate'])
+    ->middleware('throttle:60,1')
+    ->withoutMiddleware(['auth']);
+
+// Public Visitor Registration Endpoints
+Route::post('/public/visitor/register', [PublicVisitorController::class, 'register'])
     ->middleware('throttle:60,1')
     ->withoutMiddleware(['auth']);
 
@@ -265,6 +273,26 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::put('/{eventAbsen}', [EventAbsenController::class, 'update']);
                 Route::delete('/{eventAbsen}', [EventAbsenController::class, 'destroy']);
                 Route::get('/{eventAbsen}/export', [EventAbsenController::class, 'export']);
+                Route::get('/{eventAbsen}/download-photos', [EventAbsenController::class, 'downloadPhotos']);
+            });
+
+        Route::prefix('holding-employees')
+            ->middleware(['level:0,1,2', 'frontend.menu:hr-holding-employees'])
+            ->group(function () {
+                Route::get('/', [HoldingEmployeeController::class, 'index']);
+                Route::post('/', [HoldingEmployeeController::class, 'store']);
+                Route::get('/qr-logs', [HoldingEmployeeController::class, 'qrLogs']);
+                Route::get('/{id}', [HoldingEmployeeController::class, 'show']);
+                Route::put('/{id}', [HoldingEmployeeController::class, 'update']);
+                Route::delete('/{id}', [HoldingEmployeeController::class, 'destroy']);
+            });
+
+        Route::prefix('visitors')
+            ->middleware(['level:0,1,2', 'frontend.menu:it-visitors'])
+            ->group(function () {
+                Route::get('/', [VisitorManagementController::class, 'index']);
+                Route::get('/export', [VisitorManagementController::class, 'export']);
+                Route::delete('/{id}', [VisitorManagementController::class, 'destroy']);
             });
 
         Route::middleware('level:0,1,2')->get('/employees', [EmployeeController::class, 'frontendIndex']);

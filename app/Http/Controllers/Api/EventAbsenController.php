@@ -234,4 +234,74 @@ class EventAbsenController extends Controller
             'Cache-Control' => 'public, max-age=86400',
         ]);
     }
+
+    public function downloadPhotos(EventAbsen $eventAbsen)
+    {
+        $attendances = $eventAbsen->absensiEvents()
+            ->where(function ($q): void {
+                $q->whereNotNull('foto_absen')
+                    ->where('foto_absen', '!=', '');
+            })
+            ->orderBy('id')
+            ->get();
+
+        if ($attendances->isEmpty()) {
+            return response()->json([
+                'message' => 'Belum ada foto absensi peserta yang tersedia untuk diunduh.',
+            ], 404);
+        }
+
+        $zipFileName = 'Foto-Absen-' . Str::slug($eventAbsen->nama_event) . '-' . now()->format('YmdHis') . '.zip';
+        $tempPath = tempnam(sys_get_temp_dir(), 'event_photos_');
+
+        $zip = new \ZipArchive();
+        if ($zip->open($tempPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
+            return response()->json([
+                'message' => 'Gagal membuat file arsip ZIP foto.',
+            ], 500);
+        }
+
+        $seenNiks = [];
+        $photoCount = 0;
+
+        foreach ($attendances as $item) {
+            $fotoName = basename((string) ($item->foto_absen ?? $item->foto ?? ''));
+            if (! $fotoName) {
+                continue;
+            }
+
+            $fotoPath = 'absensi-event/' . $fotoName;
+            if (Storage::disk('public')->exists($fotoPath)) {
+                $content = Storage::disk('public')->get($fotoPath);
+                $ext = pathinfo($fotoName, PATHINFO_EXTENSION) ?: 'jpg';
+                $nik = trim((string) $item->nik_karyawan);
+
+                if (isset($seenNiks[$nik])) {
+                    $seenNiks[$nik]++;
+                    $filenameInZip = "{$nik}_{$seenNiks[$nik]}.{$ext}";
+                } else {
+                    $seenNiks[$nik] = 1;
+                    $filenameInZip = "{$nik}.{$ext}";
+                }
+
+                $zip->addFromString($filenameInZip, $content);
+                $photoCount++;
+            }
+        }
+
+        $zip->close();
+
+        if ($photoCount === 0) {
+            @unlink($tempPath);
+            return response()->json([
+                'message' => 'File foto fisik tidak ditemukan di penyimpanan server.',
+            ], 404);
+        }
+
+        return response()->download($tempPath, $zipFileName, [
+            'Content-Type' => 'application/zip',
+            'Pragma' => 'no-cache',
+            'Cache-Control' => 'must-revalidate, post-check=0, pre-check=0',
+        ])->deleteFileAfterSend(true);
+    }
 }

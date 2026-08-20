@@ -45,6 +45,11 @@ class EventAbsen extends Model
         return $this->hasMany(AbsensiEvent::class, 'id_event_absen');
     }
 
+    public function attendances(): HasMany
+    {
+        return $this->absensiEvents();
+    }
+
     public function getIsExpiredAttribute(): bool
     {
         return $this->tanggal_selesai ? now()->greaterThan($this->tanggal_selesai) : false;
