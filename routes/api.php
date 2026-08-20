@@ -24,6 +24,7 @@ use App\Http\Controllers\Api\HrRecruitmentRequestController;
 use App\Http\Controllers\Api\HrRecruitmentVacancyController;
 use App\Http\Controllers\Api\PublicCareerController;
 use App\Http\Controllers\Api\PublicEventAbsenController;
+use App\Http\Controllers\Api\PublicQrHoldingController;
 use App\Http\Controllers\Api\PublicReferenceEvaluationController;
 use App\Http\Controllers\Api\HrScheduleController;
 use App\Http\Controllers\Api\HrTalentOptionsController;
@@ -134,6 +135,11 @@ Route::get('/event-absen/photos/{filename}', [EventAbsenController::class, 'phot
     ->where('filename', '[A-Za-z0-9_.-]+')
     ->withoutMiddleware(['auth'])
     ->name('event-absen.photo');
+
+// Public QR Holding Gate Endpoints
+Route::post('/public/qr-holding/validate-and-generate', [PublicQrHoldingController::class, 'validateAndGenerate'])
+    ->middleware('throttle:60,1')
+    ->withoutMiddleware(['auth']);
 
 Route::prefix('fingerspot')->group(function () {
     Route::post('/webhook', [FingerspotController::class, 'webhook']);
