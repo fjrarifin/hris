@@ -10,6 +10,7 @@ use App\Models\EmployeeChangeLog;
 use App\Models\EmployeeDailySchedule;
 use App\Models\EmployeeExtraOff;
 use App\Models\EmployeePermission;
+use App\Models\EmployeePhAdjustment;
 use App\Models\ExtraOffRequest;
 use App\Models\FingerspotAttendanceLog;
 use App\Models\GateQrUsageLog;
@@ -1716,14 +1717,22 @@ class StaffPortalController extends Controller
 
     private function publicHolidayBalance(User $user): int
     {
+        $employee = $this->employeeFor($user);
         $usedHolidayIds = PublicHolidayRequest::query()
             ->where('user_id', $user->id)
             ->whereNotIn('status', ['rejected', 'cancelled'])
             ->pluck('public_holiday_id');
 
-        return $this->eligiblePublicHolidays($user)
+        $generalAdjustmentDays = (int) EmployeePhAdjustment::query()
+            ->where('karyawan_nik', $employee->nik)
+            ->whereNull('public_holiday_id')
+            ->sum('days');
+
+        $eligibleCount = $this->eligiblePublicHolidays($user)
             ->whereNotIn('id', $usedHolidayIds)
             ->count();
+
+        return max(0, $eligibleCount + $generalAdjustmentDays);
     }
 
     private function extraOffBalance(User $user): int
@@ -1825,10 +1834,20 @@ class StaffPortalController extends Controller
                 ->unique()
             : collect();
 
+        $joinDate = $employee->join_date ? Carbon::parse($employee->join_date)->startOfDay() : null;
+
+        $deductedHolidayIds = EmployeePhAdjustment::query()
+            ->where('karyawan_nik', $employee->nik)
+            ->whereNotNull('public_holiday_id')
+            ->where('days', '<', 0)
+            ->pluck('public_holiday_id');
+
         return PublicHoliday::query()
             ->where('is_active', true)
             ->whereDate('holiday_date', '<', now())
             ->whereDate('holiday_date', '>', now()->subDays(90))
+            ->when($joinDate, fn ($q) => $q->whereDate('holiday_date', '>=', $joinDate))
+            ->whereNotIn('id', $deductedHolidayIds)
             ->orderByDesc('holiday_date')
             ->get()
             ->filter(fn (PublicHoliday $holiday) => ! $this->requiresAttendanceForPublicHoliday($holiday)
@@ -1844,6 +1863,10 @@ class StaffPortalController extends Controller
     private function hasWorkedOnPublicHoliday(User $user, PublicHoliday $holiday): bool
     {
         $employee = $this->employeeFor($user);
+        $joinDate = $employee->join_date ? Carbon::parse($employee->join_date)->startOfDay() : null;
+        if ($joinDate && $holiday->holiday_date->lt($joinDate)) {
+            return false;
+        }
 
         return $holiday->is_active
             && (! $this->requiresAttendanceForPublicHoliday($holiday)

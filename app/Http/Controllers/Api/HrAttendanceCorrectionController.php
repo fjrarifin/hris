@@ -771,10 +771,13 @@ class HrAttendanceCorrectionController extends Controller
             ->when($currentRequestId, fn ($query) => $query->whereKeyNot($currentRequestId))
             ->pluck('public_holiday_id');
 
+        $joinDate = $employee->join_date ? Carbon::parse($employee->join_date)->startOfDay() : null;
+
         return PublicHoliday::query()
             ->where('is_active', true)
             ->whereDate('holiday_date', '<', now())
             ->whereDate('holiday_date', '>', now()->subDays(90))
+            ->when($joinDate, fn ($q) => $q->whereDate('holiday_date', '>=', $joinDate))
             ->whereNotIn('id', $approvedIds)
             ->orderByDesc('holiday_date')
             ->get()

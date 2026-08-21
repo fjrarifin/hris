@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\EmployeeExtraOff;
+use App\Models\EmployeePhAdjustment;
 use App\Models\ExtraOffRequest;
 use App\Models\FingerspotAttendanceLog;
 use App\Models\Karyawan;
@@ -19,7 +20,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class HrLeaveBalanceController extends Controller
 {
-    private const PUBLIC_HOLIDAY_ATTENDANCE_REQUIRED_FROM = '2024-01-01';
+    private const PUBLIC_HOLIDAY_ATTENDANCE_REQUIRED_FROM = '2026-05-27';
 
     public function index(Request $request): JsonResponse
     {
@@ -158,30 +159,38 @@ class HrLeaveBalanceController extends Controller
                 });
 
             // Public Holidays Eligible & Requests
-            $phRequests = PublicHolidayRequest::with('holiday')
+            $rawPhRequests = PublicHolidayRequest::with('holiday')
                 ->where('user_id', $user->id)
                 ->orderByDesc('claim_date')
-                ->get()
-                ->map(function ($ph) {
-                    $claimDate = $ph->claim_date ? Carbon::parse($ph->claim_date) : null;
-                    $holidayDate = $ph->holiday?->holiday_date ? Carbon::parse($ph->holiday->holiday_date) : null;
-                    return [
-                        'id' => $ph->id,
-                        'claim_date' => $claimDate?->toDateString(),
-                        'holiday_name' => $ph->holiday?->name ?? 'Hari Libur Nasional',
-                        'holiday_date' => $holidayDate?->toDateString(),
-                        'status' => $ph->status,
-                    ];
-                });
+                ->get();
+
+            $claimedHolidayIds = $rawPhRequests
+                ->whereNotIn('status', ['rejected', 'cancelled'])
+                ->pluck('public_holiday_id')
+                ->filter()
+                ->all();
+
+            $phRequests = $rawPhRequests->map(function ($ph) {
+                $claimDate = $ph->claim_date ? Carbon::parse($ph->claim_date) : null;
+                $holidayDate = $ph->holiday?->holiday_date ? Carbon::parse($ph->holiday->holiday_date) : null;
+                return [
+                    'id' => $ph->id,
+                    'public_holiday_id' => $ph->public_holiday_id,
+                    'claim_date' => $claimDate?->toDateString(),
+                    'holiday_name' => $ph->holiday?->name ?? 'Hari Libur Nasional',
+                    'holiday_date' => $holidayDate?->toDateString(),
+                    'status' => $ph->status,
+                ];
+            });
 
             $eligiblePhs = $this->getEligiblePublicHolidaysForUser($user, $employee);
-            $phEligibleList = $eligiblePhs->map(function ($ph) use ($phRequests) {
+            $phEligibleList = $eligiblePhs->map(function ($ph) use ($claimedHolidayIds) {
                 $hDate = $ph->holiday_date ? Carbon::parse($ph->holiday_date) : null;
                 return [
                     'id' => $ph->id,
                     'name' => $ph->name,
                     'holiday_date' => $hDate?->toDateString(),
-                    'claimed' => $phRequests->contains('holiday_name', $ph->name),
+                    'claimed' => in_array($ph->id, $claimedHolidayIds),
                 ];
             });
 
@@ -393,6 +402,12 @@ class HrLeaveBalanceController extends Controller
             ->get()
             ->groupBy('user_id');
 
+        // Batch load PH Adjustments
+        $phAdjustmentsGrouped = EmployeePhAdjustment::query()
+            ->whereIn('karyawan_nik', $niks)
+            ->get()
+            ->groupBy('karyawan_nik');
+
         // Batch load Past Active Public Holidays
         $pastHolidays = PublicHoliday::query()
             ->where('is_active', true)
@@ -418,6 +433,7 @@ class HrLeaveBalanceController extends Controller
             $phRequestsGrouped,
             $eoSourcesGrouped,
             $eoRequestsGrouped,
+            $phAdjustmentsGrouped,
             $pastHolidays,
             $attendanceLogsGrouped
         ) {
@@ -447,16 +463,27 @@ class HrLeaveBalanceController extends Controller
             $usedPhCount = 0;
             if ($userId) {
                 $userScanDates = $pin ? $attendanceLogsGrouped->get($pin, collect()) : collect();
-                $eligiblePhs = $pastHolidays->filter(function ($holiday) use ($userScanDates) {
+                $joinDate = $emp->join_date ? Carbon::parse($emp->join_date)->startOfDay() : null;
+
+                $phAdjustments = $phAdjustmentsGrouped->get($nik, collect());
+                $specificDeductedIds = $phAdjustments->where('days', '<', 0)->pluck('public_holiday_id')->filter()->unique();
+                $generalAdjustedDays = (int) $phAdjustments->whereNull('public_holiday_id')->sum('days');
+
+                $eligiblePhs = $pastHolidays->filter(function ($holiday) use ($userScanDates, $joinDate, $specificDeductedIds) {
                     $holidayDate = $holiday->holiday_date ? Carbon::parse($holiday->holiday_date) : null;
                     if (! $holidayDate) return false;
+                    if ($joinDate && $holidayDate->lt($joinDate)) return false;
+                    if ($specificDeductedIds->contains($holiday->id)) return false;
+
                     $requiresAttendance = $holidayDate->gte(Carbon::parse(self::PUBLIC_HOLIDAY_ATTENDANCE_REQUIRED_FROM));
                     return ! $requiresAttendance || $userScanDates->contains($holidayDate->toDateString());
                 });
-                $eligiblePhCount = $eligiblePhs->count();
+                $naturalEligibleCount = $eligiblePhs->count();
+                $eligiblePhCount = max($naturalEligibleCount + $generalAdjustedDays, 0);
 
+                $activeEligiblePhIds = $eligiblePhs->pluck('id');
                 $phRequests = $phRequestsGrouped->get($userId, collect());
-                $usedPhCount = $phRequests->count();
+                $usedPhCount = $phRequests->whereIn('public_holiday_id', $activeEligiblePhIds)->count();
             }
             $remainingPhDays = max($eligiblePhCount - $usedPhCount, 0);
 
@@ -529,10 +556,20 @@ class HrLeaveBalanceController extends Controller
                 ->unique()
             : collect();
 
+        $joinDate = $employee->join_date ? Carbon::parse($employee->join_date)->startOfDay() : null;
+
+        $deductedHolidayIds = EmployeePhAdjustment::query()
+            ->where('karyawan_nik', $employee->nik)
+            ->whereNotNull('public_holiday_id')
+            ->where('days', '<', 0)
+            ->pluck('public_holiday_id');
+
         return PublicHoliday::query()
             ->where('is_active', true)
             ->whereDate('holiday_date', '<', now())
             ->whereDate('holiday_date', '>', now()->subDays(90))
+            ->when($joinDate, fn ($q) => $q->whereDate('holiday_date', '>=', $joinDate))
+            ->whereNotIn('id', $deductedHolidayIds)
             ->orderByDesc('holiday_date')
             ->get()
             ->filter(fn (PublicHoliday $holiday) => Carbon::parse($holiday->holiday_date)->lt(Carbon::parse(self::PUBLIC_HOLIDAY_ATTENDANCE_REQUIRED_FROM))

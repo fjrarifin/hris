@@ -254,13 +254,20 @@ class PublicApprovalController extends Controller
         $holiday = $request->holiday;
         $employee = $request->user?->karyawan;
 
-        return $holiday
-            && $holiday->is_active
-            && ($holiday->holiday_date->lt(self::PUBLIC_HOLIDAY_ATTENDANCE_REQUIRED_FROM)
-                || ($employee?->pin
-                    && FingerspotAttendanceLog::query()
-                        ->where('pin', $employee->pin)
-                        ->whereDate('scan_date', $holiday->holiday_date)
-                        ->exists()));
+        if (! $holiday || ! $holiday->is_active) {
+            return false;
+        }
+
+        $joinDate = $employee?->join_date ? Carbon::parse($employee->join_date)->startOfDay() : null;
+        if ($joinDate && $holiday->holiday_date->lt($joinDate)) {
+            return false;
+        }
+
+        return $holiday->holiday_date->lt(self::PUBLIC_HOLIDAY_ATTENDANCE_REQUIRED_FROM)
+            || ($employee?->pin
+                && FingerspotAttendanceLog::query()
+                    ->where('pin', $employee->pin)
+                    ->whereDate('scan_date', $holiday->holiday_date)
+                    ->exists());
     }
 }

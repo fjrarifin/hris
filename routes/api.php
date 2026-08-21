@@ -306,6 +306,31 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/employees/export', [EmployeeController::class, 'export']);
         });
 
+        Route::prefix('adjustments')
+            ->middleware('level:0,1,2')
+            ->group(function () {
+                Route::get('/employees', [\App\Http\Controllers\Api\HrBalanceAdjustmentController::class, 'employees']);
+
+                Route::middleware('frontend.menu:hr-leave-adjustments')->prefix('leave')->group(function () {
+                    Route::get('/', [\App\Http\Controllers\Api\HrBalanceAdjustmentController::class, 'leaveIndex']);
+                    Route::post('/', [\App\Http\Controllers\Api\HrBalanceAdjustmentController::class, 'leaveStore']);
+                    Route::delete('/{id}', [\App\Http\Controllers\Api\HrBalanceAdjustmentController::class, 'leaveDestroy']);
+                });
+
+                Route::middleware('frontend.menu:hr-ph-adjustments')->prefix('ph')->group(function () {
+                    Route::get('/', [\App\Http\Controllers\Api\HrBalanceAdjustmentController::class, 'phIndex']);
+                    Route::get('/holidays/{nik}', [\App\Http\Controllers\Api\HrBalanceAdjustmentController::class, 'employeeHolidays']);
+                    Route::post('/', [\App\Http\Controllers\Api\HrBalanceAdjustmentController::class, 'phStore']);
+                    Route::delete('/{id}', [\App\Http\Controllers\Api\HrBalanceAdjustmentController::class, 'phDestroy']);
+                });
+
+                Route::middleware('frontend.menu:hr-extra-off-adjustments')->prefix('extra-off')->group(function () {
+                    Route::get('/', [\App\Http\Controllers\Api\HrBalanceAdjustmentController::class, 'extraOffIndex']);
+                    Route::post('/', [\App\Http\Controllers\Api\HrBalanceAdjustmentController::class, 'extraOffStore']);
+                    Route::delete('/{id}', [\App\Http\Controllers\Api\HrBalanceAdjustmentController::class, 'extraOffDestroy']);
+                });
+            });
+
         Route::prefix('hr')->middleware('level:2')->group(function () {
             Route::get('/dashboard', HrDashboardController::class);
             Route::middleware('frontend.menu:hr-attendance-corrections')->group(function () {
@@ -328,6 +353,27 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/leave-balances', [\App\Http\Controllers\Api\HrLeaveBalanceController::class, 'index']);
             Route::get('/leave-balances/export', [\App\Http\Controllers\Api\HrLeaveBalanceController::class, 'export']);
             Route::get('/leave-balances/{nik}', [\App\Http\Controllers\Api\HrLeaveBalanceController::class, 'show']);
+
+            // Alias for /api/hr/adjustments
+            Route::prefix('adjustments')->group(function () {
+                Route::get('/employees', [\App\Http\Controllers\Api\HrBalanceAdjustmentController::class, 'employees']);
+                Route::prefix('leave')->group(function () {
+                    Route::get('/', [\App\Http\Controllers\Api\HrBalanceAdjustmentController::class, 'leaveIndex']);
+                    Route::post('/', [\App\Http\Controllers\Api\HrBalanceAdjustmentController::class, 'leaveStore']);
+                    Route::delete('/{id}', [\App\Http\Controllers\Api\HrBalanceAdjustmentController::class, 'leaveDestroy']);
+                });
+                Route::prefix('ph')->group(function () {
+                    Route::get('/', [\App\Http\Controllers\Api\HrBalanceAdjustmentController::class, 'phIndex']);
+                    Route::post('/', [\App\Http\Controllers\Api\HrBalanceAdjustmentController::class, 'phStore']);
+                    Route::delete('/{id}', [\App\Http\Controllers\Api\HrBalanceAdjustmentController::class, 'phDestroy']);
+                });
+                Route::prefix('extra-off')->group(function () {
+                    Route::get('/', [\App\Http\Controllers\Api\HrBalanceAdjustmentController::class, 'extraOffIndex']);
+                    Route::post('/', [\App\Http\Controllers\Api\HrBalanceAdjustmentController::class, 'extraOffStore']);
+                    Route::delete('/{id}', [\App\Http\Controllers\Api\HrBalanceAdjustmentController::class, 'extraOffDestroy']);
+                });
+            });
+
             Route::get('/schedules/options', [HrScheduleController::class, 'options']);
             Route::get('/schedules/template', [HrScheduleController::class, 'template']);
             Route::get('/schedules', [HrScheduleController::class, 'index']);
