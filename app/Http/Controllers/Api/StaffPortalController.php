@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\LeaveAccrualService;
 use App\Http\Services\ApprovalNotificationService;
 use App\Http\Services\ApprovalRoutingService;
 use App\Http\Services\WhatsAppService;
@@ -983,11 +984,14 @@ class StaffPortalController extends Controller
     public function leaves(Request $request): JsonResponse
     {
         $user = $request->user();
+        if ($user) {
+            app(LeaveAccrualService::class)->generateMonthly($user);
+        }
         $accruals = $user->accruals()->orderByDesc('year')->orderByDesc('month')->get();
         $accruedDays = (int) $accruals->sum(fn (LeaveAccrual $accrual): int => (int) ($accrual->days ?: 1));
         $availableAccruedDays = (int) $accruals
             ->where('is_used', false)
-            ->filter(fn (LeaveAccrual $accrual): bool => Carbon::parse($accrual->expired_at)->gte(now()))
+            ->filter(fn (LeaveAccrual $accrual): bool => Carbon::parse($accrual->expired_at)->gte(now()->startOfDay()))
             ->sum(fn (LeaveAccrual $accrual): int => (int) ($accrual->days ?: 1));
         $annualLeaveDays = $this->activeAnnualLeaveDays($user);
 

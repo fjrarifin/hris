@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\LeaveAccrualService;
 use App\Models\EmployeeExtraOff;
 use App\Models\EmployeePhAdjustment;
 use App\Models\ExtraOffRequest;
@@ -108,6 +109,9 @@ class HrLeaveBalanceController extends Controller
     {
         $employee = Karyawan::with('user')->where('nik', $nik)->firstOrFail();
         $user = $employee->user;
+        if ($user) {
+            app(LeaveAccrualService::class)->generateMonthly($user);
+        }
 
         $leaveAccruals = [];
         $leaveRequests = [];
@@ -361,6 +365,12 @@ class HrLeaveBalanceController extends Controller
 
     private function calculateBalancesForEmployees($employees)
     {
+        foreach ($employees as $emp) {
+            if ($emp->user) {
+                app(LeaveAccrualService::class)->generateMonthly($emp->user);
+            }
+        }
+
         $userIds = $employees->pluck('user.id')->filter()->values()->all();
         $niks = $employees->pluck('nik')->filter()->values()->all();
         $pins = $employees->pluck('pin')->filter()->values()->all();
@@ -369,7 +379,7 @@ class HrLeaveBalanceController extends Controller
         $accrualsGrouped = LeaveAccrual::query()
             ->whereIn('user_id', $userIds)
             ->where('is_used', false)
-            ->where('expired_at', '>=', now())
+            ->whereDate('expired_at', '>=', now()->startOfDay())
             ->get()
             ->groupBy('user_id');
 
