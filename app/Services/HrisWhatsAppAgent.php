@@ -21,6 +21,7 @@ use Illuminate\Support\Str;
 class HrisWhatsAppAgent
 {
     public function __construct(
+        private readonly HrisDatabaseQueryAgent $dbQueryAgent,
         private readonly OpenRouterChatService $openRouter,
         private readonly GeminiChatService $gemini,
         private readonly WhatsAppService $whatsApp,
@@ -93,7 +94,7 @@ class HrisWhatsAppAgent
         $normalized = $this->normalizeText($question);
         $isFirstChat = empty($history);
 
-        // 1. Cek apakah ada aksi transaksional / data pasti yang ditanyakan
+        // 1. Cek apakah ada aksi transaksional / data pasti yang ditanyakan (Instan)
         $actionAnswer = $this->handleDirectActions($normalized, $karyawan, $history);
         if ($actionAnswer !== null) {
             return $actionAnswer;
@@ -105,13 +106,19 @@ class HrisWhatsAppAgent
             return $faqAnswer;
         }
 
-        // 3. Cek template jawaban umum
+        // 3. Cek template jawaban umum / salam
         $fixed = $this->fixedAnswer($normalized, $karyawan, $isFirstChat);
         if ($fixed !== null) {
             return $fixed;
         }
 
-        // 4. Gunakan AI: Engine Utama OpenRouter (DeepSeek/Llama), Cadangan Gemini Flash
+        // 4. Gunakan AI Database Query Agent (Autonomous Text-to-SQL Read-Only)
+        $dbAgentAnswer = $this->dbQueryAgent->queryAndAnswer($question, $karyawan, $history);
+        if ($dbAgentAnswer !== null && trim($dbAgentAnswer) !== '') {
+            return $dbAgentAnswer;
+        }
+
+        // 5. Fallback ke LLM General Knowledge: OpenRouter (DeepSeek/Llama) lalu Gemini Flash
         $systemPrompt = $this->buildSystemPrompt($karyawan, $isFirstChat);
         
         $openRouterResponse = $this->openRouter->chat($question, $systemPrompt, $history);
