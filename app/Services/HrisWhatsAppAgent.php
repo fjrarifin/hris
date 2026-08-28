@@ -218,6 +218,9 @@ class HrisWhatsAppAgent
             $waLink = $cleanPhone !== '' ? "https://wa.me/{$cleanPhone}" : "-";
             $waktu = now()->locale('id')->translatedFormat('d F Y, H:i') . ' WIB';
 
+            // Rangkum kendala asli berdasarkan riwayat percakapan sebelumnya
+            $kendalaText = $this->summarizeTicketIssue($question, $history);
+
             $ticketMsg = "🚨 *[TIKET BANTUAN IT BARU]*\n";
             $ticketMsg .= "━━━━━━━━━━━━━━━━━━━━\n";
             $ticketMsg .= "👤 *Karyawan* : {$nama}\n";
@@ -227,8 +230,8 @@ class HrisWhatsAppAgent
                 $ticketMsg .= "📱 *WhatsApp* : {$waLink}\n";
             }
             $ticketMsg .= "⏰ *Waktu*    : {$waktu}\n\n";
-            $ticketMsg .= "💬 *Pesan / Kendala Karyawan*:\n";
-            $ticketMsg .= "\"{$question}\"\n";
+            $ticketMsg .= "💬 *Rincian Kendala / Topik*:\n";
+            $ticketMsg .= "{$kendalaText}\n";
             $ticketMsg .= "━━━━━━━━━━━━━━━━━━━━\n";
             $ticketMsg .= "👉 Tim IT bisa langsung tap link WhatsApp di atas untuk menghubungi karyawan.";
 
@@ -1057,5 +1060,46 @@ class HrisWhatsAppAgent
         }
 
         return $eoBalance;
+    }
+
+    private function summarizeTicketIssue(string $currentQuestion, array $history = []): string
+    {
+        if (empty($history)) {
+            return "\"{$currentQuestion}\"";
+        }
+
+        // Kumpulkan teks percakapan terakhir
+        $convo = [];
+        foreach ($history as $h) {
+            $role = data_get($h, 'role') === 'user' ? 'Karyawan' : 'Bot';
+            $txt = data_get($h, 'parts.0.text', data_get($h, 'content', ''));
+            if ($txt !== '') {
+                $convo[] = "{$role}: {$txt}";
+            }
+        }
+        $convo[] = "Karyawan: {$currentQuestion}";
+        $convoText = implode("\n", $convo);
+
+        $prompt = "Berikut adalah riwayat percakapan terakhir antara karyawan dan bot WhatsApp kantor:\n\n";
+        $prompt .= "{$convoText}\n\n";
+        $prompt .= "Tugas: Buat 1 atau 2 kalimat singkat yang merangkum secara jelas inti topik/kendala apa yang sebenarnya sedang dihadapi atau ditanyakan oleh karyawan untuk dibaca oleh Tim IT Support di grup tiket.\n";
+        $prompt .= "Aturan: Tulis langsung inti kendalanya dengan bahasa Indonesia yang jelas tanpa basa-basi.";
+
+        $summary = $this->openRouter->chat($prompt, '') ?? $this->gemini->chat($prompt, '');
+
+        if ($summary && trim($summary) !== '') {
+            return trim($summary);
+        }
+
+        // Fallback jika AI tidak merespon: ambil pertanyaan user sebelumnya
+        $previousUserMsg = '';
+        foreach (array_reverse($history) as $h) {
+            if (data_get($h, 'role') === 'user') {
+                $previousUserMsg = data_get($h, 'parts.0.text', '');
+                break;
+            }
+        }
+
+        return $previousUserMsg ? "\"{$previousUserMsg}\"\n_(Permintaan eskalasi: {$currentQuestion})_" : "\"{$currentQuestion}\"";
     }
 }
