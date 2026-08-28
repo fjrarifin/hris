@@ -660,23 +660,23 @@ class HrisWhatsAppAgent
 
         if (in_array($normalized, ['help', 'bantuan', 'menu', 'hai', 'halo', 'p', 'tes', 'test', 'siang', 'pagi', 'malam', 'sore', 'halo kak', 'hai kak', 'pagi kak', 'siang kak', 'sore kak', 'malam kak'], true)) {
             if ($isFirstChat) {
-                $msg = "Halo {$sapaan}! Aku IT AI Agent HRIS kantor.\n\n";
-                $msg .= "Ada yang bisa aku bantu seputar HRIS atau kebutuhan kantor hari ini?\n\n";
+                $msg = "Halo {$sapaan}! Aku Staff IT AI HRIS HomPim Play.\n\n";
+                $msg .= "Ada yang bisa aku bantu seputar HRIS?\n\n";
                 $msg .= "Kamu bisa tanyakan hal-hal seperti:\n";
                 $msg .= "• Sisa cuti / PH / Extra Off\n";
                 $msg .= "• Jadwal masuk kerja & presensi scan absensi\n";
                 $msg .= "• Sisa masa kontrak kerja\n";
                 $msg .= "• Reset password akun HRIS\n";
-                $msg .= "• Prosedur pengajuan atau pertanyaan seputar kantor lainnya.";
+                $msg .= "• Prosedur pengajuan atau pertanyaan seputar HRIS lainnya.";
 
                 return $msg;
             }
 
-            return "Ada lagi yang bisa aku bantu seputar HRIS atau kantor, {$sapaan}?";
+            return "Ada lagi yang bisa aku bantu seputar HRIS, {$sapaan}?";
         }
 
         if (str_contains($normalized, 'apa itu hris') || str_contains($normalized, 'hris itu apa')) {
-            return "HRIS adalah aplikasi internal kantor untuk presensi, cek jadwal, pengajuan cuti/izin/lembur, dan slip gaji ya {$sapaan}.";
+            return "HRIS adalah aplikasi internal kantor untuk absensi, cek jadwal, pengajuan cuti/izin/lembur ya {$sapaan}.";
         }
 
         return null;
