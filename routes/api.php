@@ -43,6 +43,7 @@ use App\Http\Controllers\Api\StaffPerformanceReviewController;
 use App\Http\Controllers\Api\StaffPortalController;
 use App\Http\Controllers\Api\StaffRecruitmentRequestController;
 use App\Http\Controllers\Api\StaffTalentController;
+use App\Http\Controllers\Api\StaffTeamAttendanceController;
 use App\Http\Controllers\Api\StaffTeamScheduleController;
 use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\AttendanceWebhookController;
@@ -593,6 +594,11 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::post('/upload', [StaffTeamScheduleController::class, 'upload']);
                 Route::get('/employees/{nik}', [StaffTeamScheduleController::class, 'employee']);
                 Route::put('/employees/{nik}', [StaffTeamScheduleController::class, 'store']);
+            });
+
+            Route::prefix('team-attendances')->middleware('frontend.menu:staff-team-attendances')->group(function () {
+                Route::get('/', [StaffTeamAttendanceController::class, 'index']);
+                Route::get('/export', [StaffTeamAttendanceController::class, 'export']);
             });
 
             Route::prefix('performance-reviews')->middleware('frontend.menu:staff-performance-reviews')->group(function () {

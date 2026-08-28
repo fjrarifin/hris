@@ -249,7 +249,7 @@ class FrontendNavigation
             ->values()
             ->all();
 
-        $supervisorKeys = ['staff-approvals', 'staff-overtime', 'staff-team-schedules', 'staff-subordinate-candidates'];
+        $supervisorKeys = ['staff-approvals', 'staff-overtime', 'staff-team-schedules', 'staff-team-attendances', 'staff-subordinate-candidates'];
         $supervisorAnchor = $menus
             ->first(fn (array $menu) => in_array($menu['key'], $supervisorKeys, true))['key'] ?? null;
         $supervisorChildren = $menus
@@ -350,7 +350,7 @@ class FrontendNavigation
             return false;
         }
 
-        if ($menu->key === 'staff-team-schedules' && ! $this->hasScheduleSubordinates($user)) {
+        if (in_array($menu->key, ['staff-team-schedules', 'staff-team-attendances'], true) && ! $this->hasScheduleSubordinates($user)) {
             return false;
         }
 

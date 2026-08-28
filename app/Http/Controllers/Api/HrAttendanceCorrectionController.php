@@ -297,6 +297,7 @@ class HrAttendanceCorrectionController extends Controller
                 'time' => 'Koreksi Jam Absen',
                 'sdc' => 'SDC',
                 'leave' => 'Cuti',
+                'normative_leave' => 'Cuti Normatif',
                 'public_holiday' => 'PH',
                 'extra_off' => 'Extra Off',
                 null, '' => '-',
@@ -315,7 +316,7 @@ class HrAttendanceCorrectionController extends Controller
     {
         $validated = $request->validate([
             'attendance_date' => ['required', 'date'],
-            'correction_type' => ['nullable', Rule::in(['time', 'sdc', 'leave', 'public_holiday', 'extra_off'])],
+            'correction_type' => ['nullable', Rule::in(['time', 'sdc', 'leave', 'normative_leave', 'public_holiday', 'extra_off'])],
             'corrected_scan_in' => ['nullable', 'date_format:H:i'],
             'corrected_scan_out' => ['nullable', 'date_format:H:i'],
             'public_holiday_id' => ['nullable', 'integer', 'exists:public_holidays,id'],
@@ -514,10 +515,33 @@ class HrAttendanceCorrectionController extends Controller
         return match ($correctionType) {
             'sdc' => $this->createApprovedSdcCorrection($request, $employeeUser, $date, $validated),
             'leave' => $this->createApprovedLeaveCorrection($request, $employeeUser, $employee, $date, $validated),
+            'normative_leave' => $this->createApprovedNormativeLeaveCorrection($request, $employeeUser, $employee, $date, $validated),
             'public_holiday' => $this->createApprovedPublicHolidayCorrection($request, $employeeUser, $employee, $date, $validated),
             'extra_off' => $this->createApprovedExtraOffCorrection($request, $employeeUser, $employee, $date, $validated),
             default => throw ValidationException::withMessages(['correction_type' => ['Jenis koreksi tidak valid.']]),
         };
+    }
+
+    private function createApprovedNormativeLeaveCorrection(Request $request, User $employeeUser, Karyawan $employee, Carbon $date, array $validated): array
+    {
+        $leave = LeaveRequest::query()->create([
+            'user_id' => $employeeUser->id,
+            'leave_type' => 'lainnya',
+            'start_date' => $date->toDateString(),
+            'end_date' => $date->toDateString(),
+            'reason' => $this->correctionReason('Cuti Normatif', $validated['notes'] ?? null),
+            'status' => 'approved',
+            'manager_approved_at' => now(),
+            'manager_approved_by' => $request->user()?->id,
+            'hr_approved_at' => now(),
+            'hr_approved_by' => $request->user()?->id,
+        ]);
+
+        return [
+            'type' => LeaveRequest::class,
+            'id' => $leave->id,
+            'leave_accrual_id' => null,
+        ];
     }
 
     private function createApprovedSdcCorrection(Request $request, User $employeeUser, Carbon $date, array $validated): array
