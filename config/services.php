@@ -52,6 +52,18 @@ return [
         'timeout' => (int) env('OLLAMA_TIMEOUT', 60),
     ],
 
+    'openrouter' => [
+        'api_key' => env('OPENROUTER_API_KEY'),
+        'model' => env('OPENROUTER_MODEL', 'meta-llama/llama-3.3-70b-instruct:free'),
+        'timeout' => (int) env('OPENROUTER_TIMEOUT', 10),
+    ],
+
+    'gemini' => [
+        'api_key' => env('GEMINI_API_KEY'),
+        'model' => env('GEMINI_MODEL', 'gemini-3.1-flash-lite'),
+        'timeout' => (int) env('GEMINI_TIMEOUT', 10),
+    ],
+
     'public_approval' => [
         'base_url' => env('PUBLIC_APPROVAL_BASE_URL', 'https://hr.hompimplay.id'),
         'expires_hours' => (int) env('PUBLIC_APPROVAL_EXPIRES_HOURS', 18),
@@ -72,6 +84,7 @@ return [
         'created_date' => env('HRIS_AGENT_CREATED_DATE', '2026-05-28'),
         'trigger_prefix' => env('HRIS_AGENT_TRIGGER_PREFIX'),
         'webhook_token' => env('HRIS_AGENT_WEBHOOK_TOKEN'),
+        'bot_url' => env('HRIS_AGENT_BOT_URL', 'http://127.0.0.1:3350'),
         'allowed_senders' => array_values(array_filter(array_map(
             fn ($sender) => trim((string) $sender),
             explode(',', env('HRIS_AGENT_ALLOWED_SENDERS', ''))

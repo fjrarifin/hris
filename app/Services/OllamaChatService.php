@@ -20,7 +20,8 @@ class OllamaChatService
         }
 
         try {
-            $response = Http::timeout((int) config('services.ollama.timeout', 60))
+            $timeout = min((int) config('services.ollama.timeout', 2), 3);
+            $response = Http::timeout($timeout)
                 ->post($baseUrl.'/api/chat', [
                     'model' => $model,
                     'stream' => false,
