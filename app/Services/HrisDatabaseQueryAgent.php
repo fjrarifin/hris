@@ -264,15 +264,18 @@ SCHEMA;
     {
         $jsonResults = json_encode(array_slice($results, 0, 25), JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
 
-        $prompt = "Kamu adalah IT & HR AI Agent kantor yang ramah dan membantu.\n";
+        $prompt = "Kamu adalah IT & HR AI Agent kantor Hompimplay yang ramah, sopan, dan solutif.\n";
         $prompt .= "Karyawan atas nama {$sapaan} menanyakan: \"{$question}\"\n\n";
         $prompt .= "Berikut adalah data hasil query database HRIS:\n";
         $prompt .= "```json\n{$jsonResults}\n```\n\n";
-        $prompt .= "Instruksi Jawaban:\n";
+        $prompt .= "Aturan Prosedur & Jawaban:\n";
         $prompt .= "1. Rangkum data di atas menjadi kalimat jawaban WhatsApp yang SANGAT JELAS, RAMAH, SINGKAT, dan TO-THE-POINT.\n";
-        $prompt .= "2. Jangan sebutkan istilah teknis SQL/query/database, bicaralah seperti rekan kerja HR yang mengecek sistem langsung.\n";
-        $prompt .= "3. Jika data kosong/tidak ditemukan, infokan dengan sopan bahwa datanya belum tercatat atau tidak ada jadwal pada periode tersebut.\n";
-        $prompt .= "4. Panggil karyawan dengan '{$sapaan}'. Jangan mengulang kata 'Halo' jika bukan chat pembuka.\n";
+        $prompt .= "2. Jangan sebutkan istilah teknis SQL/query/database, bicaralah seperti rekan kerja HR profesional.\n";
+        $prompt .= "3. ATURAN PROSEDUR & APPROVAL KANTOR:\n";
+        $prompt .= "   - Semua pengajuan (Cuti Tahunan, Libur PH, Extra Off, Izin/Sakit, Lembur) diajukan sendiri oleh karyawan melalui web portal HRIS (https://hr.hompimplay.id).\n";
+        $prompt .= "   - Alur persetujuan (approval) SELALU diproses oleh ATASAN LANGSUNG (bukan bawahan).\n";
+        $prompt .= "4. Jika data kosong/tidak ditemukan, infokan dengan sopan bahwa datanya belum tercatat di sistem HRIS.\n";
+        $prompt .= "5. Panggil karyawan dengan '{$sapaan}'. Jangan mengulang kata 'Halo' jika bukan chat pembuka.\n";
 
         $summary = $this->callLlm($prompt);
 

@@ -738,6 +738,7 @@ class HrisWhatsAppAgent
         $prompt .= "8. BATASAN TOPIK HRIS (SANGAT PENTING): Kamu HANYA boleh menjawab pertanyaan seputar HRIS, presensi/kehadiran, jadwal kerja, cuti, izin, lembur, info kontrak, slip gaji, dan kebijakan operasional kantor.\n";
         $prompt .= "JIKA karyawan menanyakan hal di luar topik HRIS/kantor (misalnya resep makanan, tugas sekolah/kuliah, ramalan cuaca, lelucon umum, politik, sains/coding umum di luar sistem), KAMU WAJIB MENOLAK secara santun dengan jawaban:\n";
         $prompt .= "\"Maaf ya {$sapaan}, aku hanya bisa membantu menjawab pertanyaan seputar HRIS, absensi, jadwal kerja, saldo cuti, dan informasi operasional kantor ya.\"\n";
+        $prompt .= "9. ALUR PENGAJUAN & APPROVAL KANTOR: Semua pengajuan karyawan (Cuti Tahunan, Libur PH, Extra Off, Izin, Lembur) diajukan mandiri lewat portal HRIS (https://hr.hompimplay.id) dan membutuhkan persetujuan dari ATASAN LANGSUNG (bukan oleh bawahan).\n";
 
         if ($karyawan) {
             $prompt .= "\n[Info Karyawan yang Bertanya]\n";
@@ -762,7 +763,7 @@ class HrisWhatsAppAgent
                 ->get(['nama_karyawan', 'jabatan']);
 
             if ($subordinates->isNotEmpty()) {
-                $prompt .= "Daftar Bawahan Langsung: " . $subordinates->map(fn ($s) => "{$s->nama_karyawan} ({$s->jabatan})")->implode(', ') . "\n";
+                $prompt .= "Daftar Tim / Bawahan: " . $subordinates->map(fn ($s) => "{$s->nama_karyawan} ({$s->jabatan})")->implode(', ') . "\n";
             }
 
             $user = User::where('username', $karyawan->nik)->first();
