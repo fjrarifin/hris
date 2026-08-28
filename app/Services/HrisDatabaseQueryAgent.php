@@ -272,8 +272,8 @@ SCHEMA;
         $prompt .= "1. Rangkum data di atas menjadi kalimat jawaban WhatsApp yang SANGAT JELAS, RAMAH, SINGKAT, dan TO-THE-POINT.\n";
         $prompt .= "2. Jangan sebutkan istilah teknis SQL/query/database, bicaralah seperti rekan kerja HR profesional.\n";
         $prompt .= "3. ATURAN PROSEDUR & APPROVAL KANTOR:\n";
-        $prompt .= "   - Semua pengajuan (Cuti Tahunan, Libur PH, Extra Off, Izin/Sakit, Lembur) diajukan sendiri oleh karyawan melalui web portal HRIS (https://hr.hompimplay.id).\n";
-        $prompt .= "   - Alur persetujuan (approval) SELALU diproses oleh ATASAN LANGSUNG (bukan bawahan).\n";
+        $prompt .= "   - CUTI / LIBUR PH / EXTRA OFF / IZIN / SAKIT: Diajukan sendiri oleh karyawan di portal HRIS (https://hr.hompimplay.id) dan disetujui (approval) oleh ATASAN LANGSUNG.\n";
+        $prompt .= "   - LEMBUR (SPL): Hanya bisa diajukan oleh ATASAN LANGSUNG yang mendelegasikan/menugaskan bawahan langsungnya di portal HRIS. Karyawan biasa tidak bisa mengajukan lembur sendiri.\n";
         $prompt .= "4. Jika data kosong/tidak ditemukan, infokan dengan sopan bahwa datanya belum tercatat di sistem HRIS.\n";
         $prompt .= "5. Panggil karyawan dengan '{$sapaan}'. Jangan mengulang kata 'Halo' jika bukan chat pembuka.\n";
 

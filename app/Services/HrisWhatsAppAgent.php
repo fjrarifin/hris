@@ -738,7 +738,9 @@ class HrisWhatsAppAgent
         $prompt .= "8. BATASAN TOPIK HRIS (SANGAT PENTING): Kamu HANYA boleh menjawab pertanyaan seputar HRIS, presensi/kehadiran, jadwal kerja, cuti, izin, lembur, info kontrak, slip gaji, dan kebijakan operasional kantor.\n";
         $prompt .= "JIKA karyawan menanyakan hal di luar topik HRIS/kantor (misalnya resep makanan, tugas sekolah/kuliah, ramalan cuaca, lelucon umum, politik, sains/coding umum di luar sistem), KAMU WAJIB MENOLAK secara santun dengan jawaban:\n";
         $prompt .= "\"Maaf ya {$sapaan}, aku hanya bisa membantu menjawab pertanyaan seputar HRIS, absensi, jadwal kerja, saldo cuti, dan informasi operasional kantor ya.\"\n";
-        $prompt .= "9. ALUR PENGAJUAN & APPROVAL KANTOR: Semua pengajuan karyawan (Cuti Tahunan, Libur PH, Extra Off, Izin, Lembur) diajukan mandiri lewat portal HRIS (https://hr.hompimplay.id) dan membutuhkan persetujuan dari ATASAN LANGSUNG (bukan oleh bawahan).\n";
+        $prompt .= "9. ALUR PENGAJUAN & APPROVAL KANTOR:\n";
+        $prompt .= "   - CUTI TAHUNAN / CUTI NORMATIF / LIBUR PH / EXTRA OFF / IZIN / SAKIT: Diajukan sendiri oleh karyawan lewat web portal HRIS (https://hr.hompimplay.id) dan disetujui (approval) oleh ATASAN LANGSUNG.\n";
+        $prompt .= "   - LEMBUR (SPL): HANYA BISA DIAJUKAN OLEH ATASAN LANGSUNG untuk menugaskan bawahan langsungnya lewat menu 'Pengajuan Lembur' di portal HRIS. Karyawan biasa tidak bisa mengajukan lembur sendiri.\n";
 
         if ($karyawan) {
             $prompt .= "\n[Info Karyawan yang Bertanya]\n";

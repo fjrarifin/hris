@@ -1567,7 +1567,7 @@ class StaffPortalController extends Controller
             'status' => 'pending',
         ])->load('user'));
 
-        $created->each(fn (OvertimeRequest $overtime) => $this->approvalNotification->notifyHrGroups($overtime, 'LEMBUR'));
+        $created->each(fn (OvertimeRequest $overtime) => $this->approvalNotification->notifyOvertimeAssigned($overtime));
 
         return response()->json([
             'message' => 'Pengajuan lembur berhasil dikirim ke HR.',

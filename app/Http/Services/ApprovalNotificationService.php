@@ -113,6 +113,60 @@ class ApprovalNotificationService
         }
     }
 
+    public function notifyOvertimeAssigned(OvertimeRequest $overtime): void
+    {
+        try {
+            $overtime->loadMissing(['user.karyawan', 'requestedBy.karyawan']);
+            $employee = $overtime->user?->karyawan;
+            $manager = $overtime->requestedBy?->karyawan ?? $overtime->requestedBy;
+
+            $dateFormatted = Carbon::parse($overtime->date)->locale('id')->translatedFormat('l, d F Y');
+            $startTime = substr($overtime->start_time, 0, 5);
+            $endTime = substr($overtime->end_time, 0, 5);
+            $managerName = $manager?->nama_karyawan ?? $manager?->name ?? 'Atasan Langsung';
+            $employeeName = $employee?->nama_karyawan ?? $overtime->user?->name ?? 'Rekan Karyawan';
+
+            // 1. Notifikasi WhatsApp ke Bawahan / Karyawan yang Ditugaskan
+            if ($employee && $employee->no_hp) {
+                $msg = "📌 *PENUGASAN LEMBUR DARI ATASAN*\n";
+                $msg .= "━━━━━━━━━━━━━━━━━━━━━━━\n\n";
+                $msg .= "Halo {$employeeName},\n";
+                $msg .= "Anda telah ditugaskan lembur oleh atasan Anda:\n\n";
+                $msg .= "👤 *Atasan* : {$managerName}\n";
+                $msg .= "📅 *Tanggal* : {$dateFormatted}\n";
+                $msg .= "⏰ *Waktu*   : {$startTime} - {$endTime} WIB\n";
+                $msg .= "📝 *Tugas/Alasan* : {$overtime->reason}\n";
+                $msg .= "📊 *Status*  : *Menunggu Konfirmasi HRD*\n\n";
+                $msg .= "Mohon persiapkan diri dan lakukan scan absensi sesuai jam lembur yang ditentukan ya.\n";
+                $msg .= "━━━━━━━━━━━━━━━━━━━━━━━\n";
+                $msg .= "_Pesan otomatis sistem HRIS HomPim Play._";
+
+                $this->whatsAppService->sendMessage($this->normalizePhone($employee->no_hp), $msg);
+            }
+
+            // 2. Notifikasi ke Grup WhatsApp HRD Attendance
+            $groupId = trim((string) config('services.whatsapp.attendance_group_id'));
+            if ($groupId !== '') {
+                $groupMsg = "📢 *PENGAJUAN LEMBUR TIM (SPL)*\n";
+                $groupMsg .= "━━━━━━━━━━━━━━━━━━━━━━━\n";
+                $groupMsg .= "👤 *Karyawan* : {$employeeName} ({$employee?->nik})\n";
+                $groupMsg .= "👑 *Diajukan Oleh* : {$managerName}\n";
+                $groupMsg .= "📅 *Tanggal* : {$dateFormatted}\n";
+                $groupMsg .= "⏰ *Waktu*   : {$startTime} - {$endTime} WIB\n";
+                $groupMsg .= "📝 *Alasan*  : {$overtime->reason}\n";
+                $groupMsg .= "━━━━━━━━━━━━━━━━━━━━━━━\n";
+                $groupMsg .= "Silakan tinjau dan proses di menu Approval HRD.";
+
+                $this->whatsAppService->sendMessage($groupId, $groupMsg);
+            }
+        } catch (\Throwable $e) {
+            Log::error('Gagal kirim notifikasi penugasan lembur WhatsApp', [
+                'overtime_id' => $overtime->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
     private function buildMessage($request, $karyawan): string
     {
         $link = $this->publicApprovalUrl($request->approval_token, $request->approval_token_expires_at);
