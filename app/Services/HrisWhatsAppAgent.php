@@ -841,15 +841,16 @@ class HrisWhatsAppAgent
     private function extractSender(array $payload): string
     {
         return $this->firstString($payload, [
-            'phone',
+            'remoteJid',
             'from',
+            'key.remoteJid',
+            'data.remoteJid',
+            'data.from',
+            'phone',
             'sender',
             'jid',
             'chat',
-            'remoteJid',
-            'key.remoteJid',
             'data.phone',
-            'data.from',
             'data.sender',
             'data.jid',
             'data.chat',
