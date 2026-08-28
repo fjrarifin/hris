@@ -193,6 +193,54 @@ class HrisWhatsAppAgent
         $isFirstChat = empty($history);
 
         // -------------------------------------------------------------
+        // Aksi 0: Eskalasi Bantuan Langsung ke Tim IT (Forward ke Grup IT)
+        // -------------------------------------------------------------
+        $isAskingHumanIt = (
+            (str_contains($normalized, 'bicara') || str_contains($normalized, 'ngobrol') || str_contains($normalized, 'ngomong') || str_contains($normalized, 'chat') || str_contains($normalized, 'hubungi') || str_contains($normalized, 'kontak') || str_contains($normalized, 'panggil') || str_contains($normalized, 'sambungkan') || str_contains($normalized, 'tanya langsung'))
+            && (str_contains($normalized, 'it') || str_contains($normalized, 'admin') || str_contains($normalized, 'manusia') || str_contains($normalized, 'orang') || str_contains($normalized, 'staf') || str_contains($normalized, 'operator'))
+        )
+        || str_contains($normalized, 'butuh bantuan it')
+        || str_contains($normalized, 'bantuan tim it')
+        || str_contains($normalized, 'tolong it')
+        || str_contains($normalized, 'error 500')
+        || str_contains($normalized, 'bug aplikasi')
+        || str_contains($normalized, 'sistem down');
+
+        if ($isAskingHumanIt) {
+            $nama = $karyawan?->nama_karyawan ?: 'Karyawan';
+            $nik = $karyawan?->nik ?: '-';
+            $divisi = ($karyawan?->jabatan ?: $karyawan?->departement) ?: '-';
+            $phone = $karyawan?->no_hp ?: '';
+            $cleanPhone = preg_replace('/[^0-9]/', '', $phone);
+            if (str_starts_with($cleanPhone, '0')) {
+                $cleanPhone = '62' . substr($cleanPhone, 1);
+            }
+            $waLink = $cleanPhone !== '' ? "https://wa.me/{$cleanPhone}" : "-";
+            $waktu = now()->locale('id')->translatedFormat('d F Y, H:i') . ' WIB';
+
+            $ticketMsg = "🚨 *[TIKET BANTUAN IT BARU]*\n";
+            $ticketMsg .= "━━━━━━━━━━━━━━━━━━━━\n";
+            $ticketMsg .= "👤 *Karyawan* : {$nama}\n";
+            $ticketMsg .= "🆔 *NIK*      : {$nik}\n";
+            $ticketMsg .= "🏢 *Divisi*   : {$divisi}\n";
+            if ($waLink !== '-') {
+                $ticketMsg .= "📱 *WhatsApp* : {$waLink}\n";
+            }
+            $ticketMsg .= "⏰ *Waktu*    : {$waktu}\n\n";
+            $ticketMsg .= "💬 *Pesan / Kendala Karyawan*:\n";
+            $ticketMsg .= "\"{$question}\"\n";
+            $ticketMsg .= "━━━━━━━━━━━━━━━━━━━━\n";
+            $ticketMsg .= "👉 Tim IT bisa langsung tap link WhatsApp di atas untuk menghubungi karyawan.";
+
+            $itGroupId = (string) config('services.whatsapp.it_support_group_id');
+            if ($itGroupId !== '') {
+                $this->sendReply($itGroupId, $ticketMsg);
+            }
+
+            return "Siap {$sapaan}! Pesan dan permintaan bantuanmu sudah aku teruskan langsung ke Grup Tim IT Support ya 📩.\n\nTim IT akan segera mengecek dan menghubungimu melalui WhatsApp ini. Mohon ditunggu sebentar ya {$sapaan}!";
+        }
+
+        // -------------------------------------------------------------
         // Aksi 1: Reset / Kick Active Session (Langsung atau setelah konfirmasi)
         // -------------------------------------------------------------
         $isDirectReset = str_contains($normalized, 'reset session')
