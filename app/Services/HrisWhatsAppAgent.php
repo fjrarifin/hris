@@ -643,7 +643,7 @@ class HrisWhatsAppAgent
                 $msg .= "• Sisa cuti / PH / Extra Off\n";
                 $msg .= "• Jadwal masuk kerja & presensi scan absensi\n";
                 $msg .= "• Sisa masa kontrak kerja\n";
-                $msg .= "• Reset password akun (12345678) / reset session terkunci\n";
+                $msg .= "• Reset password akun HRIS\n";
                 $msg .= "• Prosedur pengajuan atau pertanyaan seputar kantor lainnya.";
 
                 return $msg;
