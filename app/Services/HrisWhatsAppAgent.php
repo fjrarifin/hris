@@ -240,7 +240,7 @@ class HrisWhatsAppAgent
                 $this->sendReply($itGroupId, $ticketMsg);
             }
 
-            return "Siap {$sapaan}! Pesan dan permintaan bantuanmu sudah aku teruskan langsung ke Grup Tim IT Support ya 📩.\n\nTim IT akan segera mengecek dan menghubungimu melalui WhatsApp ini. Mohon ditunggu sebentar ya {$sapaan}!";
+            return "Siap {$sapaan}! Pesan dan permintaan bantuanmu sudah aku teruskan langsung ke Tim IT ya 📩.\n\nTim IT akan segera mengecek dan menghubungimu melalui WhatsApp ini. Mohon ditunggu sebentar ya {$sapaan}!";
         }
 
         // -------------------------------------------------------------

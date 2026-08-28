@@ -17,14 +17,16 @@ class OpenRouterChatService
             return null;
         }
 
-        $primaryModel = trim((string) config('services.openrouter.model', 'meta-llama/llama-3.3-70b-instruct:free'));
+        $primaryModel = trim((string) config('services.openrouter.model', 'openrouter/free'));
         $modelsToTry = array_unique(array_filter([
             $primaryModel,
-            'meta-llama/llama-3.3-70b-instruct:free',
-            'deepseek/deepseek-chat:free',
-            'mistralai/mistral-small-24b-instruct-2501:free',
-            'google/gemini-2.0-flash-exp:free',
-            'meta-llama/llama-3.1-8b-instruct:free',
+            'openrouter/free',
+            'openrouter/auto',
+            'meta-llama/llama-3.3-70b-instruct',
+            'deepseek/deepseek-chat',
+            'minimax/minimax-m2.7:free',
+            'liquid/lfm-2.5-2.6b:free',
+            'nvidia/nemotron-3-super-120b-a12b:free',
         ]));
 
         $messages = [];
