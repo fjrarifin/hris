@@ -644,41 +644,6 @@ class HrisWhatsAppAgent
             return "Atasan langsung kamu adalah *{$atasan->nama_karyawan}*{$jabatan} ya.";
         }
 
-        // -------------------------------------------------------------
-        // Aksi 11: Prosedur Pengajuan Cuti / PH / EO / Lembur
-        // -------------------------------------------------------------
-        if (
-            str_contains($normalized, 'cara')
-            || str_contains($normalized, 'alur')
-            || str_contains($normalized, 'gimana')
-            || str_contains($normalized, 'bagaimana')
-            || str_contains($normalized, 'pengajuan')
-            || str_contains($normalized, 'mengajukan')
-        ) {
-            $contextText = $normalized;
-            if (! empty($history)) {
-                foreach ($history as $h) {
-                    $contextText .= ' ' . strtolower(data_get($h, 'parts.0.text', ''));
-                }
-            }
-
-            if (str_contains($contextText, 'ph') || str_contains($contextText, 'public holiday')) {
-                return "Untuk pengajuan PH (Public Holiday):\n1. Buka aplikasi Mobile HRIS atau Web Portal (https://hr.hompimplay.id)\n2. Masuk ke menu *Pengajuan PH*\n3. Pilih tanggal libur PH yang dikerjakan / tanggal pengganti cuti\n4. Klik *Kirim Pengajuan* untuk diteruskan ke atasan kamu.";
-            }
-
-            if (str_contains($contextText, 'cuti') || str_contains($contextText, 'izin') || str_contains($contextText, 'sakit')) {
-                return "Untuk pengajuan Cuti / Izin / Sakit:\n1. Buka aplikasi Mobile HRIS atau Web (https://hr.hompimplay.id)\n2. Masuk ke menu *Pengajuan Cuti / Izin*\n3. Pilih jenis pengajuan, tanggal mulai s/d selesai, dan tulis alasan\n4. Lampirkan surat dokter jika sakit > 1 hari, lalu klik *Ajukan*.";
-            }
-
-            if (str_contains($contextText, 'extra off') || str_contains($contextText, 'eo')) {
-                return "Untuk pengajuan Extra Off (EO):\n1. Buka menu *Pengajuan Extra Off* di aplikasi HRIS\n2. Pilih tanggal pengambilan libur EO kamu\n3. Klik *Kirim Pengajuan* untuk mendapatkan persetujuan atasan.";
-            }
-
-            if (str_contains($contextText, 'lembur') || str_contains($contextText, 'spl')) {
-                return "Untuk pengajuan Lembur (SPL):\n1. Buka menu *Pengajuan Lembur* di HRIS\n2. Isi tanggal, jam mulai & selesai lembur, serta deskripsi pekerjaan\n3. Klik *Ajukan*.";
-            }
-        }
-
         return null;
     }
 
@@ -740,7 +705,13 @@ class HrisWhatsAppAgent
         $prompt .= "\"Maaf ya {$sapaan}, aku hanya bisa membantu menjawab pertanyaan seputar HRIS, absensi, jadwal kerja, saldo cuti, dan informasi operasional kantor ya.\"\n";
         $prompt .= "9. ALUR PENGAJUAN & APPROVAL KANTOR:\n";
         $prompt .= "   - CUTI TAHUNAN / CUTI NORMATIF / LIBUR PH / EXTRA OFF / IZIN / SAKIT: Diajukan sendiri oleh karyawan lewat web portal HRIS (https://hr.hompimplay.id) dan disetujui (approval) oleh ATASAN LANGSUNG.\n";
-        $prompt .= "   - LEMBUR (SPL): HANYA BISA DIAJUKAN OLEH ATASAN LANGSUNG untuk menugaskan bawahan langsungnya lewat menu 'Pengajuan Lembur' di portal HRIS. Karyawan biasa tidak bisa mengajukan lembur sendiri.\n";
+        $prompt .= "   - LEMBUR (SPL): HANYA BISA DIAJUKAN OLEH ATASAN LANGSUNG untuk mendelegasikan/menugaskan bawahan langsungnya lewat menu 'Pengajuan Lembur' di portal HRIS. Karyawan staf biasa tidak memiliki menu ini karena lembur mereka ditugaskan oleh atasan.\n";
+        $prompt .= "10. TROUBLESHOOTING KENDALA MENU & FITUR HRIS:\n";
+        $prompt .= "   - JIKA karyawan mengeluh menu tidak ada (misal: 'di menu saya tidak ada pengajuan lembur' atau 'kenapa menu lembur tidak muncul'):\n";
+        $prompt .= "     * Periksa daftar 'Tim / Bawahan' di profil bawah. Jika karyawan TIDAK MEMILIKI BAWAHAN, jelaskan bahwa menu 'Pengajuan Lembur' memang khusus untuk akun Atasan/Supervisor yang memiliki bawahan. Karyawan staf biasa tidak bisa mengajukan lembur sendiri melainkan ditugaskan oleh atasan langsung.\n";
+        $prompt .= "     * Jika karyawan MEMILIKI BAWAHAN tetapi menu tidak muncul, sarankan untuk refresh / logout lalu login ulang di portal HRIS atau hubungi IT Support jika ada kendala akses akun.\n";
+        $prompt .= "11. RESPON CERDAS & ANTI-PENGULANGAN:\n";
+        $prompt .= "   - Jawab secara cerdas mengikuti alur percakapan sebelumnya. DILARANG MENGULANG-ULANG instruksi template yang sama jika karyawan sedang mengeluhkan kendala atas jawaban sebelumnya.\n";
 
         if ($karyawan) {
             $prompt .= "\n[Info Karyawan yang Bertanya]\n";
