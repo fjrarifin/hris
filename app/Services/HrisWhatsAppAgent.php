@@ -253,30 +253,22 @@ class HrisWhatsAppAgent
         }
 
         // -------------------------------------------------------------
-        // Aksi 2: Cek Saldo PH (Khusus jika tanya sisa/saldo PH)
+        // Aksi 2: Cek Saldo PH (Public Holiday)
         // -------------------------------------------------------------
         $isAskingProcedure = str_contains($normalized, 'cara') || str_contains($normalized, 'gimana') || str_contains($normalized, 'bagaimana') || str_contains($normalized, 'alur') || str_contains($normalized, 'syarat');
-        
         if (
             ! $isAskingProcedure
-            && (str_contains($normalized, 'ph') || str_contains($normalized, 'public holiday'))
-            && ! str_contains($normalized, 'cuti')
-            && ! str_contains($normalized, 'extra off')
-            && ! str_contains($normalized, 'eo')
+            && (str_contains($normalized, 'saldo ph')
+                || str_contains($normalized, 'sisa ph')
+                || str_contains($normalized, 'public holiday')
+                || (str_contains($normalized, 'ph') && (str_contains($normalized, 'sisa') || str_contains($normalized, 'saldo') || str_contains($normalized, 'berapa'))))
         ) {
             if (! $karyawan) {
                 return "Nomor WhatsApp ini belum terdaftar di HRIS nih. Coba hubungi HRD ya.";
             }
 
             $user = User::where('username', $karyawan->nik)->first();
-            $phBalance = 0;
-            if ($user) {
-                $claimedPh = PublicHolidayRequest::where('user_id', $user->id)
-                    ->whereNotIn('status', ['rejected', 'cancelled'])
-                    ->count();
-                $adjustedPh = (int) EmployeePhAdjustment::where('karyawan_nik', $karyawan->nik)->sum('days');
-                $phBalance = max(0, $adjustedPh - $claimedPh);
-            }
+            $phBalance = $this->calculatePhBalance($user, $karyawan);
 
             return "Untuk saldo PH (Public Holiday) saat ini ada *{$phBalance} hari* ya.";
         }
@@ -322,24 +314,7 @@ class HrisWhatsAppAgent
             }
 
             $user = User::where('username', $karyawan->nik)->first();
-            $eoBalance = 0;
-            $eoSources = EmployeeExtraOff::where('karyawan_nik', $karyawan->nik)->get();
-            foreach ($eoSources as $source) {
-                $pEnd = $source->periode_end ? Carbon::parse($source->periode_end) : null;
-                $expiredAt = $pEnd ? $pEnd->copy()->addMonths(3) : null;
-                $isExpired = $expiredAt ? now()->gt($expiredAt->copy()->endOfDay()) : false;
-                if (! $isExpired) {
-                    $used = 0;
-                    if ($user && $source->periode_start && $source->periode_end) {
-                        $used = \App\Models\ExtraOffRequest::where('user_id', $user->id)
-                            ->whereDate('source_period_start', $source->periode_start)
-                            ->whereDate('source_period_end', $source->periode_end)
-                            ->whereNotIn('status', ['rejected', 'cancelled'])
-                            ->count();
-                    }
-                    $eoBalance += max(0, (int) $source->days - $used);
-                }
-            }
+            $eoBalance = $this->calculateExtraOffBalance($user, $karyawan);
 
             return "Saldo Extra Off kamu saat ini ada *{$eoBalance} hari* ya.";
         }
@@ -366,43 +341,15 @@ class HrisWhatsAppAgent
                 ->first();
             $leaveExpiredAt = $activeContract ? Carbon::parse($activeContract->end_date)->locale('id')->translatedFormat('d F Y') : null;
 
-            $phBalance = 0;
-            if ($user) {
-                $claimedPh = PublicHolidayRequest::where('user_id', $user->id)
-                    ->whereNotIn('status', ['rejected', 'cancelled'])
-                    ->count();
-                $adjustedPh = (int) EmployeePhAdjustment::where('karyawan_nik', $karyawan->nik)->sum('days');
-                $phBalance = max(0, $adjustedPh - $claimedPh);
-            }
+            $phBalance = $this->calculatePhBalance($user, $karyawan);
+            $eoBalance = $this->calculateExtraOffBalance($user, $karyawan);
 
-            $eoBalance = 0;
-            $eoSources = EmployeeExtraOff::where('karyawan_nik', $karyawan->nik)->get();
-            foreach ($eoSources as $source) {
-                $pEnd = $source->periode_end ? Carbon::parse($source->periode_end) : null;
-                $expiredAt = $pEnd ? $pEnd->copy()->addMonths(3) : null;
-                $isExpired = $expiredAt ? now()->gt($expiredAt->copy()->endOfDay()) : false;
-                if (! $isExpired) {
-                    $used = 0;
-                    if ($user && $source->periode_start && $source->periode_end) {
-                        $used = \App\Models\ExtraOffRequest::where('user_id', $user->id)
-                            ->whereDate('source_period_start', $source->periode_start)
-                            ->whereDate('source_period_end', $source->periode_end)
-                            ->whereNotIn('status', ['rejected', 'cancelled'])
-                            ->count();
-                    }
-                    $eoBalance += max(0, (int) $source->days - $used);
-                }
-            }
+            $msg = "Berikut rincian saldo kamu ya {$sapaan}:\n";
+            $msg .= "• Sisa Cuti Tahunan: *{$annualLeaveBalance} hari*" . ($leaveExpiredAt ? " (s/d {$leaveExpiredAt})" : "") . "\n";
+            $msg .= "• Saldo PH (Public Holiday): *{$phBalance} hari*\n";
+            $msg .= "• Saldo Extra Off: *{$eoBalance} hari*";
 
-            $msg = "Berikut rincian saldo kamu saat ini ya:\n";
-            $msg .= "• Cuti Tahunan: *{$annualLeaveBalance} hari*";
-            if ($leaveExpiredAt) {
-                $msg .= " _(s/d {$leaveExpiredAt})_";
-            }
-            $msg .= "\n• Saldo PH: *{$phBalance} hari*\n";
-            $msg .= "• Extra Off: *{$eoBalance} hari*";
-
-            return $msg;
+            return trim($msg);
         }
 
         // -------------------------------------------------------------
@@ -759,6 +706,15 @@ class HrisWhatsAppAgent
             if ($subordinates->isNotEmpty()) {
                 $prompt .= "Daftar Bawahan Langsung: " . $subordinates->map(fn ($s) => "{$s->nama_karyawan} ({$s->jabatan})")->implode(', ') . "\n";
             }
+
+            $user = User::where('username', $karyawan->nik)->first();
+            $annualLeave = $user ? $this->leaveAccrualService->getBalance($user) : 0;
+            $phBal = $this->calculatePhBalance($user, $karyawan);
+            $eoBal = $this->calculateExtraOffBalance($user, $karyawan);
+
+            $prompt .= "Sisa Saldo Cuti Tahunan: {$annualLeave} hari\n";
+            $prompt .= "Sisa Saldo PH (Public Holiday): {$phBal} hari\n";
+            $prompt .= "Sisa Saldo Extra Off: {$eoBal} hari\n";
         }
 
         // Tambahkan Knowledge Base FAQ dari Database
@@ -972,5 +928,78 @@ class HrisWhatsAppAgent
         }
 
         return $this->whatsApp->sendMessage($sender, $message);
+    }
+
+    private function calculatePhBalance(?User $user, ?Karyawan $karyawan): int
+    {
+        if (! $user || ! $karyawan) {
+            return 0;
+        }
+
+        $attendedDates = $karyawan->pin
+            ? \App\Models\FingerspotAttendanceLog::query()
+                ->where('pin', $karyawan->pin)
+                ->whereBetween('scan_date', [now()->subDays(90)->startOfDay(), now()->startOfDay()])
+                ->get(['scan_date'])
+                ->pluck('scan_date')
+                ->map(fn ($date) => \Carbon\Carbon::parse($date)->toDateString())
+                ->unique()
+            : collect();
+
+        $joinDate = $karyawan->join_date ? \Carbon\Carbon::parse($karyawan->join_date)->startOfDay() : null;
+
+        $deductedHolidayIds = EmployeePhAdjustment::query()
+            ->where('karyawan_nik', $karyawan->nik)
+            ->whereNotNull('public_holiday_id')
+            ->where('days', '<', 0)
+            ->pluck('public_holiday_id');
+
+        $eligibleHolidays = \App\Models\PublicHoliday::query()
+            ->where('is_active', true)
+            ->whereDate('holiday_date', '<', now())
+            ->whereDate('holiday_date', '>', now()->subDays(90))
+            ->when($joinDate, fn ($q) => $q->whereDate('holiday_date', '>=', $joinDate))
+            ->whereNotIn('id', $deductedHolidayIds)
+            ->orderByDesc('holiday_date')
+            ->get()
+            ->filter(fn ($h) => $h->holiday_date->lt(\Carbon\Carbon::parse('2025-01-01')) || $attendedDates->contains($h->holiday_date->toDateString()))
+            ->values();
+
+        $usedHolidayIds = PublicHolidayRequest::query()
+            ->where('user_id', $user->id)
+            ->whereNotIn('status', ['rejected', 'cancelled'])
+            ->pluck('public_holiday_id');
+
+        $generalAdjustmentDays = (int) EmployeePhAdjustment::query()
+            ->where('karyawan_nik', $karyawan->nik)
+            ->whereNull('public_holiday_id')
+            ->sum('days');
+
+        return max(0, $eligibleHolidays->whereNotIn('id', $usedHolidayIds)->count() + $generalAdjustmentDays);
+    }
+
+    private function calculateExtraOffBalance(?User $user, ?Karyawan $karyawan): int
+    {
+        if (! $user || ! $karyawan) {
+            return 0;
+        }
+
+        $eoBalance = 0;
+        $eoSources = EmployeeExtraOff::where('karyawan_nik', $karyawan->nik)->where('days', '>', 0)->get();
+        foreach ($eoSources as $source) {
+            $pEnd = $source->periode_end ? \Carbon\Carbon::parse($source->periode_end) : null;
+            $expiredAt = $pEnd ? $pEnd->copy()->addMonths(3) : null;
+            $isExpired = $expiredAt ? now()->gt($expiredAt->copy()->endOfDay()) : false;
+            if (! $isExpired) {
+                $used = \App\Models\ExtraOffRequest::where('user_id', $user->id)
+                    ->whereDate('source_period_start', $source->periode_start)
+                    ->whereDate('source_period_end', $source->periode_end)
+                    ->whereNotIn('status', ['rejected', 'cancelled'])
+                    ->count();
+                $eoBalance += max(0, (int) $source->days - $used);
+            }
+        }
+
+        return $eoBalance;
     }
 }
