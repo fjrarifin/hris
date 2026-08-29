@@ -410,7 +410,50 @@ class HrisWhatsAppAgent
 
             $prompt .= "Sisa Saldo Cuti Tahunan: {$annualLeave} hari\n";
             $prompt .= "Sisa Saldo PH (Public Holiday): {$phBal} hari\n";
-            $prompt .= "Sisa Saldo Extra Off: {$eoBal} hari\n";
+            $prompt .= "Sisa Saldo Extra Off Aktif: {$eoBal} hari\n";
+
+            // Rincian Histori Saldo Extra Off
+            $eoRecords = EmployeeExtraOff::where('karyawan_nik', $karyawan->nik)->orderByDesc('periode_end')->get();
+            if ($eoRecords->isNotEmpty()) {
+                $prompt .= "\n[Riwayat Perolehan Extra Off Karyawan dari Payroll]\n";
+                foreach ($eoRecords as $eo) {
+                    $pStart = Carbon::parse($eo->periode_start)->format('d M Y');
+                    $pEnd = Carbon::parse($eo->periode_end)->format('d M Y');
+                    $expAt = Carbon::parse($eo->periode_end)->addMonths(3);
+                    $isExp = now()->gt($expAt->endOfDay());
+                    $expStr = $expAt->locale('id')->translatedFormat('d F Y');
+                    $usedCount = $user ? \App\Models\ExtraOffRequest::where('user_id', $user->id)
+                        ->whereDate('source_period_start', $eo->periode_start)
+                        ->whereDate('source_period_end', $eo->periode_end)
+                        ->whereNotIn('status', ['rejected', 'cancelled'])
+                        ->count() : 0;
+                    $statusKet = $isExp ? "KADALUWARSA (expired pada {$expStr})" : "Masih Berlaku s/d {$expStr}";
+                    $prompt .= "- Periode {$pStart} - {$pEnd}: Dapat {$eo->days} hari (Terpakai: {$usedCount} hari, Status: {$statusKet})\n";
+                }
+            }
+
+            // Rincian Pengajuan Libur / Cuti / PH Terakhir
+            if ($user) {
+                $eoReqs = \App\Models\ExtraOffRequest::where('user_id', $user->id)->latest()->take(5)->get();
+                if ($eoReqs->isNotEmpty()) {
+                    $prompt .= "\n[Riwayat Pengajuan Extra Off (EO) Karyawan]\n";
+                    foreach ($eoReqs as $r) {
+                        $tgl = Carbon::parse($r->claim_date)->locale('id')->translatedFormat('d F Y');
+                        $prompt .= "- Tanggal Libur EO: {$tgl} (Status: {$r->status})\n";
+                    }
+                } else {
+                    $prompt .= "\n[Riwayat Pengajuan Extra Off (EO) Karyawan]: Belum ada rekaman pengajuan Extra Off.\n";
+                }
+
+                $phReqs = \App\Models\PublicHolidayRequest::where('user_id', $user->id)->latest()->take(5)->get();
+                if ($phReqs->isNotEmpty()) {
+                    $prompt .= "\n[Riwayat Pengajuan Public Holiday (PH) Karyawan]\n";
+                    foreach ($phReqs as $r) {
+                        $tgl = Carbon::parse($r->claim_date)->locale('id')->translatedFormat('d F Y');
+                        $prompt .= "- Tanggal Libur PH: {$tgl} (Status: {$r->status})\n";
+                    }
+                }
+            }
         }
 
         return $prompt;
