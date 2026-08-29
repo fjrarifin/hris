@@ -74,22 +74,16 @@ class HrisDatabaseQueryAgent
    - reason (TEXT)
    - status (VARCHAR: 'pending', 'approved', 'rejected', 'cancelled')
 
-8. Tabel: employee_permissions (Pengajuan izin / sakit / dispensasi)
-   - user_id (INT)
-   - date (DATE)
-   - end_date (DATE)
-   - type (VARCHAR: 'sakit', 'izin', 'dispensasi')
-   - reason (TEXT)
+9. Tabel: overtime_requests (Pengajuan lembur / Surat Perintah Lembur / SPL)
+   - id (BIGINT, Primary Key)
+   - user_id (BIGINT, ID user karyawan yang ditugaskan lembur -> relasi ke users.id -> users.username = m_karyawan.nik)
+   - requested_by_user_id (BIGINT, ID user atasan/supervisor yang mengajukan lembur -> relasi ke users.id -> users.username = m_karyawan.nik)
+   - date (DATE, tanggal lembur)
+   - start_time (TIME, jam mulai lembur)
+   - end_time (TIME, jam selesai lembur)
+   - reason (TEXT, uraian tugas / alasan lembur)
    - status (VARCHAR: 'pending', 'approved', 'rejected')
-
-9. Tabel: overtime_requests (Pengajuan lembur / SPL)
-   - user_id (INT)
-   - date (DATE)
-   - start_time (TIME)
-   - end_time (TIME)
-   - duration_minutes (INT)
-   - reason (TEXT)
-   - status (VARCHAR: 'pending', 'approved', 'rejected')
+   - reject_reason (TEXT)
 
 10. Tabel: public_holidays (Daftar Hari Libur Nasional)
     - id (INT, Primary Key)
@@ -225,9 +219,12 @@ SCHEMA;
         $prompt .= "- 'saya tadi absen pulang jam berapa?' -> SELECT scan_date, status_scan FROM fingerspot_attendance_logs WHERE pin = '{$pin}' AND DATE(scan_date) = '{$today}' AND status_scan = 1 ORDER BY scan_date DESC LIMIT 1\n";
         $prompt .= "- 'total kehadiran bulan ini' -> SELECT COUNT(DISTINCT DATE(scan_date)) AS total_hari_hadir FROM fingerspot_attendance_logs WHERE pin = '{$pin}' AND DATE(scan_date) >= DATE_FORMAT('{$today}', '%Y-%m-01') AND DATE(scan_date) <= '{$today}'\n";
         $prompt .= "- 'jadwal saya besok' -> SELECT s.schedule_date, c.name, c.start_time, c.end_time FROM employee_daily_schedules s LEFT JOIN attendance_schedule_categories c ON s.schedule_category_id = c.id WHERE s.karyawan_nik = '{$nik}' AND s.schedule_date = DATE_ADD('{$today}', INTERVAL 1 DAY)\n";
+        $prompt .= "- 'pengajuan lembur untuk dindin / feriansyah / bawahan saya' -> SELECT o.date, o.start_time, o.end_time, o.status, o.reason, k.nama_karyawan AS nama_bawahan FROM overtime_requests o JOIN users u ON o.user_id = u.id JOIN m_karyawan k ON u.username = k.nik WHERE k.nama_karyawan LIKE '%Dindin%' ORDER BY o.date DESC\n";
+        $prompt .= "- 'riwayat lembur yang saya ajukan' -> SELECT o.date, o.start_time, o.end_time, o.status, o.reason, k.nama_karyawan AS nama_bawahan FROM overtime_requests o JOIN users u ON o.user_id = u.id JOIN m_karyawan k ON u.username = k.nik JOIN users req ON o.requested_by_user_id = req.id WHERE req.username = '{$nik}' ORDER BY o.date DESC\n";
         if ($userLevel <= 2) {
             $prompt .= "- (Admin/HR) 'total yang hadir hari ini' -> SELECT COUNT(DISTINCT pin) AS total_hadir FROM fingerspot_attendance_logs WHERE DATE(scan_date) = '{$today}'\n";
             $prompt .= "- (Admin/HR) 'rekap kehadiran divisi play hari ini' -> SELECT k.nama_karyawan, MIN(f.scan_date) AS scan_in, MAX(f.scan_date) AS scan_out FROM m_karyawan k LEFT JOIN fingerspot_attendance_logs f ON k.pin = f.pin AND DATE(f.scan_date) = '{$today}' WHERE k.departement LIKE '%Play%' GROUP BY k.nik, k.nama_karyawan\n";
+            $prompt .= "- (Admin/HR) 'riwayat lembur semua karyawan' -> SELECT o.date, o.start_time, o.end_time, o.status, o.reason, k.nama_karyawan AS nama_karyawan, req_k.nama_karyawan AS diajukan_oleh FROM overtime_requests o JOIN users u ON o.user_id = u.id JOIN m_karyawan k ON u.username = k.nik JOIN users req ON o.requested_by_user_id = req.id JOIN m_karyawan req_k ON req.username = req_k.nik ORDER BY o.date DESC\n";
         }
         $prompt .= "\nPertanyaan Pengguna: \"{$question}\"";
 
@@ -308,17 +305,14 @@ SCHEMA;
         $prompt .= "Tanggal Bergabung Karyawan: {$joinDateStr}\n\n";
         $prompt .= "Berikut adalah data fakta hasil query database HRIS:\n";
         $prompt .= "```json\n{$jsonResults}\n```\n\n";
-        $prompt .= "ATURAN GAYA BICARA HARIS (RAMAH, TO-THE-POINT & FOKUS):\n";
+        $prompt .= "ATURAN GAYA BICARA HARIS (PROFESIONAL, TEPAT, FOKUS DATA & ANTI-HALUSINASI):\n";
         $prompt .= "1. DILARANG MEMBUKA DENGAN KALIMAT PERKENALAN BERULANG SEPERTI 'Halo Kak Fajar! Aku Haris... Ada yang bisa kubantu?'.\n";
-        $prompt .= "2. JAWAB HANYA APA YANG DITANYAKAN (ZERO TANGENT): Langsung jawab to-the-point dan santai tanpa melebar ke hal lain.\n";
-        $prompt .= "3. Jika pengguna adalah Admin / HRD (Level <= 2) yang meminta rekapitulasi data atau data banyak orang, sajikan ringkasan angka / daftar nama secara rapi dan mudah dibaca.\n";
-        $prompt .= "4. DILARANG menyebutkan istilah teknis SQL/query/database/SELECT. Bicaralah layaknya rekan kerja HR yang hangat dan profesional.\n";
-        $prompt .= "5. LOGIKA BISNIS & PENJELASAN:\n";
-        $prompt .= "   - Jika karyawan bertanya 'kenapa cuti saya masih 0?', cek tanggal bergabungnya. Hak cuti tahunan mulai aktif dan bertambah +1 hari per bulan setelah 1 tahun masa kerja dari tanggal bergabung.\n";
-        $prompt .= "   - Saldo PH diperoleh jika masuk bekerja (ada absen) di hari libur nasional (berlaku 3 bulan).\n";
-        $prompt .= "   - Saldo Extra Off diperoleh dari kelebihan jam kerja bulanan (berlaku 3 bulan).\n";
-        $prompt .= "6. Panggil pengguna dengan '{$sapaan}'. Jangan mengulang kata 'Halo' jika percakapan sedang berjalan.\n";
-        $prompt .= "7. Boleh gunakan 1-2 emoji (😊, 👍, ✨) agar chat terasa hidup dan akrab.\n";
+        $prompt .= "2. JAWAB HANYA APA YANG DITANYAKAN (ZERO TANGENT): Langsung jawab to-the-point dan lugas tanpa basa-basi berlebih.\n";
+        $prompt .= "3. JIKA DATA ADA DI HASIL QUERY: SEBUTKAN RINCIANNYA SECARA JELAS (tanggal, jam, alasan, status). JANGAN PERNAH menyuruh user cek sendiri ke portal jika datanya sudah kamu dapatkan!\n";
+        $prompt .= "4. JIKA DATA KOSONG DI HASIL QUERY: Sampaikan secara jujur dan lugas bahwa data belum tercatat di sistem untuk kriteria/periode tersebut.\n";
+        $prompt .= "5. DILARANG KERAS MENGHALUSINASI ATAU BERPURA-PURA (contoh: DILARANG mengatakan 'Haris sudah bantu refresh data / koneksi sistem', 'Haris bantu sinkronisasi', dll). Kamu adalah bot pemberi informasi data real-time, bukan sistem maintenance.\n";
+        $prompt .= "6. DILARANG menyebutkan istilah teknis SQL/query/database/SELECT. Sampaikan datanya secara rapi.\n";
+        $prompt .= "7. Panggil pengguna dengan '{$sapaan}'. Gunakan bahasa Indonesia yang santai, sopan, dan jelas.\n";
 
         $summary = $this->callLlm($prompt);
 
