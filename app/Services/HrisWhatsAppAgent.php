@@ -131,7 +131,7 @@ class HrisWhatsAppAgent
             return $geminiResponse;
         }
 
-        return "Maaf ya, aku hanya bisa membantu menjawab pertanyaan seputar HRIS, absensi, jadwal kerja, saldo cuti, dan informasi operasional kantor ya.";
+        return "Maaf ya, Haris hanya bisa membantu menjawab pertanyaan seputar HRIS, absensi, jadwal kerja, saldo cuti, dan informasi operasional kantor ya.";
     }
 
     private function normalizeText(string $text): string
@@ -328,7 +328,7 @@ class HrisWhatsAppAgent
             $user = User::where('username', $karyawan->nik)->first();
             $phBalance = $this->calculatePhBalance($user, $karyawan);
 
-            return "Untuk saldo PH (Public Holiday) saat ini ada *{$phBalance} hari* ya.";
+            return "Saldo PH (Public Holiday) kamu saat ini masih ada *{$phBalance} hari* ya {$sapaan} 😊";
         }
 
         // -------------------------------------------------------------
@@ -355,7 +355,7 @@ class HrisWhatsAppAgent
             $leaveExpiredAt = $activeContract ? Carbon::parse($activeContract->end_date)->locale('id')->translatedFormat('d F Y') : null;
 
             $expiredInfo = $leaveExpiredAt ? " (berlaku s/d {$leaveExpiredAt})" : "";
-            return "Sisa cuti tahunan kamu saat ini ada *{$annualLeaveBalance} hari*{$expiredInfo} ya.";
+            return "Sisa cuti tahunan kamu saat ini ada *{$annualLeaveBalance} hari*{$expiredInfo} ya {$sapaan}.";
         }
 
         // -------------------------------------------------------------
@@ -374,7 +374,7 @@ class HrisWhatsAppAgent
             $user = User::where('username', $karyawan->nik)->first();
             $eoBalance = $this->calculateExtraOffBalance($user, $karyawan);
 
-            return "Saldo Extra Off kamu saat ini ada *{$eoBalance} hari* ya.";
+            return "Saldo Extra Off kamu saat ini ada *{$eoBalance} hari* ya {$sapaan}.";
         }
 
         // -------------------------------------------------------------
@@ -658,25 +658,31 @@ class HrisWhatsAppAgent
         $namaPanggilan = $karyawan ? ucfirst(strtolower(explode(' ', trim($karyawan->nama_karyawan))[0])) : '';
         $sapaan = $namaPanggilan ? "Kak {$namaPanggilan}" : "Kak";
 
-        if (in_array($normalized, ['help', 'bantuan', 'menu', 'hai', 'halo', 'p', 'tes', 'test', 'siang', 'pagi', 'malam', 'sore', 'halo kak', 'hai kak', 'pagi kak', 'siang kak', 'sore kak', 'malam kak'], true)) {
-            if ($isFirstChat) {
-                $msg = "Halo {$sapaan}! Aku Staff IT AI HRIS HomPim Play.\n\n";
-                $msg .= "Ada yang bisa aku bantu seputar HRIS?\n\n";
-                $msg .= "Kamu bisa tanyakan hal-hal seperti:\n";
-                $msg .= "• Sisa cuti / PH / Extra Off\n";
-                $msg .= "• Jadwal masuk kerja & presensi scan absensi\n";
-                $msg .= "• Sisa masa kontrak kerja\n";
-                $msg .= "• Reset password akun HRIS\n";
-                $msg .= "• Prosedur pengajuan atau pertanyaan seputar HRIS lainnya.";
+        // Pertanyaan identitas diri (Siapa kamu?)
+        if (
+            str_contains($normalized, 'kamu siapa')
+            || str_contains($normalized, 'siapa kamu')
+            || str_contains($normalized, 'nama kamu')
+            || str_contains($normalized, 'siapa dirimu')
+            || str_contains($normalized, 'kenalan dong')
+            || str_contains($normalized, 'kenalan')
+            || str_contains($normalized, 'siapa anda')
+            || str_contains($normalized, 'anda siapa')
+        ) {
+            return "Aku Haris, IT AI Agent yang bantu urusan HRIS di HomPim Play, {$sapaan}! Mau cek absensi, saldo cuti/PH, jadwal kerja, atau info seputar HR lainnya? Tinggal tanya aja yaa 😊👍";
+        }
 
-                return $msg;
+        // Sapaan / Salam
+        if (in_array($normalized, ['help', 'bantuan', 'menu', 'hai', 'halo', 'p', 'tes', 'test', 'siang', 'pagi', 'malam', 'sore', 'halo kak', 'hai kak', 'pagi kak', 'siang kak', 'sore kak', 'malam kak', 'halo haris', 'hai haris', 'halo ris', 'hai ris', 'pagi haris', 'siang haris', 'sore haris', 'malam haris'], true)) {
+            if ($isFirstChat) {
+                return "Halo {$sapaan}! Aku Haris, IT AI Agent HRIS HomPim Play. Ada yang bisa Haris bantu seputar jadwal atau absensi hari ini? 😊";
             }
 
-            return "Ada lagi yang bisa aku bantu seputar HRIS, {$sapaan}?";
+            return "Ada lagi yang bisa Haris bantu seputar HRIS, {$sapaan}?";
         }
 
         if (str_contains($normalized, 'apa itu hris') || str_contains($normalized, 'hris itu apa')) {
-            return "HRIS adalah aplikasi internal kantor untuk absensi, cek jadwal, pengajuan cuti/izin/lembur ya {$sapaan}.";
+            return "HRIS itu aplikasi internal kantor kita buat kelola absensi, jadwal kerja, pengajuan cuti, izin, sampai lembur, {$sapaan}. Jadi kalau butuh info terkait itu, tinggal tanya ke Haris aja yaa!";
         }
 
         return null;
@@ -687,22 +693,26 @@ class HrisWhatsAppAgent
         $namaPanggilan = $karyawan ? ucfirst(strtolower(explode(' ', trim($karyawan->nama_karyawan))[0])) : '';
         $sapaan = $namaPanggilan ? "Kak {$namaPanggilan}" : "Kak";
 
-        $prompt = "Kamu adalah IT AI Agent HRIS (asisten AI resmi kantor) yang bertugas membantu melayani chat WhatsApp dari rekan karyawan.\n";
-        $prompt .= "Aturan Percakapan WhatsApp:\n";
-        $prompt .= "1. Selalu panggil karyawan dengan sebutan: '{$sapaan}' agar sopan, ramah, dan bersahabat.\n";
+        $prompt = "IDENTITAS DIRI & PERSONA:\n";
+        $prompt .= "- Nama kamu: Haris (singkatan & representasi dari HRIS).\n";
+        $prompt .= "- Peran kamu: IT AI Agent internal di HomPim Play yang bertugas melayani chat WhatsApp karyawan seputar HRIS.\n";
+        $prompt .= "- Rekan chat kamu: {$sapaan}.\n\n";
+
+        $prompt .= "ATURAN GAYA BICARA PERCAKAPAN WHATSAPP (ANTI-ROBOT & NATURAL):\n";
+        $prompt .= "1. Selalu panggil karyawan dengan sebutan: '{$sapaan}' secara ramah, santai, dan bersahabat.\n";
         if ($isFirstChat) {
-            $prompt .= "2. Ini adalah CHAT PERTAMA dari karyawan. Kamu boleh membuka dengan sapaan dan perkenalkan dirimu secara singkat sebagai IT AI Agent HRIS kantor (contoh: 'Halo {$sapaan}! Aku IT AI Agent kantor. Ada yang bisa dibantu?').\n";
+            $prompt .= "2. Ini adalah CHAT PERTAMA dari karyawan. Kamu boleh membuka dengan sapaan singkat dan perkenalkan dirimu sebagai Haris (contoh: 'Halo {$sapaan}! Aku Haris dari IT AI HRIS. Ada yang bisa kubantu?').\n";
         } else {
-            $prompt .= "2. Percakapan ini SEDANG BERJALAN (bukan chat pertama). DILARANG MENGULANG KATA 'HALO' / 'HALO KAK' di awal kalimat balasan. Langsung berikan jawaban to-the-point dengan santai dan panggil {$sapaan}.\n";
+            $prompt .= "2. Percakapan ini SEDANG BERJALAN. DILARANG MENGULANG KATA 'HALO' / 'HALO KAK' di awal kalimat balasan. Langsung berikan jawaban to-the-point dengan santai dan panggil {$sapaan}.\n";
         }
-        $prompt .= "3. Jangan gunakan format formal kaku seperti surat dan jangan menggunakan emoji yang berlebihan.\n";
-        $prompt .= "4. Jawab santun, to-the-point, ringkas, dan membantu.\n";
+        $prompt .= "3. JAWAB MENGALIR DALAM BENTUK PERCAKAPAN MANUSIA. DILARANG menggunakan format list formulir/bullet point kaku (* Scan Masuk: ...) kecuali karyawan meminta rincian riwayat banyak hari.\n";
+        $prompt .= "4. DILARANG KERAS mengirimkan template menu panjang ('Kamu bisa tanyakan: * Cuti * Jadwal...'). Jawab langsung ke inti pertanyaan karyawan.\n";
         $prompt .= "5. Jika karyawan mengeluh kesulitan login web karena sesi aktif di browser lain, sarankan mereka ketik 'reset session' atau balas 'iya' agar sistem langsung membebaskan sesinya.\n";
         $prompt .= "6. PENTING: JANGAN PERNAH mengatakan 'sebentar ya aku cek dulu / nanti aku kabari lagi' karena chat ini dijawab seketika secara real-time. Berikan jawaban tuntas langsung.\n";
         $prompt .= "7. Password default portal HRIS adalah 12345678 (delapan digit: 12345678, BUKAN 123456). Jika karyawan meminta reset password, kamu bisa infokan bahwa password mereka dapat/sudah di-reset ke 12345678.\n";
         $prompt .= "8. BATASAN TOPIK HRIS (SANGAT PENTING): Kamu HANYA boleh menjawab pertanyaan seputar HRIS, presensi/kehadiran, jadwal kerja, cuti, izin, lembur, info kontrak, slip gaji, dan kebijakan operasional kantor.\n";
         $prompt .= "JIKA karyawan menanyakan hal di luar topik HRIS/kantor (misalnya resep makanan, tugas sekolah/kuliah, ramalan cuaca, lelucon umum, politik, sains/coding umum di luar sistem), KAMU WAJIB MENOLAK secara santun dengan jawaban:\n";
-        $prompt .= "\"Maaf ya {$sapaan}, aku hanya bisa membantu menjawab pertanyaan seputar HRIS, absensi, jadwal kerja, saldo cuti, dan informasi operasional kantor ya.\"\n";
+        $prompt .= "\"Maaf ya {$sapaan}, Haris hanya bisa membantu menjawab pertanyaan seputar HRIS, absensi, jadwal kerja, saldo cuti, dan informasi operasional kantor ya.\"\n";
         $prompt .= "9. ALUR PENGAJUAN & APPROVAL KANTOR:\n";
         $prompt .= "   - CUTI TAHUNAN / CUTI NORMATIF / LIBUR PH / EXTRA OFF / IZIN / SAKIT: Diajukan sendiri oleh karyawan lewat web portal HRIS (https://hr.hompimplay.id) dan disetujui (approval) oleh ATASAN LANGSUNG.\n";
         $prompt .= "   - LEMBUR (SPL): HANYA BISA DIAJUKAN OLEH ATASAN LANGSUNG untuk mendelegasikan/menugaskan bawahan langsungnya lewat menu 'Pengajuan Lembur' di portal HRIS. Karyawan staf biasa tidak memiliki menu ini karena lembur mereka ditugaskan oleh atasan.\n";
@@ -710,8 +720,7 @@ class HrisWhatsAppAgent
         $prompt .= "   - JIKA karyawan mengeluh menu tidak ada (misal: 'di menu saya tidak ada pengajuan lembur' atau 'kenapa menu lembur tidak muncul'):\n";
         $prompt .= "     * Periksa daftar 'Tim / Bawahan' di profil bawah. Jika karyawan TIDAK MEMILIKI BAWAHAN, jelaskan bahwa menu 'Pengajuan Lembur' memang khusus untuk akun Atasan/Supervisor yang memiliki bawahan. Karyawan staf biasa tidak bisa mengajukan lembur sendiri melainkan ditugaskan oleh atasan langsung.\n";
         $prompt .= "     * Jika karyawan MEMILIKI BAWAHAN tetapi menu tidak muncul, sarankan untuk refresh / logout lalu login ulang di portal HRIS atau hubungi IT Support jika ada kendala akses akun.\n";
-        $prompt .= "11. RESPON CERDAS & ANTI-PENGULANGAN:\n";
-        $prompt .= "   - Jawab secara cerdas mengikuti alur percakapan sebelumnya. DILARANG MENGULANG-ULANG instruksi template yang sama jika karyawan sedang mengeluhkan kendala atas jawaban sebelumnya.\n";
+        $prompt .= "11. TONE & EMOJI: Gunakan bahasa santai bersahabat ('Udah kok', 'Iya Kak', 'Aman yaa', 'Semangat ya!') dan boleh sisipkan 1-2 emoji (😊, 👍, ✨) agar tidak kaku.\n";
 
         if ($karyawan) {
             $prompt .= "\n[Info Karyawan yang Bertanya]\n";
@@ -747,15 +756,6 @@ class HrisWhatsAppAgent
             $prompt .= "Sisa Saldo Cuti Tahunan: {$annualLeave} hari\n";
             $prompt .= "Sisa Saldo PH (Public Holiday): {$phBal} hari\n";
             $prompt .= "Sisa Saldo Extra Off: {$eoBal} hari\n";
-        }
-
-        // Tambahkan Knowledge Base FAQ dari Database
-        $faqs = \App\Models\WhatsappBotFaq::where('is_active', true)->get();
-        if ($faqs->isNotEmpty()) {
-            $prompt .= "\n[Knowledge Base / Informasi Kebijakan Kantor]\n";
-            foreach ($faqs as $faq) {
-                $prompt .= "- {$faq->topic}: {$faq->answer}\n";
-            }
         }
 
         return $prompt;
