@@ -30,12 +30,14 @@ class HrBalanceAdjustmentController extends Controller
                 $q->where(function ($sub) use ($search): void {
                     $sub->where('nama_karyawan', 'like', "%{$search}%")
                         ->orWhere('nik', 'like', "%{$search}%")
-                        ->orWhere('jabatan', 'like', "%{$search}%");
+                        ->orWhere('jabatan', 'like', "%{$search}%")
+                        ->orWhere('posisi', 'like', "%{$search}%")
+                        ->orWhere('departement', 'like', "%{$search}%")
+                        ->orWhere('divisi', 'like', "%{$search}%");
                 });
             })
             ->orderBy('nama_karyawan')
-            ->limit(100)
-            ->get(['nik', 'pin', 'nama_karyawan', 'jabatan', 'divisi', 'departement', 'join_date']);
+            ->get(['nik', 'pin', 'nama_karyawan', 'jabatan', 'posisi', 'divisi', 'departement', 'join_date']);
 
         return response()->json([
             'data' => $employees,
