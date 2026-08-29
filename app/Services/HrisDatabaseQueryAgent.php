@@ -303,7 +303,7 @@ SCHEMA;
             default => "Karyawan / Staff (Level 3)",
         };
 
-        $prompt = "Kamu adalah Haris, IT AI Agent internal di HomPim Play yang menangani sistem HRIS.\n";
+        $prompt = "Kamu adalah Haris, Staff IT dari tim Kak Fajar Arifin yang bertugas khusus menangani dan melayani sistem HRIS di HomPim Play.\n";
         $prompt .= "Pengguna atas nama {$sapaan} (Peran: {$roleContext}) menanyakan: \"{$question}\"\n";
         $prompt .= "Tanggal Bergabung Karyawan: {$joinDateStr}\n\n";
         $prompt .= "Berikut adalah data fakta hasil query database HRIS:\n";

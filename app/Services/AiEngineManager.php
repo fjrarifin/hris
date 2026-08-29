@@ -19,8 +19,8 @@ class AiEngineManager
      */
     public function chat(string $prompt, string $systemPrompt = '', array $history = []): ?string
     {
-        // 1. Coba Engine Utama: Gemini
-        if (filled(config('services.gemini.api_key'))) {
+        // 1. Coba Engine Utama: Gemini Multi-Key Round Robin
+        if (filled(config('services.gemini.api_key')) || ! empty(config('services.gemini.api_keys'))) {
             try {
                 $geminiRes = $this->gemini->chat($prompt, $systemPrompt, $history);
                 if ($geminiRes !== null && trim($geminiRes) !== '') {
