@@ -94,7 +94,7 @@ class HrisWhatsAppAgent
         $normalized = $this->normalizeText($question);
         $isFirstChat = empty($history);
 
-        // 1. Cek apakah ada aksi transaksional / data pasti yang ditanyakan (Instan)
+        // 1. Cek apakah ada aksi transaksional khusus (Eskalasi IT, Reset Session, Reset Password)
         $actionAnswer = $this->handleDirectActions($normalized, $karyawan, $history);
         if ($actionAnswer !== null) {
             return $actionAnswer;
@@ -106,19 +106,13 @@ class HrisWhatsAppAgent
             return $faqAnswer;
         }
 
-        // 3. Cek template jawaban umum / salam
-        $fixed = $this->fixedAnswer($normalized, $karyawan, $isFirstChat);
-        if ($fixed !== null) {
-            return $fixed;
-        }
-
-        // 4. Gunakan AI Database Query Agent (Autonomous Text-to-SQL Read-Only)
+        // 3. Gunakan AI Database Query Agent (Autonomous Text-to-SQL + Natural Human Language)
         $dbAgentAnswer = $this->dbQueryAgent->queryAndAnswer($question, $karyawan, $history);
         if ($dbAgentAnswer !== null && trim($dbAgentAnswer) !== '') {
             return $dbAgentAnswer;
         }
 
-        // 5. Fallback ke LLM General Knowledge: OpenRouter (DeepSeek/Llama) lalu Gemini Flash
+        // 4. Fallback ke LLM General Knowledge & Sapaan Alami (OpenRouter / Gemini)
         $systemPrompt = $this->buildSystemPrompt($karyawan, $isFirstChat);
         
         $openRouterResponse = $this->openRouter->chat($question, $systemPrompt, $history);
@@ -131,7 +125,9 @@ class HrisWhatsAppAgent
             return $geminiResponse;
         }
 
-        return "Maaf ya, Haris hanya bisa membantu menjawab pertanyaan seputar HRIS, absensi, jadwal kerja, saldo cuti, dan informasi operasional kantor ya.";
+        $namaPanggilan = $karyawan ? ucfirst(strtolower(explode(' ', trim($karyawan->nama_karyawan))[0])) : '';
+        $sapaan = $namaPanggilan ? "Kak {$namaPanggilan}" : "Kak";
+        return "Maaf ya {$sapaan}, Haris belum bisa menemukan data tersebut di sistem. Ada hal lain yang bisa Haris bantu? 😊";
     }
 
     private function normalizeText(string $text): string
@@ -297,270 +293,7 @@ class HrisWhatsAppAgent
         }
 
         // -------------------------------------------------------------
-        // Aksi 1.2: Cek NIK Karyawan
-        // -------------------------------------------------------------
-        if (
-            str_contains($normalized, 'nik')
-            && (str_contains($normalized, 'saya') || str_contains($normalized, 'berapa') || str_contains($normalized, 'cek') || str_contains($normalized, 'apa'))
-        ) {
-            if (! $karyawan) {
-                return "Nomor WhatsApp ini belum terdaftar di sistem HRIS nih. Boleh hubungi HRD ya.";
-            }
-
-            return "NIK kamu adalah *{$karyawan->nik}* ya.";
-        }
-
-        // -------------------------------------------------------------
-        // Aksi 2: Cek Saldo PH (Public Holiday)
-        // -------------------------------------------------------------
-        $isAskingProcedure = str_contains($normalized, 'cara') || str_contains($normalized, 'gimana') || str_contains($normalized, 'bagaimana') || str_contains($normalized, 'alur') || str_contains($normalized, 'syarat');
-        if (
-            ! $isAskingProcedure
-            && (str_contains($normalized, 'saldo ph')
-                || str_contains($normalized, 'sisa ph')
-                || str_contains($normalized, 'public holiday')
-                || (str_contains($normalized, 'ph') && (str_contains($normalized, 'sisa') || str_contains($normalized, 'saldo') || str_contains($normalized, 'berapa'))))
-        ) {
-            if (! $karyawan) {
-                return "Nomor WhatsApp ini belum terdaftar di HRIS nih. Coba hubungi HRD ya.";
-            }
-
-            $user = User::where('username', $karyawan->nik)->first();
-            $phBalance = $this->calculatePhBalance($user, $karyawan);
-
-            return "Saldo PH (Public Holiday) kamu saat ini masih ada *{$phBalance} hari* ya {$sapaan} 😊";
-        }
-
-        // -------------------------------------------------------------
-        // Aksi 3: Cek Saldo Cuti Tahunan (Khusus jika tanya Cuti)
-        // -------------------------------------------------------------
-        if (
-            ! $isAskingProcedure
-            && (str_contains($normalized, 'cuti') || str_contains($normalized, 'tahunan'))
-            && ! str_contains($normalized, 'ph')
-            && ! str_contains($normalized, 'extra off')
-            && ! str_contains($normalized, 'eo')
-        ) {
-            if (! $karyawan) {
-                return "Nomor WhatsApp ini belum terdaftar di HRIS nih. Coba hubungi HRD ya.";
-            }
-
-            $user = User::where('username', $karyawan->nik)->first();
-            $annualLeaveBalance = $user ? $this->leaveAccrualService->getBalance($user) : 0;
-            
-            $activeContract = DB::table('t_kontrak_karyawan')
-                ->where('nik', $karyawan->nik)
-                ->orderByDesc('end_date')
-                ->first();
-            $leaveExpiredAt = $activeContract ? Carbon::parse($activeContract->end_date)->locale('id')->translatedFormat('d F Y') : null;
-
-            $expiredInfo = $leaveExpiredAt ? " (berlaku s/d {$leaveExpiredAt})" : "";
-            return "Sisa cuti tahunan kamu saat ini ada *{$annualLeaveBalance} hari*{$expiredInfo} ya {$sapaan}.";
-        }
-
-        // -------------------------------------------------------------
-        // Aksi 4: Cek Saldo Extra Off (Khusus jika tanya EO)
-        // -------------------------------------------------------------
-        if (
-            ! $isAskingProcedure
-            && (str_contains($normalized, 'extra off') || str_contains($normalized, 'eo'))
-            && ! str_contains($normalized, 'cuti')
-            && ! str_contains($normalized, 'ph')
-        ) {
-            if (! $karyawan) {
-                return "Nomor WhatsApp ini belum terdaftar di HRIS nih. Coba hubungi HRD ya.";
-            }
-
-            $user = User::where('username', $karyawan->nik)->first();
-            $eoBalance = $this->calculateExtraOffBalance($user, $karyawan);
-
-            return "Saldo Extra Off kamu saat ini ada *{$eoBalance} hari* ya {$sapaan}.";
-        }
-
-        // -------------------------------------------------------------
-        // Aksi 5: Cek Semua Saldo (Cuti, PH, Extra Off bersamaan)
-        // -------------------------------------------------------------
-        if (
-            ! $isAskingProcedure
-            && (str_contains($normalized, 'saldo')
-                || str_contains($normalized, 'sisa libur')
-                || str_contains($normalized, 'rekap cuti'))
-        ) {
-            if (! $karyawan) {
-                return "Nomor WhatsApp ini belum terdaftar di HRIS nih. Coba hubungi HRD ya.";
-            }
-
-            $user = User::where('username', $karyawan->nik)->first();
-            $annualLeaveBalance = $user ? $this->leaveAccrualService->getBalance($user) : 0;
-            
-            $activeContract = DB::table('t_kontrak_karyawan')
-                ->where('nik', $karyawan->nik)
-                ->orderByDesc('end_date')
-                ->first();
-            $leaveExpiredAt = $activeContract ? Carbon::parse($activeContract->end_date)->locale('id')->translatedFormat('d F Y') : null;
-
-            $phBalance = $this->calculatePhBalance($user, $karyawan);
-            $eoBalance = $this->calculateExtraOffBalance($user, $karyawan);
-
-            $msg = "Berikut rincian saldo kamu ya {$sapaan}:\n";
-            $msg .= "• Sisa Cuti Tahunan: *{$annualLeaveBalance} hari*" . ($leaveExpiredAt ? " (s/d {$leaveExpiredAt})" : "") . "\n";
-            $msg .= "• Saldo PH (Public Holiday): *{$phBalance} hari*\n";
-            $msg .= "• Saldo Extra Off: *{$eoBalance} hari*";
-
-            return trim($msg);
-        }
-
-        // -------------------------------------------------------------
-        // Aksi 6: Cek Masa Berlaku Kontrak Kerja
-        // -------------------------------------------------------------
-        if (
-            str_contains($normalized, 'kontrak')
-            || str_contains($normalized, 'habis kontrak')
-            || str_contains($normalized, 'akhir kontrak')
-            || str_contains($normalized, 'selesai kontrak')
-            || str_contains($normalized, 'masa kerja')
-        ) {
-            if (! $karyawan) {
-                return "Nomor WhatsApp ini belum terdaftar di sistem HRIS nih.";
-            }
-
-            $activeContract = DB::table('t_kontrak_karyawan')
-                ->where('nik', $karyawan->nik)
-                ->orderByDesc('end_date')
-                ->first();
-
-            if (! $activeContract) {
-                $statusKaryawan = $karyawan->status_karyawan ?: 'Tetap / PKWTT';
-                return "Status kamu saat ini tercatat *{$statusKaryawan}* dan tidak ada masa kontrak berkala (PKWT) aktif ya.";
-            }
-
-            $endDate = Carbon::parse($activeContract->end_date)->locale('id')->translatedFormat('d F Y');
-            $daysLeft = (int) now()->diffInDays(Carbon::parse($activeContract->end_date), false);
-
-            if ($daysLeft >= 0) {
-                return "Kontrak kerja kamu saat ini aktif sampai tanggal *{$endDate}* (kurang lebih sisa {$daysLeft} hari lagi) ya.";
-            }
-
-            return "Kontrak kerja kamu tercatat sudah selesai pada tanggal *{$endDate}*. Silakan konfirmasi ke atasan atau HRD ya.";
-        }
-
-        // -------------------------------------------------------------
-        // Aksi 7: Cek Presensi & Log Scan Fingerspot (Hari Ini)
-        // -------------------------------------------------------------
-        if (
-            str_contains($normalized, 'scan')
-            || str_contains($normalized, 'absen')
-            || str_contains($normalized, 'presensi')
-            || str_contains($normalized, 'tadi masuk')
-            || str_contains($normalized, 'sudah masuk')
-            || str_contains($normalized, 'sudah pulang')
-            || str_contains($normalized, 'kehadiran')
-            || str_contains($normalized, 'masuk tidak hari ini')
-            || str_contains($normalized, 'masuk ga hari ini')
-            || str_contains($normalized, 'tadi scan')
-            || str_contains($normalized, 'scan tadi')
-        ) {
-            if (! $karyawan) {
-                return "Nomor WhatsApp ini belum terdaftar di sistem HRIS nih.";
-            }
-
-            if (! $karyawan->pin) {
-                return "PIN mesin absensi kamu belum terdaftar di profil HRIS. Boleh konfirmasi ke tim HRD ya.";
-            }
-
-            $today = Carbon::today()->toDateString();
-            $todayFormatted = Carbon::today()->locale('id')->translatedFormat('l, d F Y');
-
-            $logsToday = FingerspotAttendanceLog::where('pin', $karyawan->pin)
-                ->whereDate('scan_date', $today)
-                ->orderBy('scan_date')
-                ->get();
-
-            if ($logsToday->isEmpty()) {
-                $logsToday = DB::table('fingerspot_attendance_logs_fed')
-                    ->where('pin', $karyawan->pin)
-                    ->whereDate('scan_date', $today)
-                    ->orderBy('scan_date')
-                    ->get();
-            }
-
-            if ($logsToday->isEmpty()) {
-                // Cek apakah ada koreksi absensi yang disetujui hari ini
-                $correction = DB::table('attendance_corrections')
-                    ->where('karyawan_nik', $karyawan->nik)
-                    ->where('correction_date', $today)
-                    ->where('status', 'approved')
-                    ->first();
-
-                if ($correction) {
-                    $in = $correction->corrected_scan_in ? substr($correction->corrected_scan_in, 0, 5) . ' WIB' : '-';
-                    $out = $correction->corrected_scan_out ? substr($correction->corrected_scan_out, 0, 5) . ' WIB' : '-';
-                    return "Presensi kamu hari ini ({$todayFormatted}) tercatat via *Koreksi Absen (Approved)*:\n• Scan Masuk: *{$in}*\n• Scan Pulang: *{$out}*";
-                }
-
-                return "Untuk hari ini ({$todayFormatted}), belum ada rekaman scan absensi di mesin fingerspot atas nama kamu ya.";
-            }
-
-            $scanIn = $logsToday->first(fn ($l) => (string) $l->status_scan === '0') ?? $logsToday->first();
-            $scanOut = $logsToday->reverse()->first(fn ($l) => (string) $l->status_scan === '1') ?? ($logsToday->count() > 1 ? $logsToday->last() : null);
-
-            $jamMasuk = $scanIn ? Carbon::parse($scanIn->scan_date)->format('H:i') . ' WIB' : '-';
-            $jamPulang = $scanOut && $scanOut->id !== $scanIn->id ? Carbon::parse($scanOut->scan_date)->format('H:i') . ' WIB' : 'Belum scan pulang';
-
-            $msg = "Presensi kamu hari ini ({$todayFormatted}):\n";
-            $msg .= "• Scan Masuk: *{$jamMasuk}*\n";
-            $msg .= "• Scan Pulang: *{$jamPulang}*";
-
-            return $msg;
-        }
-
-        // -------------------------------------------------------------
-        // Aksi 7.5: Cek Jadwal Kerja / Shift (Hari ini & Besok)
-        // -------------------------------------------------------------
-        if (
-            str_contains($normalized, 'jadwal')
-            || str_contains($normalized, 'shift')
-            || str_contains($normalized, 'masuk apa')
-            || str_contains($normalized, 'masuk jam')
-            || str_contains($normalized, 'kerja apa')
-            || str_contains($normalized, 'jam masuk')
-            || str_contains($normalized, 'besok libur')
-            || str_contains($normalized, 'besok kerja')
-            || str_contains($normalized, 'hari ini libur')
-        ) {
-            if (! $karyawan) {
-                return "Nomor WhatsApp ini belum terdaftar di HRIS nih.";
-            }
-
-            $isBesok = str_contains($normalized, 'besok');
-            $targetDate = $isBesok ? Carbon::tomorrow() : Carbon::today();
-            $labelHari = $isBesok ? 'Besok' : 'Hari ini';
-            $dateStr = $targetDate->toDateString();
-            $dateFormatted = $targetDate->locale('id')->translatedFormat('l, d F Y');
-
-            $schedule = EmployeeDailySchedule::with('category')
-                ->where('karyawan_nik', $karyawan->nik)
-                ->where('schedule_date', $dateStr)
-                ->first();
-
-            if (! $schedule || ! $schedule->category) {
-                return "Untuk {$labelHari} ({$dateFormatted}), kamu masuk *Shift Reguler (08:30 - 17:30 WIB)* ya.";
-            }
-
-            $category = $schedule->category;
-            $isOff = $category->is_off || strtolower($category->name) === 'off' || strtolower($category->name) === 'libur';
-
-            if ($isOff) {
-                return "Untuk {$labelHari} ({$dateFormatted}), kamu *Libur (OFF)* ya. Selamat beristirahat!";
-            }
-
-            $in = substr($category->start_time ?? '08:30:00', 0, 5);
-            $out = substr($category->end_time ?? '17:30:00', 0, 5);
-            return "Untuk {$labelHari} ({$dateFormatted}), kamu terjadwal shift *{$category->name}* (masuk jam *{$in} - {$out} WIB*) ya.";
-        }
-
-        // -------------------------------------------------------------
-        // Aksi 8: Lupa / Reset Password (Langsung reset ke default 12345678)
+        // Aksi 2: Lupa / Reset Password (Langsung reset ke default 12345678)
         // -------------------------------------------------------------
         if (
             str_contains($normalized, 'lupa password')
@@ -586,103 +319,6 @@ class HrisWhatsAppAgent
             $user->tokens()->delete();
 
             return "Password akun portal kamu (NIK: {$karyawan->nik}) sudah berhasil di-reset ke default: *12345678*.\n\nSilakan coba login kembali di https://hr.hompimplay.id lalu ubah kata sandi di profil demi keamanan ya.";
-        }
-
-        // -------------------------------------------------------------
-        // Aksi 9: Cek Bawahan / Anggota Tim
-        // -------------------------------------------------------------
-        if (
-            str_contains($normalized, 'bawahan')
-            || str_contains($normalized, 'anggota tim')
-            || str_contains($normalized, 'tim saya')
-            || str_contains($normalized, 'staff saya')
-            || str_contains($normalized, 'anak buah')
-        ) {
-            if (! $karyawan) {
-                return "Nomor WhatsApp ini belum terdaftar di sistem HRIS nih.";
-            }
-
-            $subordinates = Karyawan::query()
-                ->where(function ($q) use ($karyawan) {
-                    $q->where('atasan_langsung_nik', $karyawan->nik)
-                        ->orWhere('atasan_tidak_langsung_nik', $karyawan->nik);
-                })
-                ->where(function ($q) {
-                    $q->whereNull('status_karyawan')->orWhere('status_karyawan', '!=', 'Resign');
-                })
-                ->get(['nik', 'nama_karyawan', 'jabatan', 'departement']);
-
-            if ($subordinates->isEmpty()) {
-                return "Saat ini tidak ada data bawahan langsung yang tercatat di bawah NIK kamu ya.";
-            }
-
-            $msg = "Berikut daftar anggota tim/bawahan kamu:\n";
-            foreach ($subordinates as $i => $sub) {
-                $jabatan = $sub->jabatan ?: $sub->departement ?: '-';
-                $msg .= ($i + 1) . ". *{$sub->nama_karyawan}* ({$jabatan})\n";
-            }
-            return trim($msg);
-        }
-
-        // -------------------------------------------------------------
-        // Aksi 10: Cek Atasan Langsung
-        // -------------------------------------------------------------
-        if (
-            str_contains($normalized, 'atasan')
-            && (str_contains($normalized, 'saya') || str_contains($normalized, 'siapa') || str_contains($normalized, 'langsung'))
-        ) {
-            if (! $karyawan) {
-                return "Nomor WhatsApp ini belum terdaftar di sistem HRIS nih.";
-            }
-
-            $atasan = $karyawan->atasanLangsung;
-            if (! $atasan) {
-                return "Data atasan langsung belum tercatat di profil HRIS kamu. Boleh konfirmasi ke HRD ya.";
-            }
-
-            $jabatan = $atasan->jabatan ? " ({$atasan->jabatan})" : "";
-            return "Atasan langsung kamu adalah *{$atasan->nama_karyawan}*{$jabatan} ya.";
-        }
-
-        return null;
-    }
-
-    private function fixedAnswer(string $question, ?Karyawan $karyawan, bool $isFirstChat = false): ?string
-    {
-        $normalized = Str::of($question)
-            ->lower()
-            ->replaceMatches('/[^a-z0-9\s]/', ' ')
-            ->squish()
-            ->toString();
-
-        $namaPanggilan = $karyawan ? ucfirst(strtolower(explode(' ', trim($karyawan->nama_karyawan))[0])) : '';
-        $sapaan = $namaPanggilan ? "Kak {$namaPanggilan}" : "Kak";
-
-        // Pertanyaan identitas diri (Siapa kamu?)
-        if (
-            str_contains($normalized, 'kamu siapa')
-            || str_contains($normalized, 'siapa kamu')
-            || str_contains($normalized, 'nama kamu')
-            || str_contains($normalized, 'siapa dirimu')
-            || str_contains($normalized, 'kenalan dong')
-            || str_contains($normalized, 'kenalan')
-            || str_contains($normalized, 'siapa anda')
-            || str_contains($normalized, 'anda siapa')
-        ) {
-            return "Aku Haris, IT AI Agent yang bantu urusan HRIS di HomPim Play, {$sapaan}! Mau cek absensi, saldo cuti/PH, jadwal kerja, atau info seputar HR lainnya? Tinggal tanya aja yaa 😊👍";
-        }
-
-        // Sapaan / Salam
-        if (in_array($normalized, ['help', 'bantuan', 'menu', 'hai', 'halo', 'p', 'tes', 'test', 'siang', 'pagi', 'malam', 'sore', 'halo kak', 'hai kak', 'pagi kak', 'siang kak', 'sore kak', 'malam kak', 'halo haris', 'hai haris', 'halo ris', 'hai ris', 'pagi haris', 'siang haris', 'sore haris', 'malam haris'], true)) {
-            if ($isFirstChat) {
-                return "Halo {$sapaan}! Aku Haris, IT AI Agent HRIS HomPim Play. Ada yang bisa Haris bantu seputar jadwal atau absensi hari ini? 😊";
-            }
-
-            return "Ada lagi yang bisa Haris bantu seputar HRIS, {$sapaan}?";
-        }
-
-        if (str_contains($normalized, 'apa itu hris') || str_contains($normalized, 'hris itu apa')) {
-            return "HRIS itu aplikasi internal kantor kita buat kelola absensi, jadwal kerja, pengajuan cuti, izin, sampai lembur, {$sapaan}. Jadi kalau butuh info terkait itu, tinggal tanya ke Haris aja yaa!";
         }
 
         return null;

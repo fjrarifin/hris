@@ -80,7 +80,17 @@ class OpenRouterChatService
 
                 $result = $response->json();
                 $content = (string) data_get($result, 'choices.0.message.content', '');
-                $content = trim(preg_replace('/<think>.*?<\/think>/is', '', $content) ?? $content);
+                
+                // Bersihkan tag <think>...</think> tertutup
+                $content = preg_replace('/<think>.*?<\/think>/is', '', $content) ?? $content;
+                // Bersihkan jika ada <think> tanpa penutup di awal
+                $content = preg_replace('/^<think>.*$/is', '', $content) ?? $content;
+                // Bersihkan jika model menulis "Here's a thinking process:..."
+                if (preg_match('/(?:Here\'s a thinking process|Thinking Process|Let\'s think)[\s\S]*?\n\n([\s\S]+)$/i', $content, $m)) {
+                    $content = $m[1];
+                }
+
+                $content = trim($content);
 
                 if ($content !== '') {
                     return $content;

@@ -211,8 +211,13 @@ SCHEMA;
             return null;
         }
 
-        $cleanSql = trim(preg_replace('/^```sql\s*|^```\s*|```$/m', '', $sql));
-        $cleanSql = trim($cleanSql, "; \n\r\t");
+        if (preg_match('/(SELECT\s+[\s\S]+?)(?:;|\n\n|```|$)/i', $sql, $matches)) {
+            $cleanSql = trim($matches[1]);
+        } else {
+            $cleanSql = trim(preg_replace('/^```sql\s*|^```\s*|```$/m', '', $sql));
+        }
+
+        $cleanSql = trim($cleanSql, "; \n\r\t`");
 
         return $cleanSql;
     }
