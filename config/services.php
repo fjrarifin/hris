@@ -72,7 +72,7 @@ return [
             fn ($k) => trim((string) $k),
             explode(',', (string) env('GEMINI_API_KEYS', env('GEMINI_API_KEY', '')))
         ))),
-        'model' => env('GEMINI_MODEL', 'gemini-2.5-flash'),
+        'model' => env('GEMINI_MODEL', 'gemini-3.6-flash'),
         'timeout' => (int) env('GEMINI_TIMEOUT', 10),
     ],
 

@@ -23,13 +23,13 @@ class GeminiChatService
         }
 
         $timeout = min((int) config('services.gemini.timeout', 8), 12);
-        $primaryModel = trim((string) config('services.gemini.model', 'gemini-2.5-flash'));
+        $primaryModel = trim((string) config('services.gemini.model', 'gemini-3.6-flash'));
         $modelsToTry = array_unique(array_filter([
             $primaryModel,
+            'gemini-3.6-flash',
             'gemini-2.5-flash',
             'gemini-3.1-flash-lite',
             'gemini-1.5-flash',
-            'gemini-3.6-flash',
         ]));
 
         $contents = [];
