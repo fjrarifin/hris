@@ -172,7 +172,7 @@ SCHEMA;
 
         // 3. Eksekusi Query ke Database (Read-Only)
         try {
-            $results = DB::select(DB::raw($cleanSql));
+            $results = DB::select($cleanSql);
         } catch (Throwable $e) {
             Log::warning("Gagal eksekusi Read-Only SQL AI: {$cleanSql}", ['error' => $e->getMessage()]);
             return null;
