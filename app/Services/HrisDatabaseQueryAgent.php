@@ -203,7 +203,12 @@ SCHEMA;
         $prompt .= "2. Jika pertanyaan menyangkut data pribadi (jadwal, log presensi, cuti, izin, kontrak), WAJIB filter berdasarkan NIK ({$nik}) atau PIN ({$pin}).\n";
         $prompt .= "3. Jangan pernah query data gaji/nominal finansial pribadi orang lain.\n";
         $prompt .= "4. Output HARUS murni berupa string query SQL saja tanpa penjelasan, tanpa markdown codeblock (tanpa ```sql).\n";
-        $prompt .= "5. Jika pertanyaan sama sekali tidak relevan dengan data HRIS kantor, jawab tepat satu kata: NONE\n\n";
+        $prompt .= "5. Jika pertanyaan adalah teori/SOP umum tanpa butuh query database (misal: 'cara dapat cuti gimana'), jawab tepat satu kata: NONE\n\n";
+        $prompt .= "Contoh Pola Query:\n";
+        $prompt .= "- 'saya tadi udah absen masuk belum ya?' -> SELECT scan_date, status_scan FROM fingerspot_attendance_logs WHERE pin = '{$pin}' AND DATE(scan_date) = '{$today}' ORDER BY scan_date ASC LIMIT 1\n";
+        $prompt .= "- 'saya tadi absen pulang jam berapa?' -> SELECT scan_date, status_scan FROM fingerspot_attendance_logs WHERE pin = '{$pin}' AND DATE(scan_date) = '{$today}' AND status_scan = 1 ORDER BY scan_date DESC LIMIT 1\n";
+        $prompt .= "- 'total kehadiran bulan ini' -> SELECT COUNT(DISTINCT DATE(scan_date)) AS total_hari_hadir FROM fingerspot_attendance_logs WHERE pin = '{$pin}' AND DATE(scan_date) >= DATE_FORMAT('{$today}', '%Y-%m-01') AND DATE(scan_date) <= '{$today}'\n";
+        $prompt .= "- 'jadwal saya besok' -> SELECT s.schedule_date, c.name, c.start_time, c.end_time FROM employee_daily_schedules s LEFT JOIN attendance_schedule_categories c ON s.schedule_category_id = c.id WHERE s.karyawan_nik = '{$nik}' AND s.schedule_date = DATE_ADD('{$today}', INTERVAL 1 DAY)\n\n";
         $prompt .= "Pertanyaan Karyawan: \"{$question}\"";
 
         $sql = $this->callLlm($prompt);
@@ -269,18 +274,22 @@ SCHEMA;
     {
         $jsonResults = json_encode(array_slice($results, 0, 25), JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
 
+        $joinDateStr = $karyawan?->join_date ? \Carbon\Carbon::parse($karyawan->join_date)->locale('id')->translatedFormat('d F Y') : '-';
+
         $prompt = "Kamu adalah Haris, IT AI Agent internal di HomPim Play yang menangani sistem HRIS.\n";
-        $prompt .= "Karyawan atas nama {$sapaan} menanyakan: \"{$question}\"\n\n";
+        $prompt .= "Karyawan atas nama {$sapaan} menanyakan: \"{$question}\"\n";
+        $prompt .= "Tanggal Bergabung Karyawan: {$joinDateStr}\n\n";
         $prompt .= "Berikut adalah data fakta hasil query database HRIS:\n";
         $prompt .= "```json\n{$jsonResults}\n```\n\n";
-        $prompt .= "ATURAN GAYA BICARA HARIS (NATURAL & HUMAN-LIKE):\n";
-        $prompt .= "1. Jawab langsung to-the-point dalam bentuk kalimat percakapan WhatsApp yang ramah, santai, dan luwes.\n";
-        $prompt .= "2. DILARANG menggunakan format list formulir kaku atau bullet point (* ...) kecuali user meminta rincian riwayat banyak baris/hari.\n";
-        $prompt .= "3. DILARANG menyebutkan istilah teknis SQL/query/database/SELECT. Bicaralah layaknya rekan kerja HR yang hangat.\n";
-        $prompt .= "4. ATURAN PROSEDUR & APPROVAL KANTOR:\n";
-        $prompt .= "   - CUTI / LIBUR PH / EXTRA OFF / IZIN / SAKIT: Diajukan sendiri oleh karyawan di portal HRIS (https://hr.hompimplay.id) dan disetujui (approval) oleh ATASAN LANGSUNG.\n";
-        $prompt .= "   - LEMBUR (SPL): Hanya bisa diajukan oleh ATASAN LANGSUNG yang mendelegasikan/menugaskan bawahan langsungnya di portal HRIS. Karyawan biasa tidak bisa mengajukan lembur sendiri.\n";
-        $prompt .= "5. Jika data kosong/tidak ditemukan, infokan dengan santai dan ramah bahwa datanya belum tercatat di sistem.\n";
+        $prompt .= "ATURAN GAYA BICARA HARIS (RAMAH, TO-THE-POINT & FOKUS):\n";
+        $prompt .= "1. JAWAB HANYA APA YANG DITANYAKAN (ZERO TANGENT): Jangan melebar ke topik atau saldo lain yang tidak ditanyakan.\n";
+        $prompt .= "2. Jawab langsung to-the-point dalam bentuk kalimat percakapan WhatsApp yang ramah, santai, dan luwes.\n";
+        $prompt .= "3. DILARANG menggunakan format list formulir kaku atau bullet point (* ...) kecuali user meminta rincian riwayat banyak baris/hari.\n";
+        $prompt .= "4. DILARANG menyebutkan istilah teknis SQL/query/database/SELECT. Bicaralah layaknya rekan kerja HR yang hangat.\n";
+        $prompt .= "5. LOGIKA BISNIS & PENJELASAN:\n";
+        $prompt .= "   - Jika karyawan bertanya 'kenapa cuti saya masih 0?', cek tanggal bergabungnya. Hak cuti tahunan mulai aktif dan bertambah +1 hari per bulan setelah 1 tahun masa kerja dari tanggal bergabung.\n";
+        $prompt .= "   - Saldo PH diperoleh jika masuk bekerja (ada absen) di hari libur nasional (berlaku 3 bulan).\n";
+        $prompt .= "   - Saldo Extra Off diperoleh dari kelebihan jam kerja bulanan (berlaku 3 bulan).\n";
         $prompt .= "6. Panggil karyawan dengan '{$sapaan}'. Jangan mengulang kata 'Halo' jika percakapan sedang berjalan.\n";
         $prompt .= "7. Boleh gunakan 1-2 emoji (😊, 👍, ✨) agar chat terasa hidup dan akrab.\n";
 
