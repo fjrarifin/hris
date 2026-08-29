@@ -788,47 +788,53 @@ class HrisWhatsAppAgent
     public function resolveUserLevel(?Karyawan $karyawan, string $sender): int
     {
         $levels = [];
-
-        // 1. Cek dari konfigurasi admin phones di env / config
-        $adminPhones = array_filter(array_map('trim', explode(',', (string) config('services.hris_agent.admin_phones', ''))));
         $cleanPhone = preg_replace('/[^0-9]/', '', $sender);
-        if ($cleanPhone !== '' && in_array($cleanPhone, $adminPhones, true)) {
-            return 0; // Level 0 Superadmin
+
+        // 1. Cek langsung kolom phone di tabel users
+        if ($cleanPhone !== '') {
+            $phone08 = str_starts_with($cleanPhone, '62') ? '0' . substr($cleanPhone, 2) : $cleanPhone;
+            $phone62 = str_starts_with($cleanPhone, '0') ? '62' . substr($cleanPhone, 1) : $cleanPhone;
+
+            $userLevels = User::query()
+                ->where(function ($q) use ($cleanPhone, $phone08, $phone62) {
+                    $q->where('phone', $cleanPhone)
+                        ->orWhere('phone', $phone08)
+                        ->orWhere('phone', $phone62)
+                        ->orWhereRaw("REPLACE(REPLACE(REPLACE(phone, '-', ''), ' ', ''), '+', '') IN (?, ?)", [$phone08, $phone62]);
+                })
+                ->pluck('level')
+                ->filter(fn ($l) => $l !== null)
+                ->map(fn ($l) => (int) $l)
+                ->all();
+
+            if (! empty($userLevels)) {
+                $levels = array_merge($levels, $userLevels);
+            }
         }
 
-        // 2. Cek akun User berdasarkan NIK Karyawan
+        // 2. Cek dari konfigurasi admin phones di env / config
+        $adminPhones = array_filter(array_map('trim', explode(',', (string) config('services.hris_agent.admin_phones', ''))));
+        if ($cleanPhone !== '' && in_array($cleanPhone, $adminPhones, true)) {
+            $levels[] = 0; // Level 0 Superadmin
+        }
+
+        // 3. Cek akun User berdasarkan NIK Karyawan
         if ($karyawan) {
             $user = User::where('username', $karyawan->nik)->first();
             if ($user && $user->level !== null) {
                 $levels[] = (int) $user->level;
             }
 
-            // Cek jika divisi adalah IT atau HRD/HRGA
+            // Cek jika jabatan / divisi adalah IT atau HRD/HRGA
             $divisi = strtolower((string) ($karyawan->departement ?: $karyawan->jabatan));
-            if (str_contains($divisi, 'it') || str_contains($divisi, 'programmer')) {
+            $jabatan = strtolower((string) $karyawan->jabatan);
+            if (str_contains($divisi, 'it') || str_contains($jabatan, 'it') || str_contains($jabatan, 'programmer')) {
                 $levels[] = 0; // IT Admin privilege
             } elseif (str_contains($divisi, 'hr') || str_contains($divisi, 'hrd') || str_contains($divisi, 'hrga') || str_contains($divisi, 'personalia')) {
                 $levels[] = 2; // HR privilege
             }
         }
 
-        // 3. Cek apakah nomor HP terdaftar langsung di akun users tertentu (misal akun 'it' atau 'hrpayroll')
-        if ($cleanPhone !== '') {
-            $phone08 = str_starts_with($cleanPhone, '62') ? '0' . substr($cleanPhone, 2) : $cleanPhone;
-            $matchedUsers = User::where(function ($q) use ($cleanPhone, $phone08) {
-                $q->where('email', 'like', "%{$cleanPhone}%")
-                  ->orWhere('email', 'like', "%{$phone08}%")
-                  ->orWhere('username', 'like', "%{$cleanPhone}%")
-                  ->orWhere('username', 'like', "%{$phone08}%");
-            })->get();
-
-            foreach ($matchedUsers as $u) {
-                if ($u->level !== null) {
-                    $levels[] = (int) $u->level;
-                }
-            }
-        }
-
-        return !empty($levels) ? min($levels) : 3;
+        return ! empty($levels) ? min($levels) : 3;
     }
 }
