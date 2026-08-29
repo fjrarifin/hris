@@ -65,11 +65,12 @@ class HrisWhatsAppAgent
         \Illuminate\Support\Facades\RateLimiter::hit($rateLimitKey, 60);
 
         $karyawan = $this->findKaryawanByPayload($payload, $sender);
+        $userLevel = $this->resolveUserLevel($karyawan, $sender);
 
         $historyKey = 'wa_ai_agent_history:' . $cleanSenderKey;
         $history = Cache::get($historyKey, []);
 
-        $answer = $this->answer($question, $karyawan, $sender, $history);
+        $answer = $this->answer($question, $karyawan, $sender, $history, $userLevel);
         $sent = $this->sendReply($sender, $answer);
 
         // Simpan riwayat percakapan (Multi-turn Context) maksimal 6 percakapan terakhir
@@ -84,11 +85,12 @@ class HrisWhatsAppAgent
             'status' => $sent ? 'sent' : 'send_failed',
             'sender' => $sender,
             'karyawan_nik' => $karyawan?->nik,
+            'user_level' => $userLevel,
             'question' => $question,
         ];
     }
 
-    private function answer(string $question, ?Karyawan $karyawan, string $sender, array $history = []): string
+    private function answer(string $question, ?Karyawan $karyawan, string $sender, array $history = [], int $userLevel = 3): string
     {
         $normalized = $this->normalizeText($question);
         $isFirstChat = empty($history);
@@ -105,14 +107,14 @@ class HrisWhatsAppAgent
             return $faqAnswer;
         }
 
-        // 3. Gunakan AI Database Query Agent (Autonomous Text-to-SQL + Natural Human Language)
-        $dbAgentAnswer = $this->dbQueryAgent->queryAndAnswer($question, $karyawan, $history);
+        // 3. Gunakan AI Database Query Agent (Autonomous Text-to-SQL + Natural Human Language + RBAC)
+        $dbAgentAnswer = $this->dbQueryAgent->queryAndAnswer($question, $karyawan, $history, $userLevel);
         if ($dbAgentAnswer !== null && trim($dbAgentAnswer) !== '') {
             return $dbAgentAnswer;
         }
 
-        // 4. Fallback ke LLM General Knowledge & Sapaan Alami (Round-Robin: OpenRouter / TokenRouter / Gemini)
-        $systemPrompt = $this->buildSystemPrompt($karyawan, $isFirstChat);
+        // 4. Fallback ke LLM General Knowledge & Sapaan Alami (Gemini / OpenRouter)
+        $systemPrompt = $this->buildSystemPrompt($karyawan, $isFirstChat, $userLevel);
         
         $aiResponse = $this->aiEngine->chat($question, $systemPrompt, $history);
         if ($aiResponse !== null && $aiResponse !== '') {
@@ -318,27 +320,40 @@ class HrisWhatsAppAgent
         return null;
     }
 
-    private function buildSystemPrompt(?Karyawan $karyawan, bool $isFirstChat = false): string
+    private function buildSystemPrompt(?Karyawan $karyawan, bool $isFirstChat = false, int $userLevel = 3): string
     {
         $namaPanggilan = $karyawan ? ucfirst(strtolower(explode(' ', trim($karyawan->nama_karyawan))[0])) : '';
         $sapaan = $namaPanggilan ? "Kak {$namaPanggilan}" : "Kak";
 
+        $roleContext = match ($userLevel) {
+            0 => "IT Administrator / Superadmin (Level 0 - Hak Akses Penuh Sistem & Seluruh Data Database)",
+            1 => "Direksi / Top Management (Level 1 - Hak Akses Eksekutif Perusahaan)",
+            2 => "HRD / HRGA Management (Level 2 - Hak Akses Data Seluruh Karyawan Kantor)",
+            default => "Karyawan / Staff (Level 3 - Akses Data Pribadi Diri Sendiri)",
+        };
+
         $prompt = "IDENTITAS DIRI & PERSONA:\n";
         $prompt .= "- Nama kamu: Haris (singkatan & representasi dari HRIS).\n";
-        $prompt .= "- Peran kamu: IT AI Agent internal di HomPim Play yang bertugas melayani chat WhatsApp karyawan seputar HRIS.\n";
-        $prompt .= "- Rekan chat kamu: {$sapaan}.\n\n";
+        $prompt .= "- Peran kamu: IT AI Agent internal di HomPim Play yang bertugas melayani chat WhatsApp seputar HRIS.\n";
+        $prompt .= "- Rekan chat kamu: {$sapaan} (Wewenang: {$roleContext}).\n\n";
 
         $prompt .= "ATURAN GAYA BICARA PERCAKAPAN WHATSAPP (RAMAH, TO-THE-POINT & NATURAL):\n";
         $prompt .= "1. DILARANG KERAS MEMBUKA DENGAN KALIMAT TEMPLATE KAKU SEPERTI 'Halo Kak Fajar! Aku Haris dari IT AI HRIS. Ada yang bisa kubantu?' di setiap respon!\n";
         $prompt .= "   - JIKA user HANYA menyapa (contoh: 'halo', 'hai', 'pagi kak', 'assalamualaikum', 'siang'): Balas sapaan secara ramah dan tanyakan keperluannya ('Halo {$sapaan}! Ada yang bisa Haris bantu seputar HRIS hari ini? 😊').\n";
-        $prompt .= "   - JIKA user LANGSUNG MENANYAKAN PERTANYAAN (contoh: 'saldo ph berapa?', 'pernah ajukan cuti kapan?', 'absen masuk jam berapa?', 'cara dapat eo gimana?'): LANGSUNG JAWAB PERTANYAANNYA secara to-the-point, ramah, dan santai (contoh: 'Sisa saldo PH {$sapaan} saat ini masih ada 3 hari yaa 😊'). JANGAN PERNAH menyisipkan kalimat perkenalan berulang!\n";
-        $prompt .= "2. FOKUS HANYA PADA YANG DITANYAKAN (ZERO TANGENT):\n";
-        $prompt .= "   - Tanya Saldo Cuti -> Jawab HANYA cuti tahunan.\n";
-        $prompt .= "   - Tanya Saldo PH -> Jawab HANYA saldo PH.\n";
-        $prompt .= "   - Tanya Saldo Extra Off -> Jawab HANYA saldo Extra Off.\n";
-        $prompt .= "   - Tanya Jam Masuk -> Jawab HANYA jam masuknya.\n";
+        $prompt .= "   - JIKA user LANGSUNG MENANYAKAN PERTANYAAN (contoh: 'saldo ph berapa?', 'pernah ajukan cuti kapan?', 'absen masuk jam berapa?', 'rekap kehadiran hari ini'): LANGSUNG JAWAB PERTANYAANNYA secara to-the-point, ramah, dan santai. JANGAN PERNAH menyisipkan kalimat perkenalan berulang!\n";
+        if ($userLevel <= 2) {
+            $prompt .= "2. HAK AKSES TINGGI (Admin / HRD):\n";
+            $prompt .= "   - Jika pengguna menanyakan data orang lain, rekap divisi, statistik kantor, atau status sistem, berikan jawaban lengkap dan profesional.\n";
+            $prompt .= "   - Jika menanyakan data pribadi ('jadwal saya', 'cuti saya'), jawab sesuai data pribadi {$sapaan}.\n";
+        } else {
+            $prompt .= "2. FOKUS HANYA PADA YANG DITANYAKAN (ZERO TANGENT):\n";
+            $prompt .= "   - Tanya Saldo Cuti -> Jawab HANYA cuti tahunan milik sendiri.\n";
+            $prompt .= "   - Tanya Saldo PH -> Jawab HANYA saldo PH milik sendiri.\n";
+            $prompt .= "   - Tanya Saldo Extra Off -> Jawab HANYA saldo Extra Off milik sendiri.\n";
+            $prompt .= "   - Tanya Jam Masuk -> Jawab HANYA jam masuknya.\n";
+        }
         $prompt .= "3. Selalu panggil '{$sapaan}' secara santai dan akrab ('Udah kok', 'Iya Kak', 'Aman yaa', 'Semangat!') dan boleh gunakan 1-2 emoji (😊, 👍, ✨).\n";
-        $prompt .= "4. DILARANG menggunakan format list formulir kaku (* ...) kecuali karyawan meminta rincian riwayat banyak baris/hari.\n";
+        $prompt .= "4. DILARANG menggunakan format list formulir kaku (* ...) kecuali user meminta rincian riwayat banyak baris/hari.\n";
         $prompt .= "5. JANGAN PERNAH mengatakan 'sebentar ya aku cek dulu / nanti aku kabari lagi' karena chat dijawab seketika secara real-time.\n";
         $prompt .= "6. Password default portal HRIS adalah 12345678 (delapan digit: 12345678, BUKAN 123456).\n";
         $prompt .= "7. BATASAN TOPIK: HANYA layani pertanyaan seputar HRIS, absensi, jadwal kerja, cuti, izin, lembur, info kontrak, slip gaji, dan SOP kantor.\n";
@@ -761,5 +776,59 @@ class HrisWhatsAppAgent
         }
 
         return $previousUserMsg ? "\"{$previousUserMsg}\"\n_(Permintaan eskalasi: {$currentQuestion})_" : "\"{$currentQuestion}\"";
+    }
+
+    /**
+     * Menentukan tingkat wewenang (Role-Based Access Control) pengguna WhatsApp.
+     * Level 0: IT Administrator / Superadmin (Full global access)
+     * Level 1: Direksi / Top Management
+     * Level 2: HRD / HRGA Management (Akses seluruh data kepegawaian kantor)
+     * Level 3: Karyawan / Staff (Hanya akses data pribadi sendiri)
+     */
+    public function resolveUserLevel(?Karyawan $karyawan, string $sender): int
+    {
+        $levels = [];
+
+        // 1. Cek dari konfigurasi admin phones di env / config
+        $adminPhones = array_filter(array_map('trim', explode(',', (string) config('services.hris_agent.admin_phones', ''))));
+        $cleanPhone = preg_replace('/[^0-9]/', '', $sender);
+        if ($cleanPhone !== '' && in_array($cleanPhone, $adminPhones, true)) {
+            return 0; // Level 0 Superadmin
+        }
+
+        // 2. Cek akun User berdasarkan NIK Karyawan
+        if ($karyawan) {
+            $user = User::where('username', $karyawan->nik)->first();
+            if ($user && $user->level !== null) {
+                $levels[] = (int) $user->level;
+            }
+
+            // Cek jika divisi adalah IT atau HRD/HRGA
+            $divisi = strtolower((string) ($karyawan->departement ?: $karyawan->jabatan));
+            if (str_contains($divisi, 'it') || str_contains($divisi, 'programmer')) {
+                $levels[] = 0; // IT Admin privilege
+            } elseif (str_contains($divisi, 'hr') || str_contains($divisi, 'hrd') || str_contains($divisi, 'hrga') || str_contains($divisi, 'personalia')) {
+                $levels[] = 2; // HR privilege
+            }
+        }
+
+        // 3. Cek apakah nomor HP terdaftar langsung di akun users tertentu (misal akun 'it' atau 'hrpayroll')
+        if ($cleanPhone !== '') {
+            $phone08 = str_starts_with($cleanPhone, '62') ? '0' . substr($cleanPhone, 2) : $cleanPhone;
+            $matchedUsers = User::where(function ($q) use ($cleanPhone, $phone08) {
+                $q->where('email', 'like', "%{$cleanPhone}%")
+                  ->orWhere('email', 'like', "%{$phone08}%")
+                  ->orWhere('username', 'like', "%{$cleanPhone}%")
+                  ->orWhere('username', 'like', "%{$phone08}%");
+            })->get();
+
+            foreach ($matchedUsers as $u) {
+                if ($u->level !== null) {
+                    $levels[] = (int) $u->level;
+                }
+            }
+        }
+
+        return !empty($levels) ? min($levels) : 3;
     }
 }

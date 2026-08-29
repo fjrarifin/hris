@@ -93,6 +93,7 @@ return [
         'trigger_prefix' => env('HRIS_AGENT_TRIGGER_PREFIX'),
         'webhook_token' => env('HRIS_AGENT_WEBHOOK_TOKEN'),
         'bot_url' => env('HRIS_AGENT_BOT_URL', 'http://127.0.0.1:3350'),
+        'admin_phones' => env('HRIS_AGENT_ADMIN_PHONES', '6282117289833,082117289833'),
         'allowed_senders' => array_values(array_filter(array_map(
             fn ($sender) => trim((string) $sender),
             explode(',', env('HRIS_AGENT_ALLOWED_SENDERS', ''))
