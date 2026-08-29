@@ -22,8 +22,7 @@ class HrisWhatsAppAgent
 {
     public function __construct(
         private readonly HrisDatabaseQueryAgent $dbQueryAgent,
-        private readonly OpenRouterChatService $openRouter,
-        private readonly GeminiChatService $gemini,
+        private readonly AiEngineManager $aiEngine,
         private readonly WhatsAppService $whatsApp,
         private readonly LeaveAccrualService $leaveAccrualService
     ) {}
@@ -112,17 +111,12 @@ class HrisWhatsAppAgent
             return $dbAgentAnswer;
         }
 
-        // 4. Fallback ke LLM General Knowledge & Sapaan Alami (OpenRouter / Gemini)
+        // 4. Fallback ke LLM General Knowledge & Sapaan Alami (Round-Robin: OpenRouter / TokenRouter / Gemini)
         $systemPrompt = $this->buildSystemPrompt($karyawan, $isFirstChat);
         
-        $openRouterResponse = $this->openRouter->chat($question, $systemPrompt, $history);
-        if ($openRouterResponse !== null && $openRouterResponse !== '') {
-            return $openRouterResponse;
-        }
-
-        $geminiResponse = $this->gemini->chat($question, $systemPrompt, $history);
-        if ($geminiResponse !== null && $geminiResponse !== '') {
-            return $geminiResponse;
+        $aiResponse = $this->aiEngine->chat($question, $systemPrompt, $history);
+        if ($aiResponse !== null && $aiResponse !== '') {
+            return $aiResponse;
         }
 
         $namaPanggilan = $karyawan ? ucfirst(strtolower(explode(' ', trim($karyawan->nama_karyawan))[0])) : '';

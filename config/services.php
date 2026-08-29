@@ -59,6 +59,13 @@ return [
         'timeout' => (int) env('OPENROUTER_TIMEOUT', 15),
     ],
 
+    'tokenrouter' => [
+        'api_key' => env('TOKENROUTER_API_KEY'),
+        'base_url' => env('TOKENROUTER_BASE_URL', 'https://api.tokenrouter.com/v1'),
+        'model' => env('TOKENROUTER_MODEL', 'z-ai/glm-5.3-free'),
+        'timeout' => (int) env('TOKENROUTER_TIMEOUT', 15),
+    ],
+
     'gemini' => [
         'api_key' => env('GEMINI_API_KEY'),
         'model' => env('GEMINI_MODEL', 'gemini-3.1-flash-lite'),

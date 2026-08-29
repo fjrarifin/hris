@@ -12,8 +12,7 @@ use Throwable;
 class HrisDatabaseQueryAgent
 {
     public function __construct(
-        private readonly OpenRouterChatService $openRouter,
-        private readonly GeminiChatService $gemini
+        private readonly AiEngineManager $aiEngine
     ) {}
 
     /**
@@ -300,11 +299,6 @@ SCHEMA;
 
     private function callLlm(string $prompt): ?string
     {
-        $openRouterRes = $this->openRouter->chat($prompt, '');
-        if ($openRouterRes !== null && trim($openRouterRes) !== '') {
-            return $openRouterRes;
-        }
-
-        return $this->gemini->chat($prompt, '');
+        return $this->aiEngine->chat($prompt, '');
     }
 }
