@@ -3,6 +3,7 @@
 namespace App\Exports;
 
 use App\Models\Payroll;
+use App\Models\PayrollComponent;
 use Illuminate\Support\Collection;
 use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
@@ -11,8 +12,11 @@ use Maatwebsite\Excel\Concerns\WithMapping;
 
 class PayrollExport implements FromCollection, WithHeadings, WithMapping, ShouldAutoSize
 {
+    private $components;
+
     public function __construct(private readonly array $filters = [])
     {
+        $this->components = PayrollComponent::where('is_active', true)->get();
     }
 
     public function collection(): Collection
@@ -34,7 +38,7 @@ class PayrollExport implements FromCollection, WithHeadings, WithMapping, Should
 
     public function headings(): array
     {
-        return [
+        $headings = [
             'Periode Awal',
             'Periode Akhir',
             'NIK',
@@ -48,6 +52,13 @@ class PayrollExport implements FromCollection, WithHeadings, WithMapping, Should
             'Sakit Surat',
             'Sakit Tanpa Surat',
             'PH',
+        ];
+
+        foreach ($this->components as $component) {
+            $headings[] = $component->nama;
+        }
+
+        $headings = array_merge($headings, [
             'Total Pendapatan',
             'Total Potongan',
             'Total Dibayarkan',
@@ -56,7 +67,9 @@ class PayrollExport implements FromCollection, WithHeadings, WithMapping, Should
             'Validasi',
             'Warning',
             'Email Terakhir',
-        ];
+        ]);
+
+        return $headings;
     }
 
     public function map($payroll): array
@@ -66,7 +79,7 @@ class PayrollExport implements FromCollection, WithHeadings, WithMapping, Should
             ->merge($warnings['warnings'] ?? [])
             ->implode(' | ');
 
-        return [
+        $row = [
             optional($payroll->periode_start)->format('Y-m-d'),
             optional($payroll->periode_end)->format('Y-m-d'),
             $payroll->karyawan_nik,
@@ -80,6 +93,16 @@ class PayrollExport implements FromCollection, WithHeadings, WithMapping, Should
             $payroll->sakit_surat,
             $payroll->sakit_tanpa_surat,
             $payroll->ph,
+        ];
+
+        foreach ($this->components as $component) {
+            $item = $payroll->items->first(function ($i) use ($component) {
+                return ($i->component_id == $component->id) || ($i->nama_item == $component->nama);
+            });
+            $row[] = $item ? $item->amount : 0;
+        }
+
+        $row = array_merge($row, [
             $payroll->total_pendapatan,
             $payroll->total_potongan,
             $payroll->total_dibayarkan,
@@ -90,6 +113,8 @@ class PayrollExport implements FromCollection, WithHeadings, WithMapping, Should
             $payroll->latestEmailLog
                 ? $payroll->latestEmailLog->status . ' - ' . optional($payroll->latestEmailLog->created_at)->format('Y-m-d H:i')
                 : '-',
-        ];
+        ]);
+
+        return $row;
     }
 }
