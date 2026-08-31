@@ -17,6 +17,8 @@ class HrPayrollDashboardController extends Controller
     public function index(Request $request): JsonResponse
     {
         $monthInput = $request->query('month', now()->format('Y-m'));
+        $businessUnit = $request->query('business_unit', 'HomPimPlay');
+
         try {
             $selectedDate = Carbon::createFromFormat('Y-m', $monthInput)->startOfMonth();
         } catch (\Throwable $e) {
@@ -26,9 +28,25 @@ class HrPayrollDashboardController extends Controller
         $startDate = $selectedDate->copy()->startOfMonth();
         $endDate = $selectedDate->copy()->endOfMonth();
 
+        // Helper filter business unit
+        $applyBusinessUnitFilter = function ($query, $column = 'bisnis_unit') use ($businessUnit) {
+            if ($businessUnit === 'HomPimPlay') {
+                $query->where(function ($q) use ($column) {
+                    $q->where($column, 'HomPimPlay')
+                        ->orWhereNull($column)
+                        ->orWhere($column, '');
+                });
+            } elseif (! empty($businessUnit) && $businessUnit !== 'all') {
+                $query->where($column, $businessUnit);
+            }
+        };
+
         // 1. Ambil Data Payroll Periode Terpilih
         $payrollQuery = Payroll::query()
-            ->with(['karyawan', 'items.component'])
+            ->with(['karyawan', 'items'])
+            ->whereHas('karyawan', function ($q) use ($applyBusinessUnitFilter) {
+                $applyBusinessUnitFilter($q, 'bisnis_unit');
+            })
             ->where(function ($q) use ($startDate, $endDate) {
                 $q->whereBetween('periode_start', [$startDate, $endDate])
                     ->orWhereBetween('periode_end', [$startDate, $endDate])
@@ -39,8 +57,14 @@ class HrPayrollDashboardController extends Controller
             });
 
         $payrolls = $payrollQuery->get();
+        $payrollIds = $payrolls->pluck('id');
 
-        // 2. Score Cards (KPI Metrics)
+        // 2. Ambil Payroll Items untuk kalkulasi komponen yang akurat
+        $payrollItems = $payrollIds->isNotEmpty()
+            ? PayrollItem::whereIn('payroll_id', $payrollIds)->get()
+            : collect();
+
+        // 3. Score Cards (KPI Metrics)
         $totalGajiBruto = (int) $payrolls->sum(function ($p) {
             return $p->bruto_man_power ?: ($p->total_pendapatan ?: $p->basic_salary);
         });
@@ -48,32 +72,47 @@ class HrPayrollDashboardController extends Controller
         $totalGajiNetto = (int) $payrolls->sum('total_dibayarkan');
         $biayaPotongan = (int) $payrolls->sum('total_potongan');
 
-        // Biaya Lembur & BPJS dari Payroll Items
-        $payrollIds = $payrolls->pluck('id');
-        $payrollItems = $payrollIds->isNotEmpty()
-            ? PayrollItem::with('component')->whereIn('payroll_id', $payrollIds)->get()
-            : collect();
-
+        // Biaya Lembur yang akurat
         $biayaLembur = (int) $payrollItems->filter(function ($item) {
-            $code = strtolower((string) ($item->component?->code ?: ''));
-            $name = strtolower((string) ($item->component?->name ?: ''));
-            return str_contains($code, 'lembur') || str_contains($code, 'overtime') || str_contains($name, 'lembur') || str_contains($name, 'overtime');
+            $name = strtolower((string) ($item->nama_item ?: ''));
+            return str_contains($name, 'lembur') || str_contains($name, 'overtime');
         })->sum('amount');
 
-        $biayaBpjs = (int) $payrollItems->filter(function ($item) {
-            $code = strtolower((string) ($item->component?->code ?: ''));
-            $name = strtolower((string) ($item->component?->name ?: ''));
-            return str_contains($code, 'bpjs') || str_contains($code, 'jht') || str_contains($code, 'jp') || str_contains($code, 'jkk') || str_contains($code, 'jkm')
-                || str_contains($name, 'bpjs') || str_contains($name, 'jaminan');
+        // Biaya BPJS (Total Iuran Perusahaan & Karyawan)
+        $biayaBpjsPerusahaan = (int) $payrollItems->filter(function ($item) {
+            $name = strtolower((string) ($item->nama_item ?: ''));
+            return $item->type === 'employer_contribution' ||
+                (str_contains($name, 'perusahaan') && (str_contains($name, 'bpjs') || str_contains($name, 'jht') || str_contains($name, 'jp') || str_contains($name, 'jkk') || str_contains($name, 'jkm') || str_contains($name, 'jkn')));
         })->sum('amount');
 
-        // Jumlah Karyawan Aktif
-        $allActiveEmployees = Karyawan::query()
+        $biayaBpjsKaryawan = (int) $payrollItems->filter(function ($item) {
+            $name = strtolower((string) ($item->nama_item ?: ''));
+            return $item->type === 'deduction' &&
+                (str_contains($name, 'bpjs') || str_contains($name, 'jht') || str_contains($name, 'jp') || str_contains($name, 'jkn'));
+        })->sum('amount');
+
+        $biayaBpjs = $biayaBpjsPerusahaan + $biayaBpjsKaryawan;
+
+        // PPh 21 Terpisah
+        $pph21 = (int) $payrollItems->filter(function ($item) {
+            $name = strtolower((string) ($item->nama_item ?: ''));
+            return str_contains($name, 'pph') || str_contains($name, 'pajak');
+        })->sum('amount');
+
+        // Biaya Casual di periode ini
+        $biayaCasual = (int) $payrolls->filter(function ($p) {
+            $status = strtolower((string) ($p->karyawan?->status_karyawan ?: ''));
+            return str_contains($status, 'casual') || str_contains($status, 'freelance') || str_contains($status, 'harian');
+        })->sum(fn ($p) => $p->bruto_man_power ?: ($p->total_pendapatan ?: $p->total_dibayarkan));
+
+        // Jumlah Karyawan Aktif berdasarkan Business Unit
+        $activeEmployeesQuery = Karyawan::query()
             ->where(function ($q) {
                 $q->whereNull('end_date')
                     ->orWhere('end_date', '>=', now()->toDateString());
-            })
-            ->get();
+            });
+        $applyBusinessUnitFilter($activeEmployeesQuery, 'bisnis_unit');
+        $allActiveEmployees = $activeEmployeesQuery->get();
 
         $jumlahCasual = $allActiveEmployees->filter(function ($k) {
             $status = strtolower((string) $k->status_karyawan);
@@ -82,7 +121,7 @@ class HrPayrollDashboardController extends Controller
 
         $jumlahRegular = max(0, $allActiveEmployees->count() - $jumlahCasual);
 
-        // 3. Bar Cards (Tren 12 Bulan Terakhir)
+        // 4. Bar Cards (Tren 12 Bulan Terakhir)
         $monthlyTrends = [];
         for ($i = 11; $i >= 0; $i--) {
             $mDate = $selectedDate->copy()->subMonths($i);
@@ -93,6 +132,9 @@ class HrPayrollDashboardController extends Controller
 
             $mPayrolls = Payroll::query()
                 ->with('karyawan')
+                ->whereHas('karyawan', function ($q) use ($applyBusinessUnitFilter) {
+                    $applyBusinessUnitFilter($q, 'bisnis_unit');
+                })
                 ->where(function ($q) use ($mStart, $mEnd) {
                     $q->whereBetween('periode_start', [$mStart, $mEnd])
                         ->orWhereBetween('periode_end', [$mStart, $mEnd]);
@@ -108,10 +150,36 @@ class HrPayrollDashboardController extends Controller
                 return str_contains($status, 'casual') || str_contains($status, 'freelance') || str_contains($status, 'harian');
             })->sum(fn ($p) => $p->bruto_man_power ?: ($p->total_pendapatan ?: $p->total_dibayarkan));
 
-            // Karyawan Resign di bulan ini
-            $mResign = Karyawan::query()
+            // Karyawan Resign di bulan ini (Cek m_karyawan.end_date dan fallback kontrak terakhir di t_kontrak_karyawan)
+            $resignDirectNiks = Karyawan::query()
+                ->where(function ($q) use ($applyBusinessUnitFilter) {
+                    $applyBusinessUnitFilter($q, 'bisnis_unit');
+                })
                 ->whereBetween('end_date', [$mStart->toDateString(), $mEnd->toDateString()])
-                ->count();
+                ->pluck('nik');
+
+            $activeHomPimPlayNiks = Karyawan::query()
+                ->where(function ($q) use ($applyBusinessUnitFilter) {
+                    $applyBusinessUnitFilter($q, 'bisnis_unit');
+                })
+                ->whereNull('end_date')
+                ->pluck('nik');
+
+            $contractResignCount = $activeHomPimPlayNiks->isNotEmpty()
+                ? DB::table('t_kontrak_karyawan as c1')
+                    ->whereIn('c1.nik', $activeHomPimPlayNiks)
+                    ->whereIn('c1.status_kontrak', ['NONAKTIF', 'HABIS', 'RESIGN'])
+                    ->whereBetween('c1.end_date', [$mStart->toDateString(), $mEnd->toDateString()])
+                    ->whereNotExists(function ($sub) {
+                        $sub->select(DB::raw(1))
+                            ->from('t_kontrak_karyawan as c2')
+                            ->whereColumn('c2.nik', 'c1.nik')
+                            ->where('c2.id', '>', DB::raw('c1.id'));
+                    })
+                    ->count()
+                : 0;
+
+            $mResign = $resignDirectNiks->count() + $contractResignCount;
 
             // Omset Bulan Ini
             $mRevenueRecord = MonthlyRevenue::where('year', (int) $mDate->format('Y'))
@@ -140,9 +208,23 @@ class HrPayrollDashboardController extends Controller
         $currentOmset = $currentRevenue ? (float) $currentRevenue->omset : 0;
         $currentPersenManpower = $currentOmset > 0 ? round(($totalGajiBruto / $currentOmset) * 100, 2) : 0;
 
-        // 4. Pie Cards (Distribusi & Perbandingan Komposisi)
-        
-        // A. Metode Pembayaran (Cash vs Transfer)
+        // 5. Pie Cards (Distribusi Komposisi)
+
+        // A. Metode Pembayaran: Cash (Tunjangan Tidak Tetap + Tunjangan Jabatan) vs Transfer (Sisa Komponen Lainnya)
+        $totalTunjanganJabatan = (int) $payrollItems->filter(function ($item) {
+            $name = strtolower((string) ($item->nama_item ?: ''));
+            return str_contains($name, 'tunjangan jabatan');
+        })->sum('amount');
+
+        $totalTunjanganTidakTetap = (int) $payrollItems->filter(function ($item) {
+            $name = strtolower((string) ($item->nama_item ?: ''));
+            return str_contains($name, 'tunjangan tidak tetap');
+        })->sum('amount');
+
+        $cashAmount = $totalTunjanganJabatan + $totalTunjanganTidakTetap;
+        $transferAmount = max(0, $totalGajiNetto - $cashAmount);
+
+        // Fallback jika belum ada payroll di bulan terpilih: estimasi dari rekening
         $transferCount = $allActiveEmployees->filter(fn ($k) => ! empty(trim((string) $k->bank)) && ! empty(trim((string) $k->no_rekening)))->count();
         $cashCount = max(0, $allActiveEmployees->count() - $transferCount);
 
@@ -165,7 +247,7 @@ class HrPayrollDashboardController extends Controller
                 $eduDistribution['SMA / SMK']++;
             } elseif (str_contains($edu, 'D1') || str_contains($edu, 'D2') || str_contains($edu, 'D3') || str_contains($edu, 'D4') || str_contains($edu, 'DIPLOMA')) {
                 $eduDistribution['Diploma (D1-D4)']++;
-            } elseif (str_contains($edu, 'S1') || str_contains($edu, 'SARJANA') || str_contains($edu, 'BACHELOR')) {
+            } elseif (str_contains($edu, 'S1') || str_contains($edu, 'SARJANA')) {
                 $eduDistribution['Sarjana (S1)']++;
             } elseif (str_contains($edu, 'S2') || str_contains($edu, 'MAGISTER') || str_contains($edu, 'MASTER')) {
                 $eduDistribution['Magister (S2)']++;
@@ -174,96 +256,55 @@ class HrPayrollDashboardController extends Controller
             }
         }
 
-        // D. Perbandingan Status Karyawan (Tetap, Kontrak, Casual)
-        $statusTetap = $allActiveEmployees->filter(fn ($k) => in_array(strtolower(trim((string) $k->status_karyawan)), ['tetap', 'permanent', 'pkwtt']))->count();
-        $statusKontrak = $allActiveEmployees->filter(fn ($k) => in_array(strtolower(trim((string) $k->status_karyawan)), ['kontrak', 'contract', 'pkwt', 'probation', 'percobaan']))->count();
-        $statusCasual = $jumlahCasual;
-        $statusLainnya = max(0, $allActiveEmployees->count() - ($statusTetap + $statusKontrak + $statusCasual));
-
-        // E. Perbandingan BPJS vs Non-BPJS
-        $bpjsCount = $allActiveEmployees->filter(function ($k) {
-            return (bool) $k->bpjs || ! empty(trim((string) $k->no_bpjs));
-        })->count();
-        $nonBpjsCount = max(0, $allActiveEmployees->count() - $bpjsCount);
+        // D. BPJS Coverage
+        $bpjsEnrolledCount = $allActiveEmployees->filter(fn ($k) => (bool) $k->bpjs)->count();
+        $bpjsNotEnrolledCount = max(0, $allActiveEmployees->count() - $bpjsEnrolledCount);
 
         return response()->json([
-            'period' => [
-                'month' => $selectedDate->format('Y-m'),
-                'label' => $selectedDate->translatedFormat('F Y'),
-                'year' => (int) $selectedDate->format('Y'),
+            'meta' => [
+                'selected_month' => $selectedDate->format('Y-m'),
+                'selected_month_label' => $selectedDate->translatedFormat('F Y'),
+                'business_unit' => $businessUnit,
+                'total_active_employees' => $allActiveEmployees->count(),
             ],
-            'score_cards' => [
+            'kpi' => [
                 'total_gaji_bruto' => $totalGajiBruto,
                 'total_gaji_netto' => $totalGajiNetto,
-                'jumlah_karyawan_regular' => $jumlahRegular,
-                'jumlah_karyawan_casual' => $jumlahCasual,
-                'total_karyawan' => $allActiveEmployees->count(),
+                'biaya_potongan' => $biayaPotongan,
                 'biaya_lembur' => $biayaLembur,
                 'biaya_bpjs' => $biayaBpjs,
-                'biaya_potongan' => $biayaPotongan,
+                'biaya_bpjs_perusahaan' => $biayaBpjsPerusahaan,
+                'biaya_bpjs_karyawan' => $biayaBpjsKaryawan,
+                'pph21' => $pph21,
+                'biaya_casual' => $biayaCasual,
+                'jumlah_regular' => $jumlahRegular,
+                'jumlah_casual' => $jumlahCasual,
                 'omset' => $currentOmset,
                 'persentase_manpower_omset' => $currentPersenManpower,
+                'cash_amount' => $cashAmount,
+                'transfer_amount' => $transferAmount,
+                'tunjangan_jabatan' => $totalTunjanganJabatan,
+                'tunjangan_tidak_tetap' => $totalTunjanganTidakTetap,
             ],
-            'bar_cards' => [
-                'monthly_trends' => $monthlyTrends,
-            ],
-            'pie_cards' => [
-                'payment_method' => [
-                    ['label' => 'Transfer Bank', 'value' => $transferCount, 'color' => '#3b82f6'],
-                    ['label' => 'Cash / Tunai', 'value' => $cashCount, 'color' => '#10b981'],
+            'monthly_trends' => $monthlyTrends,
+            'distributions' => [
+                'payment_methods' => [
+                    'cash_amount' => $cashAmount,
+                    'transfer_amount' => $transferAmount,
+                    'cash_count' => $cashCount,
+                    'transfer_count' => $transferCount,
                 ],
                 'gender' => [
-                    ['label' => 'Laki-laki', 'value' => $maleCount, 'color' => '#0284c7'],
-                    ['label' => 'Perempuan', 'value' => $femaleCount, 'color' => '#ec4899'],
-                    ['label' => 'Belum Diisi', 'value' => $unknownGenderCount, 'color' => '#94a3b8'],
+                    'male' => $maleCount,
+                    'female' => $femaleCount,
+                    'unknown' => $unknownGenderCount,
                 ],
-                'education' => [
-                    ['label' => 'SMA / SMK', 'value' => $eduDistribution['SMA / SMK'], 'color' => '#f59e0b'],
-                    ['label' => 'Diploma (D1-D4)', 'value' => $eduDistribution['Diploma (D1-D4)'], 'color' => '#8b5cf6'],
-                    ['label' => 'Sarjana (S1)', 'value' => $eduDistribution['Sarjana (S1)'], 'color' => '#3b82f6'],
-                    ['label' => 'Magister (S2)', 'value' => $eduDistribution['Magister (S2)'], 'color' => '#059669'],
-                    ['label' => 'Lainnya', 'value' => $eduDistribution['Lainnya'], 'color' => '#64748b'],
-                ],
-                'employment_status' => [
-                    ['label' => 'Karyawan Tetap (PKWTT)', 'value' => $statusTetap, 'color' => '#10b981'],
-                    ['label' => 'Karyawan Kontrak (PKWT)', 'value' => $statusKontrak, 'color' => '#3b82f6'],
-                    ['label' => 'Casual / Freelance', 'value' => $statusCasual, 'color' => '#f59e0b'],
-                    ['label' => 'Lainnya', 'value' => $statusLainnya, 'color' => '#94a3b8'],
-                ],
-                'bpjs_coverage' => [
-                    ['label' => 'Terdaftar BPJS', 'value' => $bpjsCount, 'color' => '#059669'],
-                    ['label' => 'Non BPJS', 'value' => $nonBpjsCount, 'color' => '#ef4444'],
+                'education' => $eduDistribution,
+                'bpjs' => [
+                    'enrolled' => $bpjsEnrolledCount,
+                    'not_enrolled' => $bpjsNotEnrolledCount,
                 ],
             ],
-        ]);
-    }
-
-    public function saveMonthlyRevenue(Request $request): JsonResponse
-    {
-        $validated = $request->validate([
-            'year' => ['required', 'integer', 'min:2020', 'max:2040'],
-            'month' => ['required', 'integer', 'min:1', 'max:12'],
-            'omset' => ['required', 'numeric', 'min:0'],
-            'branch_or_unit' => ['nullable', 'string', 'max:100'],
-            'notes' => ['nullable', 'string', 'max:500'],
-        ]);
-
-        $revenue = MonthlyRevenue::updateOrCreate(
-            [
-                'year' => $validated['year'],
-                'month' => $validated['month'],
-                'branch_or_unit' => $validated['branch_or_unit'] ?: 'Holding',
-            ],
-            [
-                'omset' => $validated['omset'],
-                'notes' => $validated['notes'] ?? null,
-                'created_by' => auth()->id(),
-            ]
-        );
-
-        return response()->json([
-            'message' => 'Data omset bulanan berhasil disimpan.',
-            'data' => $revenue,
         ]);
     }
 }
