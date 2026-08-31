@@ -68,6 +68,40 @@ class WhatsAppService
         return $response->successful();
     }
 
+    public function sendImage(string $phone, string $imageUrl, string $caption = ''): bool
+    {
+        if ($this->baseUrl === '' || $this->deviceId === '') {
+            Log::error('WA - konfigurasi pengiriman gambar belum lengkap', [
+                'has_url' => $this->baseUrl !== '',
+                'has_device_id' => $this->deviceId !== '',
+            ]);
+
+            return false;
+        }
+
+        $phone = $this->normalizePhone($phone);
+
+        Log::info('WA - mulai kirim gambar', ['phone' => $phone, 'imageUrl' => $imageUrl]);
+
+        /** @var Response $response */
+        $response = $this->request()->post(
+            $this->baseUrl.'/send/message',
+            [
+                'phone' => $phone,
+                'image_url' => $imageUrl,
+                'message' => $caption,
+            ]
+        );
+
+        Log::info('WA - respons pengiriman gambar', [
+            'phone' => $phone,
+            'status' => $response->status(),
+            'response' => $response->json(),
+        ]);
+
+        return $response->successful();
+    }
+
     private function normalizePhone(string $phone): string
     {
         if (str_contains($phone, '@g.us')) {

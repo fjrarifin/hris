@@ -8,10 +8,12 @@ use App\Models\EmployeeDailySchedule;
 use App\Models\EmployeeExtraOff;
 use App\Models\EmployeePhAdjustment;
 use App\Models\FingerspotAttendanceLog;
+use App\Models\GateQrUsageLog;
 use App\Models\Karyawan;
 use App\Models\PublicHoliday;
 use App\Models\PublicHolidayRequest;
 use App\Models\User;
+use App\Notifications\GateQrUsageNotification;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -71,11 +73,17 @@ class HrisWhatsAppAgent
         $history = Cache::get($historyKey, []);
 
         $answer = $this->answer($question, $karyawan, $sender, $history, $userLevel);
-        $sent = $this->sendReply($sender, $answer);
+        if ($answer === '__IMAGE_SENT__') {
+            $sent = true;
+            $historyAnswer = "✅ [Gambar QR Gate Turnstile berhasil dibuat dan dikirim ke WhatsApp]";
+        } else {
+            $sent = $this->sendReply($sender, $answer);
+            $historyAnswer = $answer;
+        }
 
         // Simpan riwayat percakapan (Multi-turn Context) maksimal 6 percakapan terakhir
         $history[] = ['role' => 'user', 'parts' => [['text' => $question]]];
-        $history[] = ['role' => 'model', 'parts' => [['text' => $answer]]];
+        $history[] = ['role' => 'model', 'parts' => [['text' => $historyAnswer]]];
         if (count($history) > 6) {
             $history = array_slice($history, -6);
         }
@@ -95,8 +103,8 @@ class HrisWhatsAppAgent
         $normalized = $this->normalizeText($question);
         $isFirstChat = empty($history);
 
-        // 1. Cek apakah ada aksi transaksional khusus (Eskalasi IT, Reset Session, Reset Password)
-        $actionAnswer = $this->handleDirectActions($normalized, $karyawan, $history);
+        // 1. Cek apakah ada aksi transaksional khusus (Eskalasi IT, Reset Session, Reset Password, Smart Gate QR)
+        $actionAnswer = $this->handleDirectActions($question, $normalized, $karyawan, $sender, $history);
         if ($actionAnswer !== null) {
             return $actionAnswer;
         }
@@ -172,14 +180,8 @@ class HrisWhatsAppAgent
         return implode(' ', $corrected);
     }
 
-    private function handleDirectActions(string $question, ?Karyawan $karyawan, array $history = []): ?string
+    private function handleDirectActions(string $rawQuestion, string $normalized, ?Karyawan $karyawan, string $sender, array $history = []): ?string
     {
-        $normalized = Str::of($question)
-            ->lower()
-            ->replaceMatches('/[^a-z0-9\s]/', ' ')
-            ->squish()
-            ->toString();
-
         $namaPanggilan = $karyawan ? ucfirst(strtolower(explode(' ', trim($karyawan->nama_karyawan))[0])) : '';
         $sapaan = $namaPanggilan ? "Kak {$namaPanggilan}" : "Kak";
         $isFirstChat = empty($history);
@@ -211,7 +213,7 @@ class HrisWhatsAppAgent
             $waktu = now()->locale('id')->translatedFormat('d F Y, H:i') . ' WIB';
 
             // Rangkum kendala asli berdasarkan riwayat percakapan sebelumnya
-            $kendalaText = $this->summarizeTicketIssue($question, $history);
+            $kendalaText = $this->summarizeTicketIssue($rawQuestion, $history);
 
             $ticketMsg = "🚨 *[TIKET BANTUAN IT BARU]*\n";
             $ticketMsg .= "━━━━━━━━━━━━━━━━━━━━\n";
@@ -317,7 +319,154 @@ class HrisWhatsAppAgent
             return "Password akun portal kamu (NIK: {$karyawan->nik}) sudah berhasil di-reset ke default: *12345678*.\n\nSilakan coba login kembali di https://hr.hompimplay.id lalu ubah kata sandi di profil demi keamanan ya.";
         }
 
+        // -------------------------------------------------------------
+        // Aksi 3: Smart Gate QR Generation (Opsi 3: Smart Detection)
+        // -------------------------------------------------------------
+        $cacheQrKey = "wa_agent_pending_qr:" . ($karyawan ? $karyawan->nik : preg_replace('/[^0-9]/', '', $sender));
+        $isAwaitingQrReason = \Illuminate\Support\Facades\Cache::get($cacheQrKey) === 'awaiting_reason';
+
+        $isGateQrRequest = str_contains($normalized, 'qr gate')
+            || str_contains($normalized, 'barcode gate')
+            || str_contains($normalized, 'generate qr')
+            || str_contains($normalized, 'bikin qr')
+            || str_contains($normalized, 'buat qr')
+            || str_contains($normalized, 'minta qr')
+            || str_contains($normalized, 'qr code gate')
+            || str_contains($normalized, 'qr masuk')
+            || str_contains($normalized, 'qr kantor')
+            || str_contains($normalized, 'qr office')
+            || (str_contains($normalized, 'qr') && (str_contains($normalized, 'akses') || str_contains($normalized, 'masuk') || str_contains($normalized, 'gate') || str_contains($normalized, 'turnstile') || str_contains($normalized, 'office') || str_contains($normalized, 'kantor')));
+
+        if ($isAwaitingQrReason) {
+            \Illuminate\Support\Facades\Cache::forget($cacheQrKey);
+            $reason = trim($rawQuestion);
+            if (strlen($reason) < 3) {
+                $reason = "Akses masuk kantor (Permintaan via WhatsApp)";
+            }
+            return $this->processGateQrGeneration($karyawan, $sender, $reason);
+        }
+
+        if ($isGateQrRequest) {
+            $extractedReason = $this->extractGateQrReason($rawQuestion, $normalized);
+
+            if ($extractedReason !== null && strlen($extractedReason) >= 3) {
+                return $this->processGateQrGeneration($karyawan, $sender, $extractedReason);
+            }
+
+            // Jika belum ada alasan, tanyakan sekali (Multi-turn UX)
+            \Illuminate\Support\Facades\Cache::put($cacheQrKey, 'awaiting_reason', 600); // 10 menit
+            return "Siap {$sapaan}! Untuk keperluan pencatatan sistem HRD, mohon sebutkan alasan pembuatan QR Gate hari ini ya (contoh: kartu tertinggal di rumah, kartu rusak, akses kantor, dll).";
+        }
+
         return null;
+    }
+
+    private function extractGateQrReason(string $rawText, string $normalized): ?string
+    {
+        // 1. Cek pola eksplisit "alasan / reason / karena / keperluan"
+        if (preg_match('/(?:alasan|reason)\s*(?:nya)?\s*[:=]?\s*(.+)/i', $rawText, $matches)) {
+            $candidate = trim($matches[1]);
+            if (strlen($candidate) >= 3) {
+                return $candidate;
+            }
+        }
+
+        if (preg_match('/\b(?:karena|keperluan|buat|untuk)\b\s*[:=]?\s*(.+)/i', $rawText, $matches)) {
+            $candidate = trim($matches[1]);
+            if (strlen($candidate) >= 3) {
+                return $candidate;
+            }
+        }
+
+        // 2. Cek keyword alasan umum
+        $reasonPatterns = [
+            'kartu tertinggal' => 'Kartu akses tertinggal',
+            'kartu ketinggalan' => 'Kartu akses tertinggal',
+            'tertinggal di rumah' => 'Kartu tertinggal di rumah',
+            'ketinggalan di rumah' => 'Kartu tertinggal di rumah',
+            'tertinggal di mobil' => 'Kartu tertinggal di mobil',
+            'ketinggalan di mobil' => 'Kartu tertinggal di mobil',
+            'lupa bawa kartu' => 'Lupa membawa kartu akses',
+            'kartu hilang' => 'Kartu akses hilang',
+            'kartu rusak' => 'Kartu akses rusak / tidak terbaca',
+            'akses office' => 'Akses ke office',
+            'akses kantor' => 'Akses masuk kantor',
+            'masuk kantor' => 'Akses masuk kantor',
+            'masuk office' => 'Akses ke office',
+        ];
+
+        foreach ($reasonPatterns as $kw => $label) {
+            if (str_contains($normalized, $kw)) {
+                return $label;
+            }
+        }
+
+        return null;
+    }
+
+    private function processGateQrGeneration(?Karyawan $karyawan, string $sender, string $reason): string
+    {
+        $namaPanggilan = $karyawan ? ucfirst(strtolower(explode(' ', trim($karyawan->nama_karyawan))[0])) : '';
+        $sapaan = $namaPanggilan ? "Kak {$namaPanggilan}" : "Kak";
+
+        if (! $karyawan) {
+            return "Maaf ya {$sapaan}, nomor WhatsApp ini belum terdaftar di sistem HRIS. Silakan hubungi tim HRD untuk update nomor telepon ya.";
+        }
+
+        $user = User::where('username', $karyawan->nik)->first();
+        $userId = $user?->id;
+        $employeeNik = (string) $karyawan->nik;
+        $employeeName = $karyawan->nama_karyawan ?: ($user?->name ?: 'Karyawan');
+
+        // 1. Catat ke GateQrUsageLog
+        $log = GateQrUsageLog::create([
+            'user_id' => $userId,
+            'nik' => $employeeNik,
+            'employee_name' => $employeeName,
+            'reason' => trim($reason),
+            'used_at' => now(),
+        ]);
+
+        // 2. Kirim Notifikasi ke HRD
+        try {
+            User::query()
+                ->where('level', 2)
+                ->where('is_active', true)
+                ->get()
+                ->each(fn (User $hrd) => $hrd->notify(new GateQrUsageNotification($log)));
+        } catch (\Throwable $e) {
+            Log::warning('Failed sending GateQrUsageNotification: ' . $e->getMessage());
+        }
+
+        // 3. Buat Payload QR
+        $dateCode = now()->format('ymd'); // YYMMDD (e.g. 260831)
+        $qrPayload = json_encode([
+            't' => $dateCode . substr($employeeNik, -4),
+            'm' => $employeeNik,
+            'c' => $dateCode,
+            'x' => [[9, 100, 374]],
+        ]);
+
+        // 4. URL Gambar QR Code beresolusi tinggi
+        $qrImageUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=10&data=' . urlencode($qrPayload);
+
+        $tanggalFormatted = now()->locale('id')->translatedFormat('d F Y');
+        $caption = "✅ *QR Code Gate Turnstile Berhasil Dibuat!*\n\n" .
+            "👤 *Nama*: {$employeeName} (`{$employeeNik}`)\n" .
+            "📅 *Berlaku*: Hari Ini ({$tanggalFormatted})\n" .
+            "📝 *Alasan*: _{$reason}_\n\n" .
+            "📌 *Cara Penggunaan:*\n" .
+            "Arahkan gambar QR Code di atas ke scanner pada turnstile gate kantor untuk membuka akses masuk.\n\n" .
+            "_Log penggunaan ini sudah otomatis tercatat dan diteruskan ke sistem HRD._";
+
+        // Kirim Gambar QR Langsung ke WhatsApp Karyawan
+        $sentImage = $this->whatsApp->sendImage($sender, $qrImageUrl, $caption);
+
+        if ($sentImage) {
+            return '__IMAGE_SENT__';
+        }
+
+        return $caption;
     }
 
     private function buildSystemPrompt(?Karyawan $karyawan, bool $isFirstChat = false, int $userLevel = 3): string
