@@ -320,10 +320,24 @@ class HrisWhatsAppAgent
         }
 
         // -------------------------------------------------------------
-        // Aksi 3: Multi-turn Gate QR Generation (Wajib Tanya Alasan Terlebih Dahulu Sesuai SOP)
+        // Aksi 3: Multi-turn Gate QR Generation & Pengiriman Ulang QR Hari Ini
         // -------------------------------------------------------------
         $cacheQrKey = "wa_agent_pending_qr:" . ($karyawan ? $karyawan->nik : preg_replace('/[^0-9]/', '', $sender));
         $isAwaitingQrReason = \Illuminate\Support\Facades\Cache::get($cacheQrKey) === 'awaiting_reason';
+
+        $isResendQrRequest = (
+            str_contains($normalized, 'kirim qr')
+            || str_contains($normalized, 'kirim barcode')
+            || str_contains($normalized, 'kirim ke saya qr')
+            || str_contains($normalized, 'kirim melalui wa')
+            || str_contains($normalized, 'kirim melalui whatsapp')
+            || str_contains($normalized, 'kirim lewat wa')
+            || str_contains($normalized, 'resend qr')
+            || str_contains($normalized, 'mana qr')
+            || str_contains($normalized, 'qr hari ini')
+            || str_contains($normalized, 'qr code saya hari ini')
+            || (str_contains($normalized, 'kirim') && (str_contains($normalized, 'wa') || str_contains($normalized, 'whatsapp')))
+        );
 
         $isGateQrRequest = str_contains($normalized, 'qr gate')
             || str_contains($normalized, 'barcode gate')
@@ -345,10 +359,22 @@ class HrisWhatsAppAgent
             if (strlen($reason) < 3) {
                 $reason = "Akses masuk kantor (Permintaan via WhatsApp)";
             }
-            return $this->processGateQrGeneration($karyawan, $sender, $reason);
+            return $this->processGateQrGeneration($karyawan, $sender, $reason, true);
         }
 
-        if ($isGateQrRequest) {
+        // Jika karyawan meminta kirim ulang QR yang sudah pernah dibuat hari ini
+        if ($isResendQrRequest && $karyawan) {
+            $todayLog = GateQrUsageLog::where('nik', $karyawan->nik)
+                ->whereDate('used_at', now()->toDateString())
+                ->latest('id')
+                ->first();
+
+            if ($todayLog) {
+                return $this->processGateQrGeneration($karyawan, $sender, $todayLog->reason, false);
+            }
+        }
+
+        if ($isGateQrRequest || $isResendQrRequest) {
             // Selalu tanyakan alasan terlebih dahulu untuk mematuhi SOP
             \Illuminate\Support\Facades\Cache::put($cacheQrKey, 'awaiting_reason', 600); // 10 menit
             return "Siap {$sapaan}! Sesuai SOP perusahaan, untuk pencatatan sistem HRD mohon sebutkan alasan penggunaan QR Gate hari ini ya (contoh: kartu tertinggal di rumah, kartu hilang, kartu rusak, dll).";
@@ -357,7 +383,7 @@ class HrisWhatsAppAgent
         return null;
     }
 
-    private function processGateQrGeneration(?Karyawan $karyawan, string $sender, string $reason): string
+    private function processGateQrGeneration(?Karyawan $karyawan, string $sender, string $reason, bool $createNewLog = true): string
     {
         $namaPanggilan = $karyawan ? ucfirst(strtolower(explode(' ', trim($karyawan->nama_karyawan))[0])) : '';
         $sapaan = $namaPanggilan ? "Kak {$namaPanggilan}" : "Kak";
@@ -371,24 +397,26 @@ class HrisWhatsAppAgent
         $employeeNik = (string) $karyawan->nik;
         $employeeName = $karyawan->nama_karyawan ?: ($user?->name ?: 'Karyawan');
 
-        // 1. Catat ke GateQrUsageLog
-        $log = GateQrUsageLog::create([
-            'user_id' => $userId,
-            'nik' => $employeeNik,
-            'employee_name' => $employeeName,
-            'reason' => trim($reason),
-            'used_at' => now(),
-        ]);
+        // 1. Catat ke GateQrUsageLog jika baru
+        if ($createNewLog) {
+            $log = GateQrUsageLog::create([
+                'user_id' => $userId,
+                'nik' => $employeeNik,
+                'employee_name' => $employeeName,
+                'reason' => trim($reason),
+                'used_at' => now(),
+            ]);
 
-        // 2. Kirim Notifikasi ke HRD
-        try {
-            User::query()
-                ->where('level', 2)
-                ->where('is_active', true)
-                ->get()
-                ->each(fn (User $hrd) => $hrd->notify(new GateQrUsageNotification($log)));
-        } catch (\Throwable $e) {
-            Log::warning('Failed sending GateQrUsageNotification: ' . $e->getMessage());
+            // 2. Kirim Notifikasi ke HRD
+            try {
+                User::query()
+                    ->where('level', 2)
+                    ->where('is_active', true)
+                    ->get()
+                    ->each(fn (User $hrd) => $hrd->notify(new GateQrUsageNotification($log)));
+            } catch (\Throwable $e) {
+                Log::warning('Failed sending GateQrUsageNotification: ' . $e->getMessage());
+            }
         }
 
         // 3. Buat Payload QR Turnstile
