@@ -28,20 +28,25 @@ class HrPayrollDashboardController extends Controller
         $startDate = $selectedDate->copy()->startOfMonth();
         $endDate = $selectedDate->copy()->endOfMonth();
 
+        // Periksa apakah sudah ada data bisnis_unit yang terisi di tabel m_karyawan
+        $hasSpecificBu = Karyawan::query()->whereNotNull('bisnis_unit')->where('bisnis_unit', '!=', '')->exists();
+
         // Helper filter business unit
-        $applyBusinessUnitFilter = function ($query, $column = 'bisnis_unit') use ($businessUnit) {
-            if ($businessUnit === 'HomPimPlay') {
-                $query->where(function ($q) use ($column) {
-                    $q->where($column, 'HomPimPlay')
-                        ->orWhereNull($column)
-                        ->orWhere($column, '');
-                });
-            } elseif (! empty($businessUnit) && $businessUnit !== 'all') {
-                $query->where($column, $businessUnit);
+        $applyBusinessUnitFilter = function ($query, $column = 'bisnis_unit') use ($businessUnit, $hasSpecificBu) {
+            if (! empty($businessUnit) && $businessUnit !== 'all') {
+                if ($hasSpecificBu) {
+                    $query->where($column, $businessUnit);
+                } else {
+                    $query->where(function ($q) use ($column, $businessUnit) {
+                        $q->where($column, $businessUnit)
+                            ->orWhereNull($column)
+                            ->orWhere($column, '');
+                    });
+                }
             }
         };
 
-        // 1. Ambil Data Payroll Periode Terpilih
+        // 1. Ambil Data Payroll Periode Terpilih (Termasuk karyawan yang sudah nonaktif tapi punya payroll di periode ini)
         $payrollQuery = Payroll::query()
             ->with(['karyawan', 'items'])
             ->whereHas('karyawan', function ($q) use ($applyBusinessUnitFilter) {
@@ -102,11 +107,14 @@ class HrPayrollDashboardController extends Controller
         // Biaya Casual di periode ini
         $biayaCasual = (int) $payrolls->filter(function ($p) {
             $status = strtolower((string) ($p->karyawan?->status_karyawan ?: ''));
-            return str_contains($status, 'casual') || str_contains($status, 'freelance') || str_contains($status, 'harian');
+            $jabatan = strtolower((string) ($p->karyawan?->jabatan ?: ''));
+            return str_contains($status, 'casual') || str_contains($status, 'freelance') || str_contains($status, 'harian')
+                || str_contains($jabatan, 'casual') || str_contains($jabatan, 'freelance');
         })->sum(fn ($p) => $p->bruto_man_power ?: ($p->total_pendapatan ?: $p->total_dibayarkan));
 
-        // Jumlah Karyawan Aktif berdasarkan Business Unit
+        // Jumlah Karyawan Aktif berdasarkan Business Unit (Status AKTIF)
         $activeEmployeesQuery = Karyawan::query()
+            ->where('status_karyawan', 'AKTIF')
             ->where(function ($q) {
                 $q->whereNull('end_date')
                     ->orWhere('end_date', '>=', now()->toDateString());
