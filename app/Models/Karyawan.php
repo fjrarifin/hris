@@ -29,6 +29,7 @@ class Karyawan extends Model
         'posisi',
         'posisi_level',
         'posisi_title',
+        'bisnis_unit',
         'divisi',
         'departement',
         'unit',

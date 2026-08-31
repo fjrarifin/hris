@@ -328,6 +328,7 @@ class EmployeeController extends Controller
             'posisi' => ['nullable', 'string', 'max:100'],
             'posisi_level' => ['nullable', Rule::in($this->positionLevels())],
             'posisi_title' => ['nullable', 'string', 'exists:master_position_titles,name'],
+            'bisnis_unit' => ['nullable', 'string', 'exists:master_business_units,name'],
             'divisi' => ['nullable', 'string', 'exists:master_divisions,name'],
             'departement' => ['nullable', 'string', 'exists:master_departments,name'],
             'unit' => ['nullable', 'string', 'exists:master_units,name'],
@@ -840,6 +841,7 @@ class EmployeeController extends Controller
     public function options(): JsonResponse
     {
         return response()->json([
+            'business_units' => \App\Models\MasterBusinessUnit::where('is_active', true)->pluck('name')->all(),
             'position_titles' => \App\Models\MasterPositionTitle::where('is_active', true)->pluck('name')->all(),
             'divisions' => \App\Models\MasterDivision::where('is_active', true)->pluck('name')->all(),
             'departments' => \App\Models\MasterDepartment::where('is_active', true)->pluck('name')->all(),
