@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\MasterBusinessUnit;
 use App\Models\MasterPositionTitle;
 use App\Models\MasterDivision;
 use App\Models\MasterDepartment;
@@ -17,6 +18,7 @@ class HrOrgStructureController extends Controller
     private function getModel(string $type)
     {
         return match ($type) {
+            'business-units', 'business_units' => MasterBusinessUnit::class,
             'positions' => MasterPositionTitle::class,
             'divisions' => MasterDivision::class,
             'departments' => MasterDepartment::class,

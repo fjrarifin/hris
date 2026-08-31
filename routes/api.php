@@ -406,6 +406,13 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::get('recruitment/interview-agenda', HrRecruitmentInterviewAgendaController::class);
             });
 
+            Route::middleware('frontend.menu:hr-master-business-units')->prefix('master-orgs/business-units')->group(function () {
+                Route::get('/', [HrOrgStructureController::class, 'index'])->defaults('type', 'business-units');
+                Route::post('/', [HrOrgStructureController::class, 'store'])->defaults('type', 'business-units');
+                Route::put('/{id}', [HrOrgStructureController::class, 'update'])->defaults('type', 'business-units');
+                Route::delete('/{id}', [HrOrgStructureController::class, 'destroy'])->defaults('type', 'business-units');
+            });
+
             Route::middleware('frontend.menu:hr-master-positions')->prefix('master-orgs/positions')->group(function () {
                 Route::get('/', [HrOrgStructureController::class, 'index'])->defaults('type', 'positions');
                 Route::post('/', [HrOrgStructureController::class, 'store'])->defaults('type', 'positions');
