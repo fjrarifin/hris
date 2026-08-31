@@ -438,7 +438,6 @@ class HrisWhatsAppAgent
             "📝 *Alasan*: _{$reason}_\n\n" .
             "📌 *Cara Penggunaan:*\n" .
             "Arahkan gambar QR Code di atas ke scanner pada turnstile gate kantor untuk membuka akses masuk.\n\n" .
-            "🔗 *Link Barcode*: {$qrImageUrl}\n\n" .
             "_Log penggunaan ini sudah otomatis tercatat dan diteruskan ke sistem HRD._";
 
         // Kirim Gambar QR Langsung ke WhatsApp Karyawan
