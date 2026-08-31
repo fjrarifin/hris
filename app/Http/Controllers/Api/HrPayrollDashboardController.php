@@ -79,7 +79,6 @@ class HrPayrollDashboardController extends Controller
         });
 
         $totalGajiNetto = (int) $payrolls->sum('total_dibayarkan');
-        $biayaPotongan = (int) $payrolls->sum('total_potongan');
 
         // Biaya Lembur yang akurat
         $biayaLembur = (int) $payrollItems->filter(function ($item) {
@@ -106,6 +105,17 @@ class HrPayrollDashboardController extends Controller
         $pph21 = (int) $payrollItems->filter(function ($item) {
             $name = strtolower((string) ($item->nama_item ?: ''));
             return str_contains($name, 'pph') || str_contains($name, 'pajak');
+        })->sum('amount');
+
+        // Biaya Potongan Murni (Eksklusi BPJS Karyawan & PPh 21 -> hanya Kasbon, Izin, Sakit Tanpa Surat, Denda, dll)
+        $biayaPotongan = (int) $payrollItems->filter(function ($item) {
+            if ($item->type !== 'deduction') {
+                return false;
+            }
+            $name = strtolower((string) ($item->nama_item ?: ''));
+            $isBpjs = str_contains($name, 'bpjs') || str_contains($name, 'jht') || str_contains($name, 'jp') || str_contains($name, 'jkn');
+            $isPph = str_contains($name, 'pph') || str_contains($name, 'pajak');
+            return ! $isBpjs && ! $isPph;
         })->sum('amount');
 
         // Biaya Casual di periode ini
