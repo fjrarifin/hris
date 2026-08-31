@@ -477,13 +477,15 @@ class HrLeaveBalanceController extends Controller
 
                 $phAdjustments = $phAdjustmentsGrouped->get($nik, collect());
                 $specificDeductedIds = $phAdjustments->where('days', '<', 0)->pluck('public_holiday_id')->filter()->unique();
+                $specificAddedIds = $phAdjustments->where('days', '>', 0)->pluck('public_holiday_id')->filter()->unique();
                 $generalAdjustedDays = (int) $phAdjustments->whereNull('public_holiday_id')->sum('days');
 
-                $eligiblePhs = $pastHolidays->filter(function ($holiday) use ($userScanDates, $joinDate, $specificDeductedIds) {
+                $eligiblePhs = $pastHolidays->filter(function ($holiday) use ($userScanDates, $joinDate, $specificDeductedIds, $specificAddedIds) {
                     $holidayDate = $holiday->holiday_date ? Carbon::parse($holiday->holiday_date) : null;
                     if (! $holidayDate) return false;
                     if ($joinDate && $holidayDate->lt($joinDate)) return false;
                     if ($specificDeductedIds->contains($holiday->id)) return false;
+                    if ($specificAddedIds->contains($holiday->id)) return true;
 
                     $requiresAttendance = $holidayDate->gte(Carbon::parse(self::PUBLIC_HOLIDAY_ATTENDANCE_REQUIRED_FROM));
                     return ! $requiresAttendance || $userScanDates->contains($holidayDate->toDateString());

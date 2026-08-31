@@ -365,6 +365,7 @@ Route::middleware('auth:sanctum')->group(function () {
                 });
                 Route::prefix('ph')->group(function () {
                     Route::get('/', [\App\Http\Controllers\Api\HrBalanceAdjustmentController::class, 'phIndex']);
+                    Route::get('/holidays/{nik}', [\App\Http\Controllers\Api\HrBalanceAdjustmentController::class, 'employeeHolidays']);
                     Route::post('/', [\App\Http\Controllers\Api\HrBalanceAdjustmentController::class, 'phStore']);
                     Route::delete('/{id}', [\App\Http\Controllers\Api\HrBalanceAdjustmentController::class, 'phDestroy']);
                 });

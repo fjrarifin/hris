@@ -1721,22 +1721,12 @@ class StaffPortalController extends Controller
 
     private function publicHolidayBalance(User $user): int
     {
-        $employee = $this->employeeFor($user);
         $usedHolidayIds = PublicHolidayRequest::query()
             ->where('user_id', $user->id)
             ->whereNotIn('status', ['rejected', 'cancelled'])
             ->pluck('public_holiday_id');
 
-        $generalAdjustmentDays = (int) EmployeePhAdjustment::query()
-            ->where('karyawan_nik', $employee->nik)
-            ->whereNull('public_holiday_id')
-            ->sum('days');
-
-        $eligibleCount = $this->eligiblePublicHolidays($user)
-            ->whereNotIn('id', $usedHolidayIds)
-            ->count();
-
-        return max(0, $eligibleCount + $generalAdjustmentDays);
+        return max(0, $this->eligiblePublicHolidays($user)->whereNotIn('id', $usedHolidayIds)->count());
     }
 
     private function extraOffBalance(User $user): int
@@ -1846,17 +1836,43 @@ class StaffPortalController extends Controller
             ->where('days', '<', 0)
             ->pluck('public_holiday_id');
 
-        return PublicHoliday::query()
+        $addedHolidayIds = EmployeePhAdjustment::query()
+            ->where('karyawan_nik', $employee->nik)
+            ->whereNotNull('public_holiday_id')
+            ->where('days', '>', 0)
+            ->pluck('public_holiday_id');
+
+        $generalAdjustmentDays = (int) EmployeePhAdjustment::query()
+            ->where('karyawan_nik', $employee->nik)
+            ->whereNull('public_holiday_id')
+            ->sum('days');
+
+        $allHolidays = PublicHoliday::query()
             ->where('is_active', true)
             ->whereDate('holiday_date', '<', now())
             ->whereDate('holiday_date', '>', now()->subDays(90))
             ->when($joinDate, fn ($q) => $q->whereDate('holiday_date', '>=', $joinDate))
             ->whereNotIn('id', $deductedHolidayIds)
             ->orderByDesc('holiday_date')
-            ->get()
-            ->filter(fn (PublicHoliday $holiday) => ! $this->requiresAttendanceForPublicHoliday($holiday)
-                || $attendedDates->contains($holiday->holiday_date->toDateString()))
-            ->values();
+            ->get();
+
+        $directlyEligible = $allHolidays->filter(fn (PublicHoliday $holiday) => 
+            $addedHolidayIds->contains($holiday->id)
+            || ! $this->requiresAttendanceForPublicHoliday($holiday)
+            || $attendedDates->contains($holiday->holiday_date->toDateString())
+        );
+
+        // Jika ada general adjustment tanpa holiday_id tertentu, sertakan libur tambahan yang tersedia
+        if ($generalAdjustmentDays > 0) {
+            $alreadyIncludedIds = $directlyEligible->pluck('id');
+            $bonusHolidays = $allHolidays
+                ->whereNotIn('id', $alreadyIncludedIds)
+                ->take($generalAdjustmentDays);
+
+            return $directlyEligible->concat($bonusHolidays)->values();
+        }
+
+        return $directlyEligible->values();
     }
 
     private function requiresAttendanceForPublicHoliday(PublicHoliday $holiday): bool

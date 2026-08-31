@@ -158,6 +158,7 @@ class HrBalanceAdjustmentController extends Controller
     {
         $employee = Karyawan::with('user')->where('nik', $nik)->firstOrFail();
         $user = $employee->user;
+        $type = $request->query('type', 'deduct');
 
         $attendedDates = $employee->pin
             ? \App\Models\FingerspotAttendanceLog::query()
@@ -182,28 +183,55 @@ class HrBalanceAdjustmentController extends Controller
             ->where('days', '<', 0)
             ->pluck('public_holiday_id');
 
-        $excludeIds = $usedHolidayIds->merge($deductedHolidayIds)->unique();
+        $addedHolidayIds = EmployeePhAdjustment::query()
+            ->where('karyawan_nik', $employee->nik)
+            ->whereNotNull('public_holiday_id')
+            ->where('days', '>', 0)
+            ->pluck('public_holiday_id');
+
         $joinDate = $employee->join_date ? Carbon::parse($employee->join_date)->startOfDay() : null;
 
-        $holidays = \App\Models\PublicHoliday::query()
-            ->where('is_active', true)
-            ->whereDate('holiday_date', '<', now())
-            ->whereDate('holiday_date', '>', now()->subDays(90))
-            ->when($joinDate, fn ($q) => $q->whereDate('holiday_date', '>=', $joinDate))
-            ->whereNotIn('id', $excludeIds)
-            ->orderByDesc('holiday_date')
-            ->get()
-            ->filter(function ($holiday) use ($attendedDates) {
-                $requiresAttendance = $holiday->holiday_date->gte(Carbon::parse('2026-05-27'));
-                return ! $requiresAttendance || $attendedDates->contains($holiday->holiday_date->toDateString());
-            })
-            ->values()
-            ->map(fn ($h) => [
-                'id' => $h->id,
-                'name' => $h->name,
-                'holiday_date' => $h->holiday_date?->toDateString(),
-                'label' => ($h->holiday_date ? $h->holiday_date->format('d M Y') : '') . ' - ' . $h->name,
-            ]);
+        if ($type === 'add') {
+            // Untuk penambahan, sediakan seluruh hari libur nasional aktif dalam 90 hari terakhir
+            $holidays = \App\Models\PublicHoliday::query()
+                ->where('is_active', true)
+                ->whereDate('holiday_date', '<=', now()->addDays(30))
+                ->whereDate('holiday_date', '>', now()->subDays(90))
+                ->when($joinDate, fn ($q) => $q->whereDate('holiday_date', '>=', $joinDate))
+                ->orderByDesc('holiday_date')
+                ->get()
+                ->values()
+                ->map(fn ($h) => [
+                    'id' => $h->id,
+                    'name' => $h->name,
+                    'holiday_date' => $h->holiday_date?->toDateString(),
+                    'label' => ($h->holiday_date ? $h->holiday_date->format('d M Y') : '') . ' - ' . $h->name,
+                ]);
+        } else {
+            // Untuk pengurangan, hanya libur yang saat ini aktif dimiliki karyawan
+            $excludeIds = $usedHolidayIds->merge($deductedHolidayIds)->unique();
+
+            $holidays = \App\Models\PublicHoliday::query()
+                ->where('is_active', true)
+                ->whereDate('holiday_date', '<', now())
+                ->whereDate('holiday_date', '>', now()->subDays(90))
+                ->when($joinDate, fn ($q) => $q->whereDate('holiday_date', '>=', $joinDate))
+                ->whereNotIn('id', $excludeIds)
+                ->orderByDesc('holiday_date')
+                ->get()
+                ->filter(function ($holiday) use ($attendedDates, $addedHolidayIds) {
+                    if ($addedHolidayIds->contains($holiday->id)) return true;
+                    $requiresAttendance = $holiday->holiday_date->gte(Carbon::parse('2026-05-27'));
+                    return ! $requiresAttendance || $attendedDates->contains($holiday->holiday_date->toDateString());
+                })
+                ->values()
+                ->map(fn ($h) => [
+                    'id' => $h->id,
+                    'name' => $h->name,
+                    'holiday_date' => $h->holiday_date?->toDateString(),
+                    'label' => ($h->holiday_date ? $h->holiday_date->format('d M Y') : '') . ' - ' . $h->name,
+                ]);
+        }
 
         return response()->json([
             'data' => $holidays,
@@ -281,7 +309,7 @@ class HrBalanceAdjustmentController extends Controller
             ? Carbon::parse($validated['adjustment_date'])->toDateString()
             : now()->toDateString();
 
-        $publicHolidayId = ($validated['type'] === 'deduct' && ! empty($validated['public_holiday_id']))
+        $publicHolidayId = ! empty($validated['public_holiday_id'])
             ? (int) $validated['public_holiday_id']
             : null;
 
