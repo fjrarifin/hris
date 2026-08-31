@@ -98,6 +98,21 @@ return [
             'sslmode' => env('DB_SSLMODE', 'prefer'),
         ],
 
+        'pos' => [
+            'driver' => env('DBPOS_CONNECTION', 'pgsql'),
+            'url' => env('DBPOS_URL'),
+            'host' => env('DBPOS_HOST', '127.0.0.1'),
+            'port' => env('DBPOS_PORT', '5432'),
+            'database' => env('DBPOS_DATABASE', 'parlor'),
+            'username' => env('DBPOS_USERNAME', 'db_manager'),
+            'password' => env('DBPOS_PASSWORD', ''),
+            'charset' => env('DBPOS_CHARSET', 'utf8'),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'search_path' => env('DBPOS_SCHEMA', 'public'),
+            'sslmode' => env('DBPOS_SSLMODE', 'prefer'),
+        ],
+
         'sqlsrv' => [
             'driver' => 'sqlsrv',
             'url' => env('DB_URL'),

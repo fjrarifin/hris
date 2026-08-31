@@ -14,6 +14,36 @@ use Illuminate\Support\Facades\DB;
 
 class HrPayrollDashboardController extends Controller
 {
+    /**
+     * Mengambil omzet live dari database POS Parlor (PostgreSQL: transaksi_wahana_masters)
+     * berdasarkan periode cut-off (tanggal 25 bulan sebelumnya s/d tanggal 24 bulan berjalan)
+     */
+    private function getPosOmzet(Carbon $startDate, Carbon $endDate): float
+    {
+        try {
+            $omzet = (float) DB::connection('pos')
+                ->table('transaksi_wahana_masters')
+                ->whereRaw("LOWER(status) = 'lunas'")
+                ->whereBetween('created_at', [$startDate, $endDate])
+                ->sum('total');
+
+            if ($omzet > 0) {
+                return $omzet;
+            }
+        } catch (\Throwable $e) {
+            // Log fallback bila koneksi POS gagal
+        }
+
+        // Fallback ke tabel monthly_revenues bila POS belum terisi atau gagal terhubung
+        $year = (int) $endDate->format('Y');
+        $month = (int) $endDate->format('n');
+        $revenueRecord = MonthlyRevenue::where('year', $year)
+            ->where('month', $month)
+            ->first();
+
+        return $revenueRecord ? (float) $revenueRecord->omset : 0;
+    }
+
     public function index(Request $request): JsonResponse
     {
         $monthInput = $request->query('month', now()->format('Y-m'));
@@ -25,8 +55,9 @@ class HrPayrollDashboardController extends Controller
             $selectedDate = now()->startOfMonth();
         }
 
-        $startDate = $selectedDate->copy()->startOfMonth();
-        $endDate = $selectedDate->copy()->endOfMonth();
+        // CUT-OFF PAYROLL: Tanggal 25 bulan sebelumnya s/d tanggal 24 bulan berjalan
+        $startDate = $selectedDate->copy()->subMonth()->day(25)->startOfDay();
+        $endDate = $selectedDate->copy()->day(24)->endOfDay();
 
         // Periksa apakah sudah ada data bisnis_unit yang terisi di tabel m_karyawan
         $hasSpecificBu = Karyawan::query()->whereNotNull('bisnis_unit')->where('bisnis_unit', '!=', '')->exists();
@@ -46,18 +77,18 @@ class HrPayrollDashboardController extends Controller
             }
         };
 
-        // 1. Ambil Data Payroll Periode Terpilih (Termasuk karyawan yang sudah nonaktif tapi punya payroll di periode ini)
+        // 1. Ambil Data Payroll Periode Terpilih (25 s/d 24)
         $payrollQuery = Payroll::query()
             ->with(['karyawan', 'items'])
             ->whereHas('karyawan', function ($q) use ($applyBusinessUnitFilter) {
                 $applyBusinessUnitFilter($q, 'bisnis_unit');
             })
             ->where(function ($q) use ($startDate, $endDate) {
-                $q->whereBetween('periode_start', [$startDate, $endDate])
-                    ->orWhereBetween('periode_end', [$startDate, $endDate])
+                $q->whereBetween('periode_start', [$startDate->toDateString(), $endDate->toDateString()])
+                    ->orWhereBetween('periode_end', [$startDate->toDateString(), $endDate->toDateString()])
                     ->orWhere(function ($sub) use ($startDate, $endDate) {
-                        $sub->where('periode_start', '<=', $startDate)
-                            ->where('periode_end', '>=', $endDate);
+                        $sub->where('periode_start', '<=', $startDate->toDateString())
+                            ->where('periode_end', '>=', $endDate->toDateString());
                     });
             });
 
@@ -129,9 +160,9 @@ class HrPayrollDashboardController extends Controller
         // Jumlah Karyawan Aktif berdasarkan Business Unit (Status AKTIF)
         $activeEmployeesQuery = Karyawan::query()
             ->where('status_karyawan', 'AKTIF')
-            ->where(function ($q) {
+            ->where(function ($q) use ($endDate) {
                 $q->whereNull('end_date')
-                    ->orWhere('end_date', '>=', now()->toDateString());
+                    ->orWhere('end_date', '>=', $endDate->toDateString());
             });
         $applyBusinessUnitFilter($activeEmployeesQuery, 'bisnis_unit');
         $allActiveEmployees = $activeEmployeesQuery->get();
@@ -143,12 +174,12 @@ class HrPayrollDashboardController extends Controller
 
         $jumlahRegular = max(0, $allActiveEmployees->count() - $jumlahCasual);
 
-        // 4. Bar Cards (Tren 12 Bulan Terakhir)
+        // 4. Bar Cards (Tren 12 Periode Terakhir 25 s/d 24)
         $monthlyTrends = [];
         for ($i = 11; $i >= 0; $i--) {
             $mDate = $selectedDate->copy()->subMonths($i);
-            $mStart = $mDate->copy()->startOfMonth();
-            $mEnd = $mDate->copy()->endOfMonth();
+            $mStart = $mDate->copy()->subMonth()->day(25)->startOfDay();
+            $mEnd = $mDate->copy()->day(24)->endOfDay();
             $mKey = $mDate->format('Y-m');
             $mLabel = $mDate->translatedFormat('M Y');
 
@@ -158,8 +189,8 @@ class HrPayrollDashboardController extends Controller
                     $applyBusinessUnitFilter($q, 'bisnis_unit');
                 })
                 ->where(function ($q) use ($mStart, $mEnd) {
-                    $q->whereBetween('periode_start', [$mStart, $mEnd])
-                        ->orWhereBetween('periode_end', [$mStart, $mEnd]);
+                    $q->whereBetween('periode_start', [$mStart->toDateString(), $mEnd->toDateString()])
+                        ->orWhereBetween('periode_end', [$mStart->toDateString(), $mEnd->toDateString()]);
                 })
                 ->get();
 
@@ -172,7 +203,7 @@ class HrPayrollDashboardController extends Controller
                 return str_contains($status, 'casual') || str_contains($status, 'freelance') || str_contains($status, 'harian');
             })->sum(fn ($p) => $p->bruto_man_power ?: ($p->total_pendapatan ?: $p->total_dibayarkan));
 
-            // Karyawan Resign di bulan ini (Cek m_karyawan.end_date dan fallback kontrak terakhir di t_kontrak_karyawan)
+            // Karyawan Resign di periode ini (Cek m_karyawan.end_date dan fallback kontrak terakhir di t_kontrak_karyawan)
             $resignDirectNiks = Karyawan::query()
                 ->where(function ($q) use ($applyBusinessUnitFilter) {
                     $applyBusinessUnitFilter($q, 'bisnis_unit');
@@ -203,17 +234,14 @@ class HrPayrollDashboardController extends Controller
 
             $mResign = $resignDirectNiks->count() + $contractResignCount;
 
-            // Omset Bulan Ini
-            $mRevenueRecord = MonthlyRevenue::where('year', (int) $mDate->format('Y'))
-                ->where('month', (int) $mDate->format('n'))
-                ->first();
-            $mOmset = $mRevenueRecord ? (float) $mRevenueRecord->omset : 0;
-
+            // Omset Live dari POS Parlor untuk periode 25 s/d 24
+            $mOmset = $this->getPosOmzet($mStart, $mEnd);
             $mPersenManpower = $mOmset > 0 ? round(($mBruto / $mOmset) * 100, 2) : 0;
 
             $monthlyTrends[] = [
                 'month_key' => $mKey,
                 'month_label' => $mLabel,
+                'period_label' => $mStart->translatedFormat('d M') . ' - ' . $mEnd->translatedFormat('d M Y'),
                 'gaji_bruto' => $mBruto,
                 'gaji_netto' => $mNetto,
                 'biaya_casual' => $mBiayaCasual,
@@ -223,11 +251,8 @@ class HrPayrollDashboardController extends Controller
             ];
         }
 
-        // Omset Bulan Terpilih
-        $currentRevenue = MonthlyRevenue::where('year', (int) $selectedDate->format('Y'))
-            ->where('month', (int) $selectedDate->format('n'))
-            ->first();
-        $currentOmset = $currentRevenue ? (float) $currentRevenue->omset : 0;
+        // Omset Live Periode Terpilih (25 s/d 24)
+        $currentOmset = $this->getPosOmzet($startDate, $endDate);
         $currentPersenManpower = $currentOmset > 0 ? round(($totalGajiBruto / $currentOmset) * 100, 2) : 0;
 
         // 5. Pie Cards (Distribusi Komposisi)
@@ -286,6 +311,9 @@ class HrPayrollDashboardController extends Controller
             'meta' => [
                 'selected_month' => $selectedDate->format('Y-m'),
                 'selected_month_label' => $selectedDate->translatedFormat('F Y'),
+                'cutoff_start' => $startDate->toDateString(),
+                'cutoff_end' => $endDate->toDateString(),
+                'cutoff_label' => $startDate->translatedFormat('d M Y') . ' - ' . $endDate->translatedFormat('d M Y'),
                 'business_unit' => $businessUnit,
                 'total_active_employees' => $allActiveEmployees->count(),
             ],
