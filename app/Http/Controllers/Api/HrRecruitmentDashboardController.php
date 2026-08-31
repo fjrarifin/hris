@@ -84,6 +84,48 @@ class HrRecruitmentDashboardController extends Controller
         $candidateIds = $candidates->pluck('id');
         $actions = $this->actionCenter($candidates, ! ($filters['action_full'] ?? false));
 
+        // 12 Months Hiring Trend
+        $monthlyHiredTrend = [];
+        for ($i = 11; $i >= 0; $i--) {
+            $mDate = $startDate->copy()->subMonths($i);
+            $mStart = $mDate->copy()->startOfMonth();
+            $mEnd = $mDate->copy()->endOfMonth();
+            $mKey = $mDate->format('Y-m');
+            $mLabel = $mDate->translatedFormat('M Y');
+
+            $newEmployeesCount = \App\Models\Karyawan::query()
+                ->whereBetween('join_date', [$mStart->toDateString(), $mEnd->toDateString()])
+                ->count();
+
+            $hiredCandidatesCount = RecruitmentCandidate::query()
+                ->where('status', 'hired')
+                ->whereBetween('updated_at', [$mStart, $mEnd])
+                ->count();
+
+            $monthlyHiredTrend[] = [
+                'month_key' => $mKey,
+                'month_label' => $mLabel,
+                'karyawan_baru' => max($newEmployeesCount, $hiredCandidatesCount),
+                'hired_candidates' => $hiredCandidatesCount,
+            ];
+        }
+
+        // CV Criteria Match (Qualified vs Unqualified)
+        $qualifiedCount = $candidates->filter(function ($c) {
+            return in_array($c->status, ['screening', 'interview_hr', 'case_study', 'interview_user', 'reference_check', 'offering', 'pkb', 'hired'], true)
+                || ($c->status === 'rejected' && $c->stageHistories->count() > 1);
+        })->count();
+        $unqualifiedCount = max(0, $candidates->count() - $qualifiedCount);
+
+        // Stage Distribution Pie
+        $stageDistribution = collect(self::STAGE_LABELS)->map(function ($label, $key) use ($candidates) {
+            return [
+                'key' => $key,
+                'label' => $label,
+                'value' => $candidates->where('status', $key)->count(),
+            ];
+        })->values()->all();
+
         return response()->json([
             'period' => [
                 'month' => $startDate->format('Y-m'),
@@ -94,6 +136,12 @@ class HrRecruitmentDashboardController extends Controller
             'summary' => $this->summary($candidates, $actions, $startDate, $endDate, $filters),
             'pipeline' => $this->pipeline($candidates),
             'trend' => $this->trend($candidates, $startDate, $trendEndDate),
+            'monthly_hired_trend' => $monthlyHiredTrend,
+            'stage_distribution' => $stageDistribution,
+            'cv_criteria_match' => [
+                ['label' => 'Sesuai Kriteria (Qualified)', 'value' => $qualifiedCount, 'color' => '#10b981'],
+                ['label' => 'Tidak Sesuai Kriteria (Unqualified)', 'value' => $unqualifiedCount, 'color' => '#ef4444'],
+            ],
             'stage_durations' => $this->stageDurations($candidates),
             'action_center' => $actions,
             'upcoming_schedules' => $this->upcomingSchedules($candidates),
@@ -116,7 +164,7 @@ class HrRecruitmentDashboardController extends Controller
         $vacancyQuery = RecruitmentVacancy::query()->where('status', 'open');
         $this->applyVacancyFilters($vacancyQuery, $filters);
 
-        $requestQuery = RecruitmentRequest::query()->where('status', 'approved');
+        $requestQuery = RecruitmentRequest::query();
         if ($filters['vacancy_id'] ?? null) {
             $requestQuery->where('vacancy_id', $filters['vacancy_id']);
         }
@@ -127,19 +175,30 @@ class HrRecruitmentDashboardController extends Controller
             $requestQuery->where('unit', $filters['unit']);
         }
 
+        $allRequests = $requestQuery->get();
+
+        $permintaanPenggantian = $allRequests->filter(function ($r) {
+            $text = strtolower((string) ($r->title . ' ' . $r->description));
+            return str_contains($text, 'ganti') || str_contains($text, 'replace') || str_contains($text, 'penggantian') || str_contains($text, 'resign');
+        })->count();
+
+        $permintaanPenambahan = max(0, $allRequests->count() - $permintaanPenggantian);
+
         return [
             'total_candidates' => $candidates->count(),
             'active_candidates' => $active,
             'new_candidates' => $candidates->whereBetween('created_at', [$start, $end])->count(),
             'open_vacancies' => $vacancyQuery->count(),
-            'approved_headcount' => (int) $requestQuery->sum('quantity'),
+            'approved_headcount' => (int) $allRequests->where('status', 'approved')->sum('quantity'),
+            'permintaan_penambahan' => $permintaanPenambahan,
+            'permintaan_penggantian' => $permintaanPenggantian,
+            'total_permintaan_fptk' => $allRequests->count(),
             'hired_candidates' => $hired,
             'hire_rate' => $resolved > 0 ? round(($hired / $resolved) * 100, 1) : 0,
             'pending_actions' => collect($actions)->sum('count'),
             'joining_in_period' => $candidates
                 ->filter(fn (RecruitmentCandidate $candidate) => $candidate->join_date && Carbon::parse($candidate->join_date)->between($start, $end))
                 ->count(),
-            // Alias lama agar consumer API sebelumnya tidak langsung rusak.
             'joining_soon' => $candidates
                 ->filter(fn (RecruitmentCandidate $candidate) => $candidate->join_date && Carbon::parse($candidate->join_date)->between($start, $end))
                 ->count(),

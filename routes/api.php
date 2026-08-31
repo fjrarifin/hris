@@ -527,8 +527,12 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('/drafts/{payroll}/lock', [HrPayrollProcessController::class, 'lock']);
             Route::post('/drafts/{payroll}/artifact', [HrPayrollProcessController::class, 'downloadSlip']);
             Route::get('/drafts/{payroll}/pdf-download', [HrPayrollProcessController::class, 'downloadSlip']);
-            Route::get('/drafts/{payroll}/slip', [HrPayrollProcessController::class, 'downloadSlip']);
             Route::post('/drafts/{payroll}/send-slip', [HrPayrollProcessController::class, 'sendSlip']);
+        });
+
+        Route::prefix('hr/payroll/dashboard')->middleware('level:0,1,2')->group(function () {
+            Route::get('/', [\App\Http\Controllers\Api\HrPayrollDashboardController::class, 'index']);
+            Route::post('/monthly-revenue', [\App\Http\Controllers\Api\HrPayrollDashboardController::class, 'saveMonthlyRevenue']);
         });
 
         Route::prefix('staff')->middleware('level:3')->group(function () {
