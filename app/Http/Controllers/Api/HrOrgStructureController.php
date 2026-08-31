@@ -15,7 +15,50 @@ use Illuminate\Validation\Rule;
 
 class HrOrgStructureController extends Controller
 {
-    private function getModel(string $type)
+    private function resolveType(Request $request, mixed ...$args): string
+    {
+        $fromRoute = $request->route('type');
+        if (is_string($fromRoute) && ! is_numeric($fromRoute)) {
+            return $fromRoute;
+        }
+
+        foreach ($args as $arg) {
+            if (is_string($arg) && ! is_numeric($arg) && in_array($arg, ['business-units', 'business_units', 'positions', 'divisions', 'departments', 'units'], true)) {
+                return $arg;
+            }
+        }
+
+        $path = $request->path();
+        if (str_contains($path, 'business-units') || str_contains($path, 'business_units')) {
+            return 'business-units';
+        }
+        if (str_contains($path, 'positions')) {
+            return 'positions';
+        }
+        if (str_contains($path, 'divisions')) {
+            return 'divisions';
+        }
+        if (str_contains($path, 'departments')) {
+            return 'departments';
+        }
+        if (str_contains($path, 'units')) {
+            return 'units';
+        }
+
+        abort(404, 'Tipe struktur tidak ditemukan.');
+    }
+
+    private function resolveId(mixed ...$args): int
+    {
+        foreach ($args as $arg) {
+            if (is_numeric($arg)) {
+                return (int) $arg;
+            }
+        }
+        abort(400, 'ID tidak valid.');
+    }
+
+    private function getModel(string $type): string
     {
         return match ($type) {
             'business-units', 'business_units' => MasterBusinessUnit::class,
@@ -23,18 +66,20 @@ class HrOrgStructureController extends Controller
             'divisions' => MasterDivision::class,
             'departments' => MasterDepartment::class,
             'units' => MasterUnit::class,
-            default => abort(404, 'Tipe struktur tidak ditemukan.'),
+            default => abort(404, "Tipe struktur '{$type}' tidak ditemukan."),
         };
     }
 
-    public function index(Request $request, string $type): JsonResponse
+    public function index(Request $request, mixed $type = null): JsonResponse
     {
+        $type = $this->resolveType($request, $type);
         $model = $this->getModel($type);
         return response()->json($model::query()->latest()->get());
     }
 
-    public function store(Request $request, string $type): JsonResponse
+    public function store(Request $request, mixed $type = null): JsonResponse
     {
+        $type = $this->resolveType($request, $type);
         $model = $this->getModel($type);
         $tableName = (new $model)->getTable();
 
@@ -59,9 +104,10 @@ class HrOrgStructureController extends Controller
         return response()->json(['message' => 'Data berhasil dibuat.', 'data' => $record], 201);
     }
 
-    public function update(Request $request, string $type, int|string $id): JsonResponse
+    public function update(Request $request, mixed $param1 = null, mixed $param2 = null): JsonResponse
     {
-        $id = (int) $id;
+        $type = $this->resolveType($request, $param1, $param2);
+        $id = $this->resolveId($param1, $param2);
         $model = $this->getModel($type);
         $record = $model::query()->findOrFail($id);
         $tableName = $record->getTable();
@@ -88,9 +134,10 @@ class HrOrgStructureController extends Controller
         return response()->json(['message' => 'Data berhasil diperbarui.', 'data' => $record]);
     }
 
-    public function destroy(Request $request, string $type, int|string $id): JsonResponse
+    public function destroy(Request $request, mixed $param1 = null, mixed $param2 = null): JsonResponse
     {
-        $id = (int) $id;
+        $type = $this->resolveType($request, $param1, $param2);
+        $id = $this->resolveId($param1, $param2);
         $model = $this->getModel($type);
         $record = $model::query()->findOrFail($id);
         $beforeAudit = app(HrdAuditLogService::class)->snapshot($record);
