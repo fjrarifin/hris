@@ -70,7 +70,11 @@ class HrPayrollDashboardController extends Controller
             : collect();
 
         // 3. Score Cards (KPI Metrics)
-        $totalGajiBruto = (int) $payrolls->sum(function ($p) {
+        // Total Gaji Bruto (Gross Pendapatan Karyawan) - sama persis dengan /payroll/process
+        $totalGajiBruto = (int) $payrolls->sum('total_pendapatan');
+
+        // Total Bruto Man Power (Total Beban Biaya Perusahaan termasuk BPJS Perusahaan)
+        $totalBrutoManPower = (int) $payrolls->sum(function ($p) {
             return $p->bruto_man_power ?: ($p->total_pendapatan ?: $p->basic_salary);
         });
 
@@ -149,7 +153,7 @@ class HrPayrollDashboardController extends Controller
                 })
                 ->get();
 
-            $mBruto = (int) $mPayrolls->sum(fn ($p) => $p->bruto_man_power ?: ($p->total_pendapatan ?: $p->basic_salary));
+            $mBruto = (int) $mPayrolls->sum(fn ($p) => $p->total_pendapatan ?: $p->basic_salary);
             $mNetto = (int) $mPayrolls->sum('total_dibayarkan');
 
             // Biaya Casual di bulan ini
@@ -277,6 +281,7 @@ class HrPayrollDashboardController extends Controller
             ],
             'kpi' => [
                 'total_gaji_bruto' => $totalGajiBruto,
+                'total_bruto_man_power' => $totalBrutoManPower,
                 'total_gaji_netto' => $totalGajiNetto,
                 'biaya_potongan' => $biayaPotongan,
                 'biaya_lembur' => $biayaLembur,
