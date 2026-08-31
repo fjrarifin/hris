@@ -59,8 +59,9 @@ class HrOrgStructureController extends Controller
         return response()->json(['message' => 'Data berhasil dibuat.', 'data' => $record], 201);
     }
 
-    public function update(Request $request, string $type, int $id): JsonResponse
+    public function update(Request $request, string $type, int|string $id): JsonResponse
     {
+        $id = (int) $id;
         $model = $this->getModel($type);
         $record = $model::query()->findOrFail($id);
         $tableName = $record->getTable();
@@ -87,8 +88,9 @@ class HrOrgStructureController extends Controller
         return response()->json(['message' => 'Data berhasil diperbarui.', 'data' => $record]);
     }
 
-    public function destroy(Request $request, string $type, int $id): JsonResponse
+    public function destroy(Request $request, string $type, int|string $id): JsonResponse
     {
+        $id = (int) $id;
         $model = $this->getModel($type);
         $record = $model::query()->findOrFail($id);
         $beforeAudit = app(HrdAuditLogService::class)->snapshot($record);
