@@ -322,8 +322,12 @@ class HrisWhatsAppAgent
         // -------------------------------------------------------------
         // Aksi 3: Multi-turn Gate QR Generation & Pengiriman Ulang QR Hari Ini
         // -------------------------------------------------------------
-        $cacheQrKey = "wa_agent_pending_qr:" . ($karyawan ? $karyawan->nik : preg_replace('/[^0-9]/', '', $sender));
-        $isAwaitingQrReason = \Illuminate\Support\Facades\Cache::get($cacheQrKey) === 'awaiting_reason';
+        $cleanSenderDigits = preg_replace('/[^0-9]/', '', $sender);
+        $cacheQrKeyPhone = "wa_agent_pending_qr_phone:" . $cleanSenderDigits;
+        $cacheQrKeyNik = $karyawan ? "wa_agent_pending_qr_nik:" . $karyawan->nik : null;
+
+        $isAwaitingQrReason = (\Illuminate\Support\Facades\Cache::get($cacheQrKeyPhone) === 'awaiting_reason')
+            || ($cacheQrKeyNik && \Illuminate\Support\Facades\Cache::get($cacheQrKeyNik) === 'awaiting_reason');
 
         // Deteksi apakah pesan meminta kirim ulang QR hari ini
         $isResendQrRequest = (
@@ -413,9 +417,23 @@ class HrisWhatsAppAgent
             }
         }
 
+        // Helper untuk membersihkan cache SOP reason
+        $clearPendingQrCache = function () use ($cacheQrKeyPhone, $cacheQrKeyNik) {
+            \Illuminate\Support\Facades\Cache::forget($cacheQrKeyPhone);
+            if ($cacheQrKeyNik) {
+                \Illuminate\Support\Facades\Cache::forget($cacheQrKeyNik);
+            }
+        };
+
+        // Jika nomor karyawan belum terdaftar di sistem HRIS
+        if (($isGateQrRequest || $isResendQrRequest || $isAwaitingQrReason) && ! $karyawan) {
+            $clearPendingQrCache();
+            return "Maaf ya Kak, nomor WhatsApp ini belum terdaftar pada data karyawan HRIS HomPimPlay.\n\nSilakan hubungi Tim HRD untuk memperbarui nomor WhatsApp kamu di sistem agar bisa langsung membuat dan mencetak QR Gate via WhatsApp ya.";
+        }
+
         // Jika karyawan sedang menjawab pertanyaan SOP alasan
         if ($isAwaitingQrReason) {
-            \Illuminate\Support\Facades\Cache::forget($cacheQrKey);
+            $clearPendingQrCache();
             $reason = trim($rawQuestion);
             if (strlen($reason) < 3) {
                 $reason = "Akses masuk kantor (Permintaan via WhatsApp)";
@@ -425,7 +443,7 @@ class HrisWhatsAppAgent
 
         // Jika karyawan langsung menyertakan alasan di pesan pertama
         if ($isGateQrRequest && $hasImmediateReason && $karyawan) {
-            \Illuminate\Support\Facades\Cache::forget($cacheQrKey);
+            $clearPendingQrCache();
             return $this->processGateQrGeneration($karyawan, $sender, $extractedReason, true);
         }
 
@@ -443,7 +461,10 @@ class HrisWhatsAppAgent
 
         if ($isGateQrRequest || $isResendQrRequest) {
             // Selalu tanyakan alasan terlebih dahulu untuk mematuhi SOP jika belum ada alasan
-            \Illuminate\Support\Facades\Cache::put($cacheQrKey, 'awaiting_reason', 600); // 10 menit
+            \Illuminate\Support\Facades\Cache::put($cacheQrKeyPhone, 'awaiting_reason', 600); // 10 menit
+            if ($cacheQrKeyNik) {
+                \Illuminate\Support\Facades\Cache::put($cacheQrKeyNik, 'awaiting_reason', 600);
+            }
             return "Siap {$sapaan}! Sesuai SOP perusahaan, untuk pencatatan sistem HRD mohon sebutkan alasan penggunaan QR Gate hari ini ya (contoh: kartu tertinggal di rumah, kartu hilang, kartu rusak, dll).";
         }
 
@@ -682,6 +703,7 @@ class HrisWhatsAppAgent
             $phone08 = str_starts_with($cleanPhone, '62') ? '0' . substr($cleanPhone, 2) : $cleanPhone;
             $phone62 = str_starts_with($cleanPhone, '0') ? '62' . substr($cleanPhone, 1) : $cleanPhone;
 
+            // A. Cek langsung ke tabel m_karyawan
             $karyawan = Karyawan::query()
                 ->where(function ($q) use ($phone08, $phone62) {
                     $q->where('no_hp', $phone08)
@@ -692,6 +714,22 @@ class HrisWhatsAppAgent
 
             if ($karyawan) {
                 return $karyawan;
+            }
+
+            // B. Cek ke tabel users (jika nomor terdaftar di akun profil portal user)
+            $user = User::query()
+                ->where(function ($q) use ($phone08, $phone62) {
+                    $q->where('phone', $phone08)
+                        ->orWhere('phone', $phone62)
+                        ->orWhereRaw("REPLACE(REPLACE(REPLACE(phone, '-', ''), ' ', ''), '+', '') IN (?, ?)", [$phone08, $phone62]);
+                })
+                ->first();
+
+            if ($user && $user->username) {
+                $karyawanByUser = Karyawan::where('nik', $user->username)->first();
+                if ($karyawanByUser) {
+                    return $karyawanByUser;
+                }
             }
         }
 
