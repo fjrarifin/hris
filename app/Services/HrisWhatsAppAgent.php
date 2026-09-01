@@ -325,8 +325,11 @@ class HrisWhatsAppAgent
         $cacheQrKey = "wa_agent_pending_qr:" . ($karyawan ? $karyawan->nik : preg_replace('/[^0-9]/', '', $sender));
         $isAwaitingQrReason = \Illuminate\Support\Facades\Cache::get($cacheQrKey) === 'awaiting_reason';
 
+        // Deteksi apakah pesan meminta kirim ulang QR hari ini
         $isResendQrRequest = (
             str_contains($normalized, 'kirim qr')
+            || str_contains($normalized, 'kirim ulang qr')
+            || str_contains($normalized, 'kirimkan qr')
             || str_contains($normalized, 'kirim barcode')
             || str_contains($normalized, 'kirim ke saya qr')
             || str_contains($normalized, 'kirim melalui wa')
@@ -335,10 +338,13 @@ class HrisWhatsAppAgent
             || str_contains($normalized, 'resend qr')
             || str_contains($normalized, 'mana qr')
             || str_contains($normalized, 'qr hari ini')
+            || str_contains($normalized, 'qr code hari ini')
+            || str_contains($normalized, 'barcode hari ini')
             || str_contains($normalized, 'qr code saya hari ini')
             || (str_contains($normalized, 'kirim') && (str_contains($normalized, 'wa') || str_contains($normalized, 'whatsapp')))
         );
 
+        // Deteksi apakah pesan adalah permintaan QR Gate / Barcode Gate / Akses Masuk
         $isGateQrRequest = str_contains($normalized, 'qr gate')
             || str_contains($normalized, 'barcode gate')
             || str_contains($normalized, 'generate qr')
@@ -347,12 +353,67 @@ class HrisWhatsAppAgent
             || str_contains($normalized, 'buatin saya qr')
             || str_contains($normalized, 'buatin qr')
             || str_contains($normalized, 'minta qr')
-            || str_contains($normalized, 'qr code gate')
+            || str_contains($normalized, 'mau qr')
+            || str_contains($normalized, 'butuh qr')
+            || str_contains($normalized, 'perlu qr')
+            || str_contains($normalized, 'cetak qr')
+            || str_contains($normalized, 'bisa minta qr')
+            || str_contains($normalized, 'boleh minta qr')
+            || str_contains($normalized, 'boleh qr')
+            || str_contains($normalized, 'qr code')
             || str_contains($normalized, 'qr masuk')
             || str_contains($normalized, 'qr kantor')
             || str_contains($normalized, 'qr office')
-            || (str_contains($normalized, 'qr') && (str_contains($normalized, 'akses') || str_contains($normalized, 'masuk') || str_contains($normalized, 'gate') || str_contains($normalized, 'turnstile') || str_contains($normalized, 'office') || str_contains($normalized, 'kantor')));
+            || str_contains($normalized, 'qr turnstile')
+            || str_contains($normalized, 'minta barcode')
+            || str_contains($normalized, 'mau barcode')
+            || str_contains($normalized, 'cetak barcode')
+            || str_contains($normalized, 'kartu tertinggal')
+            || str_contains($normalized, 'kartu ketinggalan')
+            || str_contains($normalized, 'lupa bawa kartu')
+            || str_contains($normalized, 'tidak bawa kartu')
+            || str_contains($normalized, 'kartu hilang')
+            || str_contains($normalized, 'kartu rusak')
+            || str_contains($normalized, 'akses gate')
+            || str_contains($normalized, 'buka gate')
+            || str_contains($normalized, 'masuk gate')
+            || str_contains($normalized, 'scan gate')
+            || (str_contains($normalized, 'qr') && (str_contains($normalized, 'hari ini') || str_contains($normalized, 'akses') || str_contains($normalized, 'masuk') || str_contains($normalized, 'gate') || str_contains($normalized, 'turnstile') || str_contains($normalized, 'office') || str_contains($normalized, 'kantor') || str_contains($normalized, 'boleh') || str_contains($normalized, 'bisa')));
 
+        // Kecualikan jika hanya pertanyaan definisi umum
+        if ($isGateQrRequest && (str_contains($normalized, 'apa itu qr') || str_contains($normalized, 'jelaskan qr'))) {
+            $isGateQrRequest = false;
+        }
+
+        // Cek apakah pesan sudah langsung menyertakan alasan (1-shot generation)
+        $hasImmediateReason = false;
+        $extractedReason = '';
+        $reasonKeywords = [
+            'kartu tertinggal' => 'Kartu RFID tertinggal di rumah',
+            'kartu ketinggalan' => 'Kartu RFID ketinggalan',
+            'tertinggal di rumah' => 'Kartu RFID tertinggal di rumah',
+            'ketinggalan di rumah' => 'Kartu RFID ketinggalan di rumah',
+            'tertinggal' => 'Kartu RFID tertinggal',
+            'ketinggalan' => 'Kartu RFID ketinggalan',
+            'lupa bawa' => 'Lupa membawa kartu RFID',
+            'tidak bawa kartu' => 'Tidak membawa kartu RFID',
+            'kartu hilang' => 'Kartu RFID hilang',
+            'hilang' => 'Kartu RFID hilang',
+            'kartu rusak' => 'Kartu RFID rusak / tidak terbaca',
+            'rusak' => 'Kartu RFID rusak / tidak terbaca',
+            'belum dapat kartu' => 'Karyawan baru belum menerima kartu RFID',
+            'kartu belum jadi' => 'Kartu RFID masih dalam proses cetak',
+        ];
+
+        foreach ($reasonKeywords as $kw => $defaultReason) {
+            if (str_contains($normalized, $kw)) {
+                $hasImmediateReason = true;
+                $extractedReason = $defaultReason;
+                break;
+            }
+        }
+
+        // Jika karyawan sedang menjawab pertanyaan SOP alasan
         if ($isAwaitingQrReason) {
             \Illuminate\Support\Facades\Cache::forget($cacheQrKey);
             $reason = trim($rawQuestion);
@@ -360,6 +421,12 @@ class HrisWhatsAppAgent
                 $reason = "Akses masuk kantor (Permintaan via WhatsApp)";
             }
             return $this->processGateQrGeneration($karyawan, $sender, $reason, true);
+        }
+
+        // Jika karyawan langsung menyertakan alasan di pesan pertama
+        if ($isGateQrRequest && $hasImmediateReason && $karyawan) {
+            \Illuminate\Support\Facades\Cache::forget($cacheQrKey);
+            return $this->processGateQrGeneration($karyawan, $sender, $extractedReason, true);
         }
 
         // Jika karyawan meminta kirim ulang QR yang sudah pernah dibuat hari ini
@@ -375,7 +442,7 @@ class HrisWhatsAppAgent
         }
 
         if ($isGateQrRequest || $isResendQrRequest) {
-            // Selalu tanyakan alasan terlebih dahulu untuk mematuhi SOP
+            // Selalu tanyakan alasan terlebih dahulu untuk mematuhi SOP jika belum ada alasan
             \Illuminate\Support\Facades\Cache::put($cacheQrKey, 'awaiting_reason', 600); // 10 menit
             return "Siap {$sapaan}! Sesuai SOP perusahaan, untuk pencatatan sistem HRD mohon sebutkan alasan penggunaan QR Gate hari ini ya (contoh: kartu tertinggal di rumah, kartu hilang, kartu rusak, dll).";
         }
@@ -502,6 +569,9 @@ class HrisWhatsAppAgent
         $prompt .= "- ALUR APPROVAL:\n";
         $prompt .= "  * CUTI, PH, EXTRA OFF, IZIN, SAKIT: Diajukan sendiri oleh karyawan di https://hr.hompimplay.id dan disetujui (approval) oleh ATASAN LANGSUNG.\n";
         $prompt .= "  * LEMBUR (SPL): Diajukan oleh Atasan Langsung untuk bawahan dan disetujui HRD.\n";
+        $prompt .= "- QR CODE GATE TURNSTILE / AKSES MASUK KANTOR:\n";
+        $prompt .= "  * Bot WhatsApp ini DAPAT LANGSUNG MEMBUATKAN dan MENGIRIMKAN GAMBAR QR Code Gate Turnstile langsung ke chat WhatsApp karyawan.\n";
+        $prompt .= "  * JANGAN PERNAH menyuruh karyawan login ke portal web jika mereka meminta QR Code di WhatsApp. Arahkan mereka untuk menyebutkan alasan (misal: 'kartu tertinggal di rumah') agar bot langsung mengirimkan gambar QR Gate ke chat ini.\n";
 
         if ($karyawan) {
             $prompt .= "\n[Info Karyawan yang Bertanya]\n";
