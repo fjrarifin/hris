@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Karyawan;
 use App\Models\User;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -198,6 +199,13 @@ SCHEMA;
      */
     public function getBusinessRulesContext(): string
     {
+        $kbPath = resource_path('knowledge/hris_employee_manual.md');
+        if (file_exists($kbPath)) {
+            return Cache::remember('hris_employee_manual_kb', 3600, function () use ($kbPath) {
+                return file_get_contents($kbPath);
+            });
+        }
+
         return <<<RULES
 === SOP & ALUR BISNIS HRIS HOMPIM PLAY ===
 
@@ -527,10 +535,11 @@ RULES;
         $prompt .= "2. DILARANG membuka kalimat dengan perkenalan berulang ('Halo Kak, aku Haris...').\n";
         $prompt .= "3. Jawab ringkas, to-the-point, dengan bahasa Indonesia santai, ramah, dan sopan.\n";
         $prompt .= "4. Panggil pengguna dengan '{$sapaan}'.\n";
+        $prompt .= "5. PENTING: Jika topik pertanyaan tersebut sama sekali TIDAK ADA dan BELUM TERCANTUM dalam basis pengetahuan di atas: Katakan terus terang secara ramah bahwa informasi tersebut belum tercatat di panduan Haris, dan WAJIB bubuhkan penanda [UNRESOLVED] di paling akhir jawabanmu agar otomatis dicatat sistem ke memori evaluasi tim HRD/IT.\n";
 
         $answer = $this->callLlm($prompt);
 
-        return $answer ? trim($answer) : "Maaf ya {$sapaan}, untuk hal itu silakan hubungi tim HRD atau IT ya.";
+        return $answer ? trim($answer) : "Maaf ya {$sapaan}, untuk hal itu informasinya belum ada di panduan Haris. [UNRESOLVED]";
     }
 
     private function callLlm(string $prompt): ?string

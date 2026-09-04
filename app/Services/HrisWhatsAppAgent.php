@@ -15,12 +15,14 @@ use App\Models\PublicHoliday;
 use App\Models\PublicHolidayRequest;
 use App\Models\QrHoldingTransaction;
 use App\Models\User;
+use App\Models\WaAgentUnresolvedQuery;
 use App\Notifications\GateQrUsageNotification;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Throwable;
 
 class HrisWhatsAppAgent
 {
@@ -90,7 +92,7 @@ class HrisWhatsAppAgent
         $historyKey = 'wa_ai_agent_history:' . $cleanSenderKey;
         $history = Cache::get($historyKey, []);
 
-        $answer = $this->answer($question, $karyawan, $sender, $history, $userLevel);
+        $answer = $this->answer($question, $karyawan, $sender, $history, $userLevel, $payload);
         if ($answer === '__IMAGE_SENT__') {
             $sent = true;
             $historyAnswer = "✅ [Gambar QR Gate Turnstile berhasil dibuat dan dikirim ke WhatsApp]";
@@ -116,13 +118,13 @@ class HrisWhatsAppAgent
         ];
     }
 
-    private function answer(string $question, Karyawan|KaryawanHolding|null $karyawan, string $sender, array $history = [], int $userLevel = 3): string
+    private function answer(string $question, Karyawan|KaryawanHolding|null $karyawan, string $sender, array $history = [], int $userLevel = 3, array $payload = []): string
     {
         $normalized = $this->normalizeText($question);
         $isFirstChat = empty($history);
 
-        // 1. Cek apakah ada aksi transaksional khusus (Eskalasi IT, Reset Session, Reset Password, Smart Gate QR)
-        $actionAnswer = $this->handleDirectActions($question, $normalized, $karyawan, $sender, $history);
+        // 1. Cek apakah ada aksi transaksional khusus (Eskalasi IT, Reset Session, Reset Password, Smart Gate QR, Unresolved List)
+        $actionAnswer = $this->handleDirectActions($question, $normalized, $karyawan, $sender, $history, $userLevel);
         if ($actionAnswer !== null) {
             return $actionAnswer;
         }
@@ -134,7 +136,7 @@ class HrisWhatsAppAgent
             return "Halo Kak {$namaPanggilan}! Nomor kamu terdaftar sebagai Karyawan Holding (*{$perusahaan}*).\n\nMelalui WhatsApp Bot ini, wewenang akses yang tersedia untuk rekan Holding khusus untuk *pembuatan QR Code Gate Turnstile masuk kantor hari ini* (misalnya jika kartu RFID tertinggal atau rusak).\n\nApakah kamu butuh bantuan QR Code Gate masuk kantor hari ini? Cukup ketik: _\"Minta QR Gate karena kartu tertinggal\"_ ya. 😊";
         }
 
-        // 2. Cek database FAQ / Knowledge Base dinamis
+        // 2b. Cek database FAQ / Knowledge Base dinamis
         $faqAnswer = $this->matchFaqDatabase($normalized);
         if ($faqAnswer !== null) {
             return $faqAnswer;
@@ -143,7 +145,7 @@ class HrisWhatsAppAgent
         // 3. Gunakan AI Database Query Agent (Autonomous Text-to-SQL + Natural Human Language + RBAC)
         $dbAgentAnswer = $this->dbQueryAgent->queryAndAnswer($question, $karyawan, $history, $userLevel);
         if ($dbAgentAnswer !== null && trim($dbAgentAnswer) !== '') {
-            return $dbAgentAnswer;
+            return $this->processAndRecordUnresolved($dbAgentAnswer, $question, $karyawan, $sender, $payload);
         }
 
         // 4. Fallback ke LLM General Knowledge & Sapaan Alami (Gemini / OpenRouter)
@@ -151,12 +153,13 @@ class HrisWhatsAppAgent
         
         $aiResponse = $this->aiEngine->chat($question, $systemPrompt, $history);
         if ($aiResponse !== null && $aiResponse !== '') {
-            return $aiResponse;
+            return $this->processAndRecordUnresolved($aiResponse, $question, $karyawan, $sender, $payload);
         }
 
         $namaPanggilan = $karyawan ? ucfirst(strtolower(explode(' ', trim($karyawan->nama_karyawan))[0])) : '';
         $sapaan = $namaPanggilan ? "Kak {$namaPanggilan}" : "Kak";
-        return "Maaf ya {$sapaan}, Haris belum bisa menemukan data tersebut di sistem. Ada hal lain yang bisa Haris bantu? 😊";
+        $fallbackMsg = "Maaf ya {$sapaan}, Haris belum bisa menemukan informasi tersebut di sistem atau panduan HRIS. Ada hal lain yang bisa Haris bantu? 😊 [UNRESOLVED]";
+        return $this->processAndRecordUnresolved($fallbackMsg, $question, $karyawan, $sender, $payload);
     }
 
     private function normalizeText(string $text): string
@@ -205,11 +208,23 @@ class HrisWhatsAppAgent
         return implode(' ', $corrected);
     }
 
-    private function handleDirectActions(string $rawQuestion, string $normalized, Karyawan|KaryawanHolding|null $karyawan, string $sender, array $history = []): ?string
+    private function handleDirectActions(string $rawQuestion, string $normalized, Karyawan|KaryawanHolding|null $karyawan, string $sender, array $history = [], int $userLevel = 3): ?string
     {
         $namaPanggilan = $karyawan ? ucfirst(strtolower(explode(' ', trim($karyawan->nama_karyawan))[0])) : '';
         $sapaan = $namaPanggilan ? "Kak {$namaPanggilan}" : "Kak";
         $isFirstChat = empty($history);
+
+        // -------------------------------------------------------------
+        // Aksi Khusus Admin / HR: Cek Daftar Pertanyaan Karyawan Belum Terjawab (Unresolved Memory)
+        // -------------------------------------------------------------
+        if ($userLevel <= 2 && (
+            str_contains($normalized, 'pertanyaan belum terjawab') ||
+            str_contains($normalized, 'pertanyaan yg belum terjawab') ||
+            str_contains($normalized, 'unresolved') ||
+            str_contains($normalized, 'daftar pertanyaan baru')
+        )) {
+            return $this->handleListUnresolvedQueries($sapaan);
+        }
 
         // -------------------------------------------------------------
         // Aksi 0: Eskalasi Bantuan Langsung ke Tim IT (Forward ke Grup IT)
@@ -671,6 +686,7 @@ class HrisWhatsAppAgent
         $prompt .= "7. JANGAN PERNAH mengatakan 'sebentar ya aku cek dulu / nanti aku kabari lagi' karena chat dijawab seketika secara real-time.\n";
         $prompt .= "8. Password default portal HRIS adalah 12345678 (delapan digit: 12345678, BUKAN 123456).\n";
         $prompt .= "9. BATASAN TOPIK: HANYA layani pertanyaan seputar HRIS, absensi, jadwal kerja, cuti, izin, lembur/SPL, info kontrak, slip gaji, dan SOP kantor.\n";
+        $prompt .= "10. JIKA pertanyaan karyawan mengenai topik kebijakan kantor, fasilitas, atau SOP yang TIDAK ADA dan BELUM TERCANTUM dalam database maupun Master Panduan resmi di bawah: Katakan secara ramah bahwa informasi tersebut belum tercatat di panduan Haris, dan WAJIB bubuhkan penanda [UNRESOLVED] di paling akhir jawabanmu agar otomatis dicatat sistem ke memori evaluasi tim HRD/IT.\n";
 
         $prompt .= "\nKNOWLEDGE BASE & LOGIKA BISNIS HRIS HOMPIM PLAY (SOP RESMI):\n";
         $prompt .= "- ATURAN PENGAJUAN LEMBUR (SPL / SURAT PERINTAH LEMBUR):\n";
@@ -695,6 +711,11 @@ class HrisWhatsAppAgent
         $prompt .= "- QR CODE GATE TURNSTILE / AKSES MASUK KANTOR:\n";
         $prompt .= "  * Bot WhatsApp ini DAPAT LANGSUNG MEMBUATKAN dan MENGIRIMKAN GAMBAR QR Code Gate Turnstile langsung ke chat WhatsApp karyawan.\n";
         $prompt .= "  * JANGAN PERNAH menyuruh karyawan login ke portal web jika mereka meminta QR Code di WhatsApp. Arahkan mereka untuk menyebutkan alasan (misal: 'kartu tertinggal di rumah') agar bot langsung mengirimkan gambar QR Gate ke chat ini.\n";
+
+        $kb = $this->getKnowledgeBase();
+        if ($kb !== '') {
+            $prompt .= "\nMASTER PANDUAN LENGKAP FITUR & SOP HRIS HOMPIM PLAY:\n" . $kb . "\n";
+        }
 
         if ($karyawan instanceof KaryawanHolding) {
             $prompt .= "\n[Info Karyawan Holding yang Bertanya]\n";
@@ -1261,5 +1282,115 @@ class HrisWhatsAppAgent
         }
 
         return ! empty($levels) ? min($levels) : 3;
+    }
+
+    private function getKnowledgeBase(): string
+    {
+        $kbPath = resource_path('knowledge/hris_employee_manual.md');
+        if (file_exists($kbPath)) {
+            return Cache::remember('hris_employee_manual_kb', 3600, function () use ($kbPath) {
+                return file_get_contents($kbPath);
+            });
+        }
+        return '';
+    }
+
+    private function processAndRecordUnresolved(
+        string $rawAnswer,
+        string $question,
+        Karyawan|KaryawanHolding|null $karyawan,
+        string $sender,
+        array $payload = []
+    ): string {
+        $isUnresolved = false;
+
+        if (str_contains($rawAnswer, '[UNRESOLVED]')) {
+            $isUnresolved = true;
+            $rawAnswer = trim(str_replace('[UNRESOLVED]', '', $rawAnswer));
+        }
+
+        if ($isUnresolved) {
+            $this->logUnresolvedQuery($question, $rawAnswer, $karyawan, $sender, $payload);
+
+            if (! str_contains($rawAnswer, 'catat ke memori') && ! str_contains($rawAnswer, 'catatan evaluasi') && ! str_contains($rawAnswer, 'teruskan')) {
+                $rawAnswer .= "\n\n_(Pertanyaan ini sudah Haris simpan ke memori catatan evaluasi tim HRD/IT agar segera dilengkapi panduannya ya Kak 🙏)_";
+            }
+        }
+
+        return $rawAnswer;
+    }
+
+    private function logUnresolvedQuery(
+        string $question,
+        string $botResponse,
+        Karyawan|KaryawanHolding|null $karyawan,
+        string $sender,
+        array $payload = []
+    ): void {
+        try {
+            $cleanPhone = preg_replace('/[^0-9]/', '', explode('@', $sender)[0]);
+            $nik = $karyawan?->nik;
+            $nama = $karyawan instanceof KaryawanHolding
+                ? $karyawan->nama
+                : ($karyawan?->nama_karyawan ?: trim((string) data_get($payload, 'pushName', '')));
+
+            // Cek apakah pertanyaan serupa dari pengirim yang sama sudah pernah tercatat dalam status pending
+            $existing = WaAgentUnresolvedQuery::where('sender_phone', $cleanPhone)
+                ->where('status', 'pending')
+                ->where(function ($q) use ($question) {
+                    $q->where('question', $question)
+                        ->orWhere('question', 'LIKE', '%' . substr($question, 0, 50) . '%');
+                })
+                ->first();
+
+            if ($existing) {
+                $existing->increment('ask_count');
+                $existing->update([
+                    'last_asked_at' => now(),
+                    'bot_response' => $botResponse,
+                ]);
+            } else {
+                WaAgentUnresolvedQuery::create([
+                    'sender_phone' => $cleanPhone,
+                    'karyawan_nik' => $nik,
+                    'sender_name' => $nama ?: null,
+                    'question' => $question,
+                    'bot_response' => $botResponse,
+                    'status' => 'pending',
+                    'ask_count' => 1,
+                    'last_asked_at' => now(),
+                ]);
+            }
+        } catch (Throwable $e) {
+            Log::warning("Gagal menyimpan unresolved query ke memori: " . $e->getMessage());
+        }
+    }
+
+    private function handleListUnresolvedQueries(string $sapaan): string
+    {
+        $pending = WaAgentUnresolvedQuery::where('status', 'pending')
+            ->orderByDesc('updated_at')
+            ->take(10)
+            ->get();
+
+        if ($pending->isEmpty()) {
+            return "Kabar baik {$sapaan}! Saat ini tidak ada pertanyaan karyawan yang berstatus belum terjawab (unresolved). Semua pertanyaan karyawan sudah berhasil dijawab dengan baik oleh sistem. 👍";
+        }
+
+        $msg = "📋 *Daftar Pertanyaan Karyawan Belum Terjawab (Unresolved Memory):*\n\n";
+        foreach ($pending as $idx => $q) {
+            $num = $idx + 1;
+            $nama = $q->sender_name ?: ($q->karyawan_nik ?: $q->sender_phone);
+            $time = $q->updated_at ? $q->updated_at->format('d M H:i') : '-';
+            $msg .= "{$num}. *{$nama}* ({$time})\n";
+            $msg .= "   ❓ \"{$q->question}\"\n";
+            if ($q->ask_count > 1) {
+                $msg .= "   _(Ditanyakan sebanyak {$q->ask_count}x)_\n";
+            }
+            $msg .= "\n";
+        }
+        $msg .= "_Pertanyaan di atas otomatis dicatat dari percakapan karyawan dan belum ditemukan jawabannya di data/SOP HRIS saat ini. Tim HRD/IT dapat menambahkan jawabannya ke SOP Knowledge Base atau tabel FAQ._";
+
+        return $msg;
     }
 }
