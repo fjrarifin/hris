@@ -133,4 +133,9 @@ class Karyawan extends Model
     {
         return $this->getRelationValue('atasanTidakLangsung')?->nama_karyawan;
     }
+
+    public function isHolding(): bool
+    {
+        return false;
+    }
 }

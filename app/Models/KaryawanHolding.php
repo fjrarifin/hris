@@ -29,4 +29,19 @@ class KaryawanHolding extends Model
     {
         return $this->hasMany(QrHoldingTransaction::class, 'm_karyawan_holding_id');
     }
+
+    public function isHolding(): bool
+    {
+        return true;
+    }
+
+    public function getNamaKaryawanAttribute(): string
+    {
+        return (string) $this->nama;
+    }
+
+    public function getDepartementAttribute(): ?string
+    {
+        return $this->departemen ?: $this->perusahaan;
+    }
 }

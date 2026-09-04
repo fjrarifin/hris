@@ -10,8 +10,10 @@ use App\Models\EmployeePhAdjustment;
 use App\Models\FingerspotAttendanceLog;
 use App\Models\GateQrUsageLog;
 use App\Models\Karyawan;
+use App\Models\KaryawanHolding;
 use App\Models\PublicHoliday;
 use App\Models\PublicHolidayRequest;
+use App\Models\QrHoldingTransaction;
 use App\Models\User;
 use App\Notifications\GateQrUsageNotification;
 use Carbon\Carbon;
@@ -66,8 +68,24 @@ class HrisWhatsAppAgent
         }
         \Illuminate\Support\Facades\RateLimiter::hit($rateLimitKey, 60);
 
+        // 1. Cek apakah pengirim adalah Karyawan Holding berstatus Non-Aktif
+        $holdingInactive = $this->findInactiveHoldingByPayload($payload, $sender);
+        if ($holdingInactive) {
+            $namaHolding = $holdingInactive->nama ?: 'Karyawan Holding';
+            $perusahaan = $holdingInactive->perusahaan ?: 'Hompimplay Holding';
+            $this->sendReply($sender, "Halo Kak {$namaHolding}, nomor WhatsApp kamu terdaftar di data Karyawan Holding (*{$perusahaan}*), namun status kepegawaian kamu saat ini tercatat *Non-Aktif*.\n\nSilakan hubungi Tim IT Administrator atau HRD ya.");
+            return ['status' => 'rejected', 'reason' => 'holding_employee_inactive'];
+        }
+
+        // 2. Cari identitas Karyawan aktif (m_karyawan atau m_karyawan_holding aktif)
         $karyawan = $this->findKaryawanByPayload($payload, $sender);
         $userLevel = $this->resolveUserLevel($karyawan, $sender);
+
+        // 3. Validasi nomor tidak terdaftar sama sekali (hanya izinkan admin phones jika belum terdaftar)
+        if (! $karyawan && $userLevel > 0) {
+            $this->sendReply($sender, "Halo Kak! Nomor WhatsApp kamu belum terdaftar di data karyawan HRIS maupun Holding HomPim Play.\n\nLayanan asisten ini khusus untuk karyawan aktif HomPim Play dan Holding. Silakan hubungi Tim HRD / IT Support untuk mendaftarkan nomor kamu ya. Terima kasih! 🙏");
+            return ['status' => 'rejected', 'reason' => 'unregistered_sender'];
+        }
 
         $historyKey = 'wa_ai_agent_history:' . $cleanSenderKey;
         $history = Cache::get($historyKey, []);
@@ -98,7 +116,7 @@ class HrisWhatsAppAgent
         ];
     }
 
-    private function answer(string $question, ?Karyawan $karyawan, string $sender, array $history = [], int $userLevel = 3): string
+    private function answer(string $question, Karyawan|KaryawanHolding|null $karyawan, string $sender, array $history = [], int $userLevel = 3): string
     {
         $normalized = $this->normalizeText($question);
         $isFirstChat = empty($history);
@@ -107,6 +125,13 @@ class HrisWhatsAppAgent
         $actionAnswer = $this->handleDirectActions($question, $normalized, $karyawan, $sender, $history);
         if ($actionAnswer !== null) {
             return $actionAnswer;
+        }
+
+        // 2. Khusus Karyawan Holding: Pembatasan wewenang (HANYA BISA MEMINTA QR CODE GATE TURNSTILE HARI INI)
+        if ($karyawan instanceof KaryawanHolding) {
+            $namaPanggilan = ucfirst(strtolower(explode(' ', trim($karyawan->nama_karyawan))[0]));
+            $perusahaan = $karyawan->perusahaan ?: 'Hompimplay Holding';
+            return "Halo Kak {$namaPanggilan}! Nomor kamu terdaftar sebagai Karyawan Holding (*{$perusahaan}*).\n\nMelalui WhatsApp Bot ini, wewenang akses yang tersedia untuk rekan Holding khusus untuk *pembuatan QR Code Gate Turnstile masuk kantor hari ini* (misalnya jika kartu RFID tertinggal atau rusak).\n\nApakah kamu butuh bantuan QR Code Gate masuk kantor hari ini? Cukup ketik: _\"Minta QR Gate karena kartu tertinggal\"_ ya. 😊";
         }
 
         // 2. Cek database FAQ / Knowledge Base dinamis
@@ -180,7 +205,7 @@ class HrisWhatsAppAgent
         return implode(' ', $corrected);
     }
 
-    private function handleDirectActions(string $rawQuestion, string $normalized, ?Karyawan $karyawan, string $sender, array $history = []): ?string
+    private function handleDirectActions(string $rawQuestion, string $normalized, Karyawan|KaryawanHolding|null $karyawan, string $sender, array $history = []): ?string
     {
         $namaPanggilan = $karyawan ? ucfirst(strtolower(explode(' ', trim($karyawan->nama_karyawan))[0])) : '';
         $sapaan = $namaPanggilan ? "Kak {$namaPanggilan}" : "Kak";
@@ -201,9 +226,9 @@ class HrisWhatsAppAgent
         || str_contains($normalized, 'sistem down');
 
         if ($isAskingHumanIt) {
-            $nama = $karyawan?->nama_karyawan ?: 'Karyawan';
+            $nama = $karyawan instanceof KaryawanHolding ? $karyawan->nama : ($karyawan?->nama_karyawan ?: 'Karyawan');
             $nik = $karyawan?->nik ?: '-';
-            $divisi = ($karyawan?->jabatan ?: $karyawan?->departement) ?: '-';
+            $divisi = $karyawan instanceof KaryawanHolding ? ($karyawan->perusahaan ?: 'Holding') : (($karyawan?->jabatan ?: $karyawan?->departement) ?: '-');
             $phone = $karyawan?->no_hp ?: '';
             $cleanPhone = preg_replace('/[^0-9]/', '', $phone);
             if (str_starts_with($cleanPhone, '0')) {
@@ -235,6 +260,17 @@ class HrisWhatsAppAgent
             }
 
             return "Siap {$sapaan}! Pesan dan permintaan bantuanmu sudah aku teruskan langsung ke Tim IT ya 📩.\n\nTim IT akan segera mengecek dan menghubungimu melalui WhatsApp ini. Mohon ditunggu sebentar ya {$sapaan}!";
+        }
+
+        // Jika Karyawan Holding mencoba akses fitur akun portal (reset session/password)
+        if ($karyawan instanceof KaryawanHolding && (
+            str_contains($normalized, 'reset session') || str_contains($normalized, 'clear session') ||
+            str_contains($normalized, 'hapus session') || str_contains($normalized, 'kick session') ||
+            str_contains($normalized, 'reset password') || str_contains($normalized, 'lupa password') ||
+            str_contains($normalized, 'ganti password') || str_contains($normalized, 'login')
+        )) {
+            $perusahaan = $karyawan->perusahaan ?: 'Hompimplay Holding';
+            return "Halo Kak {$sapaan}, akun kamu terdaftar sebagai Karyawan Holding (*{$perusahaan}*).\n\nPortal login HRIS ini khusus untuk unit bisnis operasional. Wewenang rekan Holding di WhatsApp Bot ini khusus untuk *pembuatan QR Code Gate Turnstile masuk kantor hari ini* (jika kartu tertinggal/hilang).\n\nUntuk keperluan akun lainnya, silakan koordinasi dengan tim manajemen Holding ya.";
         }
 
         // -------------------------------------------------------------
@@ -449,13 +485,24 @@ class HrisWhatsAppAgent
 
         // Jika karyawan meminta kirim ulang QR yang sudah pernah dibuat hari ini
         if ($isResendQrRequest && $karyawan) {
-            $todayLog = GateQrUsageLog::where('nik', $karyawan->nik)
-                ->whereDate('used_at', now()->toDateString())
-                ->latest('id')
-                ->first();
+            if ($karyawan instanceof KaryawanHolding) {
+                $todayHoldingLog = QrHoldingTransaction::where('nik', $karyawan->nik)
+                    ->where('access_date_code', now()->format('ymd'))
+                    ->latest('id')
+                    ->first();
 
-            if ($todayLog) {
-                return $this->processGateQrGeneration($karyawan, $sender, $todayLog->reason, false);
+                if ($todayHoldingLog) {
+                    return $this->processGateQrGeneration($karyawan, $sender, 'Kirim ulang QR Gate Turnstile hari ini', false);
+                }
+            } else {
+                $todayLog = GateQrUsageLog::where('nik', $karyawan->nik)
+                    ->whereDate('used_at', now()->toDateString())
+                    ->latest('id')
+                    ->first();
+
+                if ($todayLog) {
+                    return $this->processGateQrGeneration($karyawan, $sender, $todayLog->reason, false);
+                }
             }
         }
 
@@ -471,15 +518,72 @@ class HrisWhatsAppAgent
         return null;
     }
 
-    private function processGateQrGeneration(?Karyawan $karyawan, string $sender, string $reason, bool $createNewLog = true): string
+    private function processGateQrGeneration(Karyawan|KaryawanHolding|null $karyawan, string $sender, string $reason, bool $createNewLog = true): string
     {
         $namaPanggilan = $karyawan ? ucfirst(strtolower(explode(' ', trim($karyawan->nama_karyawan))[0])) : '';
         $sapaan = $namaPanggilan ? "Kak {$namaPanggilan}" : "Kak";
 
         if (! $karyawan) {
-            return "Maaf ya {$sapaan}, nomor WhatsApp ini belum terdaftar di sistem HRIS. Silakan hubungi tim HRD untuk update nomor telepon ya.";
+            return "Maaf ya {$sapaan}, nomor WhatsApp ini belum terdaftar di sistem HRIS maupun Holding. Silakan hubungi tim HRD untuk update nomor telepon ya.";
         }
 
+        $tanggalFormatted = now()->locale('id')->translatedFormat('d F Y');
+        $dateCode = now()->format('ymd'); // YYMMDD (e.g. 260904)
+
+        // -------------------------------------------------------------
+        // KASUS 1: KARYAWAN HOLDING (m_karyawan_holding)
+        // -------------------------------------------------------------
+        if ($karyawan instanceof KaryawanHolding) {
+            $employeeNik = trim((string) $karyawan->nik);
+            $employeeName = (string) $karyawan->nama;
+            $perusahaan = (string) ($karyawan->perusahaan ?: 'Hompimplay Holding');
+
+            // Format payload Turnstile Gate khusus Holding (group code 4)
+            $qrPayloadArray = [
+                't' => $dateCode . substr($employeeNik, -4),
+                'm' => $employeeNik,
+                'c' => $dateCode,
+                'x' => [[4, 100, 374]],
+            ];
+            $qrPayload = json_encode($qrPayloadArray, JSON_UNESCAPED_SLASHES);
+
+            if ($createNewLog) {
+                try {
+                    QrHoldingTransaction::create([
+                        'm_karyawan_holding_id' => $karyawan->id,
+                        'nik' => $employeeNik,
+                        'nama' => $employeeName,
+                        'perusahaan' => $perusahaan,
+                        'qr_payload' => $qrPayload,
+                        'access_date_code' => $dateCode,
+                        'ip_address' => '127.0.0.1',
+                        'user_agent' => 'WhatsApp AI Agent Bot',
+                        'generated_at' => now(),
+                    ]);
+                } catch (\Throwable $e) {
+                    Log::warning('Failed creating QrHoldingTransaction: ' . $e->getMessage());
+                }
+            }
+
+            $qrImageUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=500x500&margin=15&data=' . urlencode($qrPayload);
+            $caption = "✅ *QR Code Gate Turnstile (Holding) Berhasil Dibuat!*\n\n" .
+                "👤 *Nama*: {$employeeName} (`{$employeeNik}`)\n" .
+                "🏢 *Perusahaan*: {$perusahaan}\n" .
+                "📅 *Berlaku*: Hari Ini ({$tanggalFormatted})\n" .
+                "📝 *Alasan*: _{$reason}_\n\n" .
+                "📌 *Cara Penggunaan:*\n" .
+                "Arahkan gambar QR Code di atas ke scanner pada turnstile gate kantor untuk membuka akses masuk.\n\n" .
+                "_Log transaksi QR Holding sudah otomatis tercatat di sistem._";
+
+            // Kirim Gambar QR Langsung ke WhatsApp Karyawan
+            $this->sendReply($sender, $caption, $qrImageUrl);
+
+            return '__IMAGE_SENT__';
+        }
+
+        // -------------------------------------------------------------
+        // KASUS 2: KARYAWAN HRIS REGULER (m_karyawan)
+        // -------------------------------------------------------------
         $user = User::where('username', $karyawan->nik)->first();
         $userId = $user?->id;
         $employeeNik = (string) $karyawan->nik;
@@ -507,8 +611,7 @@ class HrisWhatsAppAgent
             }
         }
 
-        // 3. Buat Payload QR Turnstile
-        $dateCode = now()->format('ymd'); // YYMMDD (e.g. 260831)
+        // 3. Buat Payload QR Turnstile Reguler (group code 9)
         $qrPayload = json_encode([
             't' => $dateCode . substr($employeeNik, -4),
             'm' => $employeeNik,
@@ -519,7 +622,6 @@ class HrisWhatsAppAgent
         // 4. URL Gambar QR Code beresolusi tinggi (PNG)
         $qrImageUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=500x500&margin=15&data=' . urlencode($qrPayload);
 
-        $tanggalFormatted = now()->locale('id')->translatedFormat('d F Y');
         $caption = "✅ *QR Code Gate Turnstile Berhasil Dibuat!*\n\n" .
             "👤 *Nama*: {$employeeName} (`{$employeeNik}`)\n" .
             "📅 *Berlaku*: Hari Ini ({$tanggalFormatted})\n" .
@@ -534,7 +636,7 @@ class HrisWhatsAppAgent
         return '__IMAGE_SENT__';
     }
 
-    private function buildSystemPrompt(?Karyawan $karyawan, bool $isFirstChat = false, int $userLevel = 3): string
+    private function buildSystemPrompt(Karyawan|KaryawanHolding|null $karyawan, bool $isFirstChat = false, int $userLevel = 3): string
     {
         $namaPanggilan = $karyawan ? ucfirst(strtolower(explode(' ', trim($karyawan->nama_karyawan))[0])) : '';
         $sapaan = $namaPanggilan ? "Kak {$namaPanggilan}" : "Kak";
@@ -594,7 +696,15 @@ class HrisWhatsAppAgent
         $prompt .= "  * Bot WhatsApp ini DAPAT LANGSUNG MEMBUATKAN dan MENGIRIMKAN GAMBAR QR Code Gate Turnstile langsung ke chat WhatsApp karyawan.\n";
         $prompt .= "  * JANGAN PERNAH menyuruh karyawan login ke portal web jika mereka meminta QR Code di WhatsApp. Arahkan mereka untuk menyebutkan alasan (misal: 'kartu tertinggal di rumah') agar bot langsung mengirimkan gambar QR Gate ke chat ini.\n";
 
-        if ($karyawan) {
+        if ($karyawan instanceof KaryawanHolding) {
+            $prompt .= "\n[Info Karyawan Holding yang Bertanya]\n";
+            $prompt .= "Nama Lengkap: {$karyawan->nama}\n";
+            $prompt .= "NIK: {$karyawan->nik}\n";
+            $prompt .= "Perusahaan: " . ($karyawan->perusahaan ?: 'Hompimplay Holding') . "\n";
+            $prompt .= "Jabatan: " . ($karyawan->jabatan ?: '-') . "\n";
+            $prompt .= "Departemen: " . ($karyawan->departemen ?: '-') . "\n";
+            $prompt .= "Status: Karyawan Holding Aktif (Hanya memiliki hak akses untuk pembuatan QR Code Gate Turnstile masuk kantor hari ini)\n";
+        } elseif ($karyawan) {
             $prompt .= "\n[Info Karyawan yang Bertanya]\n";
             $prompt .= "Nama Lengkap: {$karyawan->nama_karyawan}\n";
             $prompt .= "NIK: {$karyawan->nik}\n";
@@ -693,7 +803,7 @@ class HrisWhatsAppAgent
         return null;
     }
 
-    private function findKaryawanByPayload(array $payload, string $sender): ?Karyawan
+    private function findKaryawanByPayload(array $payload, string $sender): Karyawan|KaryawanHolding|null
     {
         // 1. Cek nomor telepon asli (sender_phone atau phone)
         $rawPhone = (string) (data_get($payload, 'sender_phone') ?: data_get($payload, 'phone', $sender));
@@ -703,12 +813,15 @@ class HrisWhatsAppAgent
             $phone08 = str_starts_with($cleanPhone, '62') ? '0' . substr($cleanPhone, 2) : $cleanPhone;
             $phone62 = str_starts_with($cleanPhone, '0') ? '62' . substr($cleanPhone, 1) : $cleanPhone;
 
-            // A. Cek langsung ke tabel m_karyawan
+            // A. Cek langsung ke tabel m_karyawan (karyawan aktif kantor)
             $karyawan = Karyawan::query()
                 ->where(function ($q) use ($phone08, $phone62) {
                     $q->where('no_hp', $phone08)
                         ->orWhere('no_hp', $phone62)
                         ->orWhereRaw("REPLACE(REPLACE(REPLACE(no_hp, '-', ''), ' ', ''), '+', '') IN (?, ?)", [$phone08, $phone62]);
+                })
+                ->where(function ($q) {
+                    $q->whereNull('status_karyawan')->orWhere('status_karyawan', '!=', 'Resign');
                 })
                 ->first();
 
@@ -716,7 +829,21 @@ class HrisWhatsAppAgent
                 return $karyawan;
             }
 
-            // B. Cek ke tabel users (jika nomor terdaftar di akun profil portal user)
+            // B. Cek ke tabel m_karyawan_holding (karyawan holding yang aktif)
+            $holding = KaryawanHolding::query()
+                ->where('is_active', true)
+                ->where(function ($q) use ($phone08, $phone62) {
+                    $q->where('no_hp', $phone08)
+                        ->orWhere('no_hp', $phone62)
+                        ->orWhereRaw("REPLACE(REPLACE(REPLACE(no_hp, '-', ''), ' ', ''), '+', '') IN (?, ?)", [$phone08, $phone62]);
+                })
+                ->first();
+
+            if ($holding) {
+                return $holding;
+            }
+
+            // C. Cek ke tabel users (jika nomor terdaftar di akun profil portal user)
             $user = User::query()
                 ->where(function ($q) use ($phone08, $phone62) {
                     $q->where('phone', $phone08)
@@ -726,7 +853,11 @@ class HrisWhatsAppAgent
                 ->first();
 
             if ($user && $user->username) {
-                $karyawanByUser = Karyawan::where('nik', $user->username)->first();
+                $karyawanByUser = Karyawan::where('nik', $user->username)
+                    ->where(function ($q) {
+                        $q->whereNull('status_karyawan')->orWhere('status_karyawan', '!=', 'Resign');
+                    })
+                    ->first();
                 if ($karyawanByUser) {
                     return $karyawanByUser;
                 }
@@ -740,20 +871,68 @@ class HrisWhatsAppAgent
             if (strlen($cleanPushName) >= 3) {
                 $karyawanByName = Karyawan::query()
                     ->where('nama_karyawan', 'LIKE', '%' . $cleanPushName . '%')
+                    ->where(function ($q) {
+                        $q->whereNull('status_karyawan')->orWhere('status_karyawan', '!=', 'Resign');
+                    })
                     ->first();
 
                 if ($karyawanByName) {
                     return $karyawanByName;
                 }
 
+                $holdingByName = KaryawanHolding::query()
+                    ->where('is_active', true)
+                    ->where('nama', 'LIKE', '%' . $cleanPushName . '%')
+                    ->first();
+
+                if ($holdingByName) {
+                    return $holdingByName;
+                }
+
                 // Coba bagian kata pertama
                 $firstWord = explode(' ', $cleanPushName)[0];
                 if (strlen($firstWord) >= 3) {
-                    return Karyawan::query()
+                    $karyawanByFirst = Karyawan::query()
                         ->where('nama_karyawan', 'LIKE', '%' . $firstWord . '%')
+                        ->where(function ($q) {
+                            $q->whereNull('status_karyawan')->orWhere('status_karyawan', '!=', 'Resign');
+                        })
                         ->first();
+                    if ($karyawanByFirst) {
+                        return $karyawanByFirst;
+                    }
+
+                    $holdingByFirst = KaryawanHolding::query()
+                        ->where('is_active', true)
+                        ->where('nama', 'LIKE', '%' . $firstWord . '%')
+                        ->first();
+                    if ($holdingByFirst) {
+                        return $holdingByFirst;
+                    }
                 }
             }
+        }
+
+        return null;
+    }
+
+    private function findInactiveHoldingByPayload(array $payload, string $sender): ?KaryawanHolding
+    {
+        $rawPhone = (string) (data_get($payload, 'sender_phone') ?: data_get($payload, 'phone', $sender));
+        $cleanPhone = preg_replace('/[^0-9]/', '', explode('@', $rawPhone)[0]);
+
+        if ($cleanPhone !== '' && strlen($cleanPhone) >= 9 && strlen($cleanPhone) <= 15) {
+            $phone08 = str_starts_with($cleanPhone, '62') ? '0' . substr($cleanPhone, 2) : $cleanPhone;
+            $phone62 = str_starts_with($cleanPhone, '0') ? '62' . substr($cleanPhone, 1) : $cleanPhone;
+
+            return KaryawanHolding::query()
+                ->where('is_active', false)
+                ->where(function ($q) use ($phone08, $phone62) {
+                    $q->where('no_hp', $phone08)
+                        ->orWhere('no_hp', $phone62)
+                        ->orWhereRaw("REPLACE(REPLACE(REPLACE(no_hp, '-', ''), ' ', ''), '+', '') IN (?, ?)", [$phone08, $phone62]);
+                })
+                ->first();
         }
 
         return null;
@@ -898,16 +1077,21 @@ class HrisWhatsAppAgent
             }
         }
 
-        if ($imageUrl) {
-            return $this->whatsApp->sendImage($sender, $imageUrl, $message);
-        }
+        try {
+            if ($imageUrl) {
+                return (bool) $this->whatsApp->sendImage($sender, $imageUrl, $message);
+            }
 
-        return $this->whatsApp->sendMessage($sender, $message);
+            return (bool) $this->whatsApp->sendMessage($sender, $message);
+        } catch (\Throwable $e) {
+            Log::warning('WhatsAppService gateway unavailable: ' . $e->getMessage());
+            return false;
+        }
     }
 
-    private function calculatePhBalance(?User $user, ?Karyawan $karyawan): int
+    private function calculatePhBalance(?User $user, Karyawan|KaryawanHolding|null $karyawan): int
     {
-        if (! $user || ! $karyawan) {
+        if (! $user || ! $karyawan || $karyawan instanceof KaryawanHolding) {
             return 0;
         }
 
@@ -953,9 +1137,9 @@ class HrisWhatsAppAgent
         return max(0, $eligibleHolidays->whereNotIn('id', $usedHolidayIds)->count() + $generalAdjustmentDays);
     }
 
-    private function calculateExtraOffBalance(?User $user, ?Karyawan $karyawan): int
+    private function calculateExtraOffBalance(?User $user, Karyawan|KaryawanHolding|null $karyawan): int
     {
-        if (! $user || ! $karyawan) {
+        if (! $user || ! $karyawan || $karyawan instanceof KaryawanHolding) {
             return 0;
         }
 
@@ -1026,7 +1210,7 @@ class HrisWhatsAppAgent
      * Level 2: HRD / HRGA Management (Akses seluruh data kepegawaian kantor)
      * Level 3: Karyawan / Staff (Hanya akses data pribadi sendiri)
      */
-    public function resolveUserLevel(?Karyawan $karyawan, string $sender): int
+    public function resolveUserLevel(Karyawan|KaryawanHolding|null $karyawan, string $sender): int
     {
         $levels = [];
         $cleanPhone = preg_replace('/[^0-9]/', '', $sender);
@@ -1059,8 +1243,8 @@ class HrisWhatsAppAgent
             $levels[] = 0; // Level 0 Superadmin
         }
 
-        // 3. Cek akun User berdasarkan NIK Karyawan
-        if ($karyawan) {
+        // 3. Cek akun User berdasarkan NIK Karyawan (khusus karyawan reguler HRIS)
+        if ($karyawan && ! ($karyawan instanceof KaryawanHolding)) {
             $user = User::where('username', $karyawan->nik)->first();
             if ($user && $user->level !== null) {
                 $levels[] = (int) $user->level;
