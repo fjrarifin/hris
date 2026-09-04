@@ -66,6 +66,13 @@ return [
         'timeout' => (int) env('TOKENROUTER_TIMEOUT', 15),
     ],
 
+    'ninerouter' => [
+        'api_key' => env('NINEROUTER_API_KEY', 'sk-0de72b6d36d00d02-ub1zv4-b8f5d965'),
+        'base_url' => env('NINEROUTER_BASE_URL', 'http://localhost:20128/v1'),
+        'model' => env('NINEROUTER_MODEL', 'GEMINI'),
+        'timeout' => (int) env('NINEROUTER_TIMEOUT', 15),
+    ],
+
     'gemini' => [
         'api_key' => env('GEMINI_API_KEY'),
         'api_keys' => array_values(array_filter(array_map(
