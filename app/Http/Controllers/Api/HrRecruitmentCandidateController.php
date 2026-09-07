@@ -32,7 +32,7 @@ class HrRecruitmentCandidateController extends Controller
     public function index(Request $request): JsonResponse
     {
         $candidates = RecruitmentCandidate::query()
-            ->with(['vacancy', 'interviewer', 'pic', 'atasanLangsung', 'userInterviews.interviewer', 'userInterviewEvaluations.interviewer'])
+            ->with(['vacancy', 'interviewer', 'pic', 'atasanLangsung', 'userInterviews.interviewer', 'userInterviewEvaluations.interviewer', 'references', 'pkbSigners.employee'])
             ->when($request->filled('vacancy_id'), fn ($query) => $query->where('vacancy_id', $request->input('vacancy_id')))
             ->when($request->filled('status'), fn ($query) => $query->where('status', $request->input('status')))
             ->latest()
@@ -2067,7 +2067,12 @@ class HrRecruitmentCandidateController extends Controller
 
         $failedRecipients = [];
 
-        foreach ($payload['employee_niks'] as $nik) {
+        foreach ($payload['employee_niks'] as $rawNik) {
+            $nik = is_array($rawNik) ? ($rawNik['nik'] ?? $rawNik['id'] ?? null) : $rawNik;
+            if (! $nik) {
+                continue;
+            }
+
             $exists = $candidate->pkbSigners()->where('employee_nik', $nik)->exists();
             if ($exists) {
                 continue;
@@ -2089,9 +2094,9 @@ class HrRecruitmentCandidateController extends Controller
             $joinDateFormatted = $candidate->join_date ? \Carbon\Carbon::parse($candidate->join_date)->translatedFormat('d F Y') : '-';
             $vacancyTitle = $candidate->vacancy?->title ?? 'Umum';
             $lastCompany = $candidate->last_company ?? '-';
-            $previousSalary = number_format($candidate->previous_salary, 0, ',', '.');
-            $expectedSalary = number_format($candidate->expected_salary, 0, ',', '.');
-            $offeredSalary = number_format($candidate->offered_salary, 0, ',', '.');
+            $previousSalary = number_format((float) ($candidate->previous_salary ?? 0), 0, ',', '.');
+            $expectedSalary = number_format((float) ($candidate->expected_salary ?? 0), 0, ',', '.');
+            $offeredSalary = number_format((float) ($candidate->offered_salary ?? 0), 0, ',', '.');
 
             $message = "Dear Bapak/Ibu *{$employee->nama_karyawan}*,\n\n".
                 "HRD telah menugaskan Anda untuk meninjau dan menyetujui dokumen PKB (Persetujuan Kontrak Baru) untuk kandidat berikut:\n\n".
@@ -2140,19 +2145,25 @@ class HrRecruitmentCandidateController extends Controller
         ]);
     }
 
-    public function resendPkbSignerWa(Request $request, RecruitmentCandidate $candidate, RecruitmentCandidatePkbSigner $signer): JsonResponse
+    public function resendPkbSignerWa(Request $request, RecruitmentCandidate $candidate, $signer): JsonResponse
     {
-        $employee = Karyawan::where('nik', $signer->employee_nik)->first();
-        abort_unless($employee && $employee->no_hp, 422, 'Nomor HP karyawan penyetuju tidak tersedia.');
+        $signerId = is_object($signer) ? ($signer->id ?? null) : $signer;
+        $signerModel = $candidate->pkbSigners()->where('id', $signerId)->first();
+        if (! $signerModel) {
+            $signerModel = RecruitmentCandidatePkbSigner::where('id', $signerId)->firstOrFail();
+        }
 
-        $signLinkLong = rtrim((string) config('app.frontend_url'), '/')."/public/pkb/sign-request/{$signer->id}";
+        $employee = Karyawan::where('nik', $signerModel->employee_nik)->first();
+        abort_unless($employee && ! empty($employee->no_hp), 422, 'Nomor HP karyawan penyetuju (' . ($employee?->nama_karyawan ?? $signerModel->employee_nik) . ') tidak tersedia.');
+
+        $signLinkLong = rtrim((string) config('app.frontend_url'), '/')."/public/pkb/sign-request/{$signerModel->id}";
         $signLink = app(\App\Services\RecruitmentShortUrlService::class)->shorten($signLinkLong, now()->addDays(7));
         $joinDateFormatted = $candidate->join_date ? \Carbon\Carbon::parse($candidate->join_date)->translatedFormat('d F Y') : '-';
         $vacancyTitle = $candidate->vacancy?->title ?? 'Umum';
         $lastCompany = $candidate->last_company ?? '-';
-        $previousSalary = number_format($candidate->previous_salary, 0, ',', '.');
-        $expectedSalary = number_format($candidate->expected_salary, 0, ',', '.');
-        $offeredSalary = number_format($candidate->offered_salary, 0, ',', '.');
+        $previousSalary = number_format((float) ($candidate->previous_salary ?? 0), 0, ',', '.');
+        $expectedSalary = number_format((float) ($candidate->expected_salary ?? 0), 0, ',', '.');
+        $offeredSalary = number_format((float) ($candidate->offered_salary ?? 0), 0, ',', '.');
 
         $message = "Dear Bapak/Ibu *{$employee->nama_karyawan}*,\n\n".
             "HRD telah menugaskan Anda untuk meninjau dan menyetujui dokumen PKB (Persetujuan Kontrak Baru) untuk kandidat berikut:\n\n".
@@ -2171,7 +2182,7 @@ class HrRecruitmentCandidateController extends Controller
 
         try {
             if (app(WhatsAppService::class)->sendMessage($employee->no_hp, $message)) {
-                $signer->update(['sent_at' => now()]);
+                $signerModel->update(['sent_at' => now()]);
 
                 return response()->json([
                     'message' => 'Permintaan tanda tangan PKB berhasil dikirim ulang melalui WhatsApp.',
@@ -2183,8 +2194,8 @@ class HrRecruitmentCandidateController extends Controller
         }
 
         return response()->json([
-            'message' => 'Gagal mengirim ulang WhatsApp ke karyawan penyetuju.',
-        ], 500);
+            'message' => 'Gagal mengirim ulang WhatsApp ke karyawan penyetuju (gateway WhatsApp tidak merespons atau sedang offline). Silakan coba lagi atau gunakan tombol Salin Link.',
+        ], 422);
     }
 
     public function submitPkbSignerSignature(Request $request, $id): JsonResponse
@@ -3140,9 +3151,9 @@ class HrRecruitmentCandidateController extends Controller
         $approvedCount = $candidate->pkbSigners->whereNotNull('signed_at')->count();
         $totalApprovers = $candidate->pkbSigners->count();
         $approvalStatus = $approvedCount === $totalApprovers ? 'Disetujui Seluruh Penyetuju' : "Disetujui {$approvedCount} dari {$totalApprovers} Penyetuju";
-        $previousSalary = number_format((float) $candidate->previous_salary, 0, ',', '.');
-        $expectedSalary = number_format((float) $candidate->expected_salary, 0, ',', '.');
-        $offeredSalary = number_format((float) $candidate->offered_salary, 0, ',', '.');
+        $previousSalary = number_format((float) ($candidate->previous_salary ?? 0), 0, ',', '.');
+        $expectedSalary = number_format((float) ($candidate->expected_salary ?? 0), 0, ',', '.');
+        $offeredSalary = number_format((float) ($candidate->offered_salary ?? 0), 0, ',', '.');
         $joinDate = $candidate->join_date ? \Carbon\Carbon::parse($candidate->join_date)->translatedFormat('d F Y') : '-';
 
         $html = "<div style='font-family:Arial,sans-serif;padding:30px;color:#1e293b;line-height:1.5'>";
