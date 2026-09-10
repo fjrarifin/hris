@@ -1334,9 +1334,11 @@ class HrRecruitmentCandidateController extends Controller
         $selectedNiks = $this->parseInterviewerNiks($payload['interviewer_nik']);
         $conflictReason = $this->getConflictReason($candidate->id, $payload['round'], $payload['interview_date'], $payload['interview_time'], $selectedNiks);
         if ($conflictReason) {
-            return response()->json([
-                'message' => $conflictReason,
-            ], 422);
+            Log::warning('User interview scheduled with soft conflict warning', [
+                'candidate_id' => $candidate->id,
+                'round' => $payload['round'],
+                'reason' => $conflictReason,
+            ]);
         }
 
         $beforeAudit = app(HrdAuditLogService::class)->snapshot($candidate);
