@@ -8,6 +8,7 @@ use App\Models\Karyawan;
 use App\Models\Payroll;
 use App\Models\PayrollComponent;
 use App\Models\PayrollItem;
+use App\Services\PublicHolidayBalanceService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -39,7 +40,8 @@ class PayrollCalculationService
     public function __construct(
         private readonly PayrollAttendanceReadinessService $readinessService,
         private readonly PayrollValidationService $validationService,
-        private readonly PayrollPeriodService $periodService
+        private readonly PayrollPeriodService $periodService,
+        private readonly PublicHolidayBalanceService $phBalanceService
     ) {
     }
 
@@ -190,6 +192,15 @@ class PayrollCalculationService
                 $result['generated']++;
             }
         });
+
+        // Setelah generate payroll selesai, sync saldo PH otomatis:
+        // Karyawan yang hadir di tanggal public holiday dalam periode ini mendapat jatah PH
+        if ($result['generated'] > 0) {
+            $this->phBalanceService->syncForAttendancePeriod(
+                $preview['filters']['start_date'],
+                $preview['filters']['end_date']
+            );
+        }
 
         return [...$result, 'preview' => $preview];
     }

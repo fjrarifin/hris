@@ -12,6 +12,7 @@ use App\Models\EmployeeDailySchedule;
 use App\Models\EmployeeExtraOff;
 use App\Models\EmployeePermission;
 use App\Models\EmployeePhAdjustment;
+use App\Models\EmployeePhBalance;
 use App\Models\ExtraOffRequest;
 use App\Models\FingerspotAttendanceLog;
 use App\Models\GateQrUsageLog;
@@ -1711,22 +1712,48 @@ class StaffPortalController extends Controller
 
     private function activeAnnualLeaveDays(User $user): int
     {
-        return (int) LeaveRequest::query()
+        // Dapatkan tanggal mulai kontrak aktif
+        // Hanya hitung cuti yang diambil sejak kontrak aktif dimulai
+        // agar cuti dari kontrak lama tidak memotong saldo kontrak baru
+        $contractStart = app(LeaveAccrualService::class)->getContractStart($user);
+
+        $query = LeaveRequest::query()
             ->where('user_id', $user->id)
             ->where('leave_type', 'cuti_tahunan')
             ->whereNotIn('status', ['rejected', 'cancelled'])
-            ->get(['start_date', 'end_date'])
-            ->sum(fn (LeaveRequest $leave): int => Carbon::parse($leave->start_date)->diffInDays(Carbon::parse($leave->end_date)) + 1);
+            ->get(['start_date', 'end_date']);
+
+        if ($contractStart) {
+            $query = $query->filter(
+                fn (LeaveRequest $leave) => $leave->start_date && Carbon::parse($leave->start_date)->gte($contractStart)
+            );
+        }
+
+        return (int) $query->sum(
+            fn (LeaveRequest $leave): int => Carbon::parse($leave->start_date)->diffInDays(Carbon::parse($leave->end_date)) + 1
+        );
     }
 
     private function publicHolidayBalance(User $user): int
     {
-        $usedHolidayIds = PublicHolidayRequest::query()
+        $employee = $this->employeeFor($user);
+
+        // Saldo dari tabel employee_ph_balances (otomatis dari absensi)
+        $balanceDays = (int) EmployeePhBalance::query()
+            ->where('karyawan_nik', $employee->nik)
+            ->sum('days');
+
+        // Koreksi manual HR dari employee_ph_adjustments (tetap diperhitungkan)
+        $adjustmentDays = (int) EmployeePhAdjustment::query()
+            ->where('karyawan_nik', $employee->nik)
+            ->sum('days');
+
+        $usedCount = (int) PublicHolidayRequest::query()
             ->where('user_id', $user->id)
             ->whereNotIn('status', ['rejected', 'cancelled'])
-            ->pluck('public_holiday_id');
+            ->count();
 
-        return max(0, $this->eligiblePublicHolidays($user)->whereNotIn('id', $usedHolidayIds)->count());
+        return max(0, ($balanceDays + $adjustmentDays) - $usedCount);
     }
 
     private function extraOffBalance(User $user): int

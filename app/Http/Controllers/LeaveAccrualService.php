@@ -149,4 +149,38 @@ class LeaveAccrualService extends Controller
             ->where('is_used', false)
             ->sum('days');
     }
+
+    /**
+     * Kembalikan tanggal mulai kontrak aktif karyawan.
+     * Digunakan untuk memfilter leave_requests agar cuti dari kontrak lama
+     * tidak memotongi saldo accrual kontrak baru.
+     */
+    public function getContractStart(User $user): ?Carbon
+    {
+        $karyawan = $user->karyawan;
+        if (! $karyawan) {
+            return null;
+        }
+
+        $joinDate = $karyawan->join_date ? Carbon::parse($karyawan->join_date)->startOfDay() : null;
+
+        $activeContract = DB::table('t_kontrak_karyawan')
+            ->where('nik', $karyawan->nik)
+            ->where('status_kontrak', 'AKTIF')
+            ->orderByDesc('start_date')
+            ->first();
+
+        if (! $activeContract) {
+            $activeContract = DB::table('t_kontrak_karyawan')
+                ->where('nik', $karyawan->nik)
+                ->orderByDesc('end_date')
+                ->first();
+        }
+
+        if ($activeContract && ! empty($activeContract->start_date)) {
+            return Carbon::parse($activeContract->start_date)->startOfDay();
+        }
+
+        return $joinDate;
+    }
 }

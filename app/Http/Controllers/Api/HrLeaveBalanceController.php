@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Controllers\LeaveAccrualService;
 use App\Models\EmployeeExtraOff;
 use App\Models\EmployeePhAdjustment;
+use App\Models\EmployeePhBalance;
 use App\Models\ExtraOffRequest;
 use App\Models\FingerspotAttendanceLog;
 use App\Models\Karyawan;
@@ -17,6 +18,7 @@ use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class HrLeaveBalanceController extends Controller
@@ -141,11 +143,19 @@ class HrLeaveBalanceController extends Controller
                     ];
                 });
 
-            // Leave Requests
-            $leaveRequests = LeaveRequest::query()
+            // Leave Requests — hanya cuti yang diambil sejak kontrak aktif dimulai
+            $leaveAccrualService = app(LeaveAccrualService::class);
+            $contractStart = $user ? $leaveAccrualService->getContractStart($user) : null;
+
+            $leaveRequestQuery = LeaveRequest::query()
                 ->where('user_id', $user->id)
-                ->orderByDesc('start_date')
-                ->get()
+                ->orderByDesc('start_date');
+
+            if ($contractStart) {
+                $leaveRequestQuery->whereDate('start_date', '>=', $contractStart->toDateString());
+            }
+
+            $leaveRequests = $leaveRequestQuery->get()
                 ->map(function ($req) {
                     $startDate = $req->start_date ? Carbon::parse($req->start_date) : null;
                     $endDate = $req->end_date ? Carbon::parse($req->end_date) : null;
@@ -383,7 +393,17 @@ class HrLeaveBalanceController extends Controller
             ->get()
             ->groupBy('user_id');
 
-        // Batch load Leave Requests (annual leave days taken)
+        // Batch load contract start dates per user — untuk filter cuti terpakai
+        $leaveAccrualService = app(LeaveAccrualService::class);
+        $contractStartByUserId = [];
+        foreach ($employees as $emp) {
+            if ($emp->user) {
+                $cs = $leaveAccrualService->getContractStart($emp->user);
+                $contractStartByUserId[$emp->user->id] = $cs;
+            }
+        }
+
+        // Batch load Leave Requests (annual leave days taken) — ALL, filter per-user by contract start below
         $leaveRequestsGrouped = LeaveRequest::query()
             ->whereIn('user_id', $userIds)
             ->where('leave_type', 'cuti_tahunan')
@@ -397,6 +417,12 @@ class HrLeaveBalanceController extends Controller
             ->whereNotIn('status', ['rejected', 'cancelled'])
             ->get()
             ->groupBy('user_id');
+
+        // Batch load PH Balances (tabel baru — saldo otomatis dari absensi)
+        $phBalancesGrouped = EmployeePhBalance::query()
+            ->whereIn('karyawan_nik', $niks)
+            ->get()
+            ->groupBy('karyawan_nik');
 
         // Batch load Extra Off Sources
         $eoSourcesGrouped = EmployeeExtraOff::query()
@@ -412,45 +438,28 @@ class HrLeaveBalanceController extends Controller
             ->get()
             ->groupBy('user_id');
 
-        // Batch load PH Adjustments
+        // Batch load PH Adjustments (manual HR koreksi lama — tetap diperhitungkan)
         $phAdjustmentsGrouped = EmployeePhAdjustment::query()
             ->whereIn('karyawan_nik', $niks)
             ->get()
             ->groupBy('karyawan_nik');
 
-        // Batch load Past Active Public Holidays
-        $pastHolidays = PublicHoliday::query()
-            ->where('is_active', true)
-            ->whereDate('holiday_date', '<', now())
-            ->whereDate('holiday_date', '>', now()->subDays(90))
-            ->orderByDesc('holiday_date')
-            ->get();
-
-        // Batch load Attendance Logs for PH eligibility check
-        $attendanceLogsGrouped = collect();
-        if (! empty($pins)) {
-            $attendanceLogsGrouped = FingerspotAttendanceLog::query()
-                ->whereIn('pin', $pins)
-                ->whereBetween('scan_date', [now()->subDays(90)->startOfDay(), now()->startOfDay()])
-                ->get(['pin', 'scan_date'])
-                ->groupBy('pin')
-                ->map(fn ($logs) => $logs->pluck('scan_date')->map(fn ($d) => Carbon::parse($d)->toDateString())->unique());
-        }
+        // Hapus batch load Past Active Public Holidays & Attendance Logs — tidak lagi dibutuhkan
+        // karena saldo PH sekarang dibaca langsung dari tabel employee_ph_balances
 
         return $employees->map(function ($emp) use (
             $accrualsGrouped,
             $leaveRequestsGrouped,
+            $contractStartByUserId,
             $phRequestsGrouped,
+            $phBalancesGrouped,
             $eoSourcesGrouped,
             $eoRequestsGrouped,
-            $phAdjustmentsGrouped,
-            $pastHolidays,
-            $attendanceLogsGrouped
+            $phAdjustmentsGrouped
         ) {
             $user = $emp->user;
             $userId = $user?->id;
             $nik = $emp->nik;
-            $pin = $emp->pin;
 
             // 1. Leave (Cuti Tahunan) Balance
             $accruedDays = 0;
@@ -459,7 +468,17 @@ class HrLeaveBalanceController extends Controller
                 $accruals = $accrualsGrouped->get($userId, collect());
                 $accruedDays = (int) $accruals->sum(fn ($a) => (int) ($a->days ?: 1));
 
+                $contractStart = $contractStartByUserId[$userId] ?? null;
                 $leaveRequests = $leaveRequestsGrouped->get($userId, collect());
+
+                // Filter hanya cuti yang diambil sejak kontrak aktif dimulai
+                // Ini mencegah cuti dari kontrak lama memotong saldo kontrak baru
+                if ($contractStart) {
+                    $leaveRequests = $leaveRequests->filter(
+                        fn ($req) => $req->start_date && Carbon::parse($req->start_date)->gte($contractStart)
+                    );
+                }
+
                 $usedLeaveDays = (int) $leaveRequests->sum(function ($req) {
                     $s = $req->start_date ? Carbon::parse($req->start_date) : null;
                     $e = $req->end_date ? Carbon::parse($req->end_date) : null;
@@ -468,34 +487,23 @@ class HrLeaveBalanceController extends Controller
             }
             $remainingLeaveDays = max($accruedDays - $usedLeaveDays, 0);
 
-            // 2. Public Holiday (PH) Balance
+            // 2. Public Holiday (PH) Balance — dari tabel employee_ph_balances + employee_ph_adjustments
             $eligiblePhCount = 0;
             $usedPhCount = 0;
             if ($userId) {
-                $userScanDates = $pin ? $attendanceLogsGrouped->get($pin, collect()) : collect();
-                $joinDate = $emp->join_date ? Carbon::parse($emp->join_date)->startOfDay() : null;
+                // Saldo dari tabel baru (otomatis dari absensi)
+                $phBalances = $phBalancesGrouped->get($nik, collect());
+                $balanceDays = (int) $phBalances->sum('days');
 
+                // Koreksi manual HR (tabel lama tetap dipakai)
                 $phAdjustments = $phAdjustmentsGrouped->get($nik, collect());
-                $specificDeductedIds = $phAdjustments->where('days', '<', 0)->pluck('public_holiday_id')->filter()->unique();
-                $specificAddedIds = $phAdjustments->where('days', '>', 0)->pluck('public_holiday_id')->filter()->unique();
-                $generalAdjustedDays = (int) $phAdjustments->whereNull('public_holiday_id')->sum('days');
+                $adjustmentDays = (int) $phAdjustments->sum('days');
 
-                $eligiblePhs = $pastHolidays->filter(function ($holiday) use ($userScanDates, $joinDate, $specificDeductedIds, $specificAddedIds) {
-                    $holidayDate = $holiday->holiday_date ? Carbon::parse($holiday->holiday_date) : null;
-                    if (! $holidayDate) return false;
-                    if ($joinDate && $holidayDate->lt($joinDate)) return false;
-                    if ($specificDeductedIds->contains($holiday->id)) return false;
-                    if ($specificAddedIds->contains($holiday->id)) return true;
+                $eligiblePhCount = max($balanceDays + $adjustmentDays, 0);
 
-                    $requiresAttendance = $holidayDate->gte(Carbon::parse(self::PUBLIC_HOLIDAY_ATTENDANCE_REQUIRED_FROM));
-                    return ! $requiresAttendance || $userScanDates->contains($holidayDate->toDateString());
-                });
-                $naturalEligibleCount = $eligiblePhs->count();
-                $eligiblePhCount = max($naturalEligibleCount + $generalAdjustedDays, 0);
-
-                $activeEligiblePhIds = $eligiblePhs->pluck('id');
+                // Klaim PH yang sudah digunakan
                 $phRequests = $phRequestsGrouped->get($userId, collect());
-                $usedPhCount = $phRequests->whereIn('public_holiday_id', $activeEligiblePhIds)->count();
+                $usedPhCount = $phRequests->count();
             }
             $remainingPhDays = max($eligiblePhCount - $usedPhCount, 0);
 
