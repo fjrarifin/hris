@@ -491,19 +491,26 @@ class HrLeaveBalanceController extends Controller
             $eligiblePhCount = 0;
             $usedPhCount = 0;
             if ($userId) {
-                // Saldo dari tabel baru (otomatis dari absensi)
-                $phBalances = $phBalancesGrouped->get($nik, collect());
-                $balanceDays = (int) $phBalances->sum('days');
+                // Auto-sync jika ada PH eligible dalam 90 hari yang belum tercatat
+                app(\App\Services\PublicHolidayBalanceService::class)->syncMissingEligibleForEmployee($emp, $user);
 
-                // Koreksi manual HR (tabel lama tetap dipakai)
+                // Saldo dari tabel baru (otomatis dari absensi) dalam rentang aktif 90 hari
+                $phBalances = EmployeePhBalance::query()
+                    ->where('karyawan_nik', $nik)
+                    ->whereDate('holiday_date', '>', now()->subDays(90))
+                    ->whereDate('holiday_date', '<', now())
+                    ->get();
+                $activeHolidayIds = $phBalances->pluck('public_holiday_id')->filter()->unique();
+
+                // Koreksi manual umum HR (tanpa public_holiday_id spesifik)
                 $phAdjustments = $phAdjustmentsGrouped->get($nik, collect());
-                $adjustmentDays = (int) $phAdjustments->sum('days');
+                $generalAdjustmentDays = (int) $phAdjustments->whereNull('public_holiday_id')->sum('days');
 
-                $eligiblePhCount = max($balanceDays + $adjustmentDays, 0);
+                $eligiblePhCount = max($activeHolidayIds->count() + $generalAdjustmentDays, 0);
 
-                // Klaim PH yang sudah digunakan
+                // Klaim PH yang menggunakan hari libur aktif saat ini
                 $phRequests = $phRequestsGrouped->get($userId, collect());
-                $usedPhCount = $phRequests->count();
+                $usedPhCount = $phRequests->whereIn('public_holiday_id', $activeHolidayIds)->count();
             }
             $remainingPhDays = max($eligiblePhCount - $usedPhCount, 0);
 

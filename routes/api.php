@@ -476,6 +476,7 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::post('recruitment/candidates/{candidate}/send-reference-check-wa', [HrRecruitmentCandidateController::class, 'sendReferenceCheckWa']);
                 Route::post('recruitment/candidates/{candidate}/upload-reference-check-summary', [HrRecruitmentCandidateController::class, 'uploadReferenceCheckSummary']);
                 Route::get('recruitment/candidates/{candidate}/reference-check-summary-preview', [HrRecruitmentCandidateController::class, 'previewReferenceCheckSummary']);
+                Route::post('recruitment/candidates/{candidate}/unlock-reference-check', [HrRecruitmentCandidateController::class, 'unlockReferenceCheckSubmission']);
                 Route::get('recruitment/candidates/{candidate}/user-interview-round/{round}/summary-preview', [HrRecruitmentCandidateController::class, 'previewUserInterviewRoundSummary']);
                 Route::get('recruitment/candidates/{candidate}/user-interview-round/{round}/evaluation-recap-preview', [HrRecruitmentCandidateController::class, 'previewUserInterviewEvaluationRecap']);
                 Route::get('recruitment/candidates/{candidate}/pkb-approval-recap-preview', [HrRecruitmentCandidateController::class, 'previewPkbApprovalRecap']);

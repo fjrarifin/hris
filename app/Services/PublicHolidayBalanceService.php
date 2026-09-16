@@ -173,6 +173,262 @@ class PublicHolidayBalanceService
     }
 
     /**
+     * Sinkronisasi jatah PH yang memenuhi syarat (eligible) untuk satu karyawan
+     * jika record di employee_ph_balances belum ada.
+     *
+     * @param  Karyawan  $employee
+     * @param  User|null $user
+     * @return int Jumlah record baru yang ditambahkan
+     */
+    public function syncMissingEligibleForEmployee(Karyawan $employee, ?\App\Models\User $user = null): int
+    {
+        $joinDate = $employee->join_date ? Carbon::parse($employee->join_date)->startOfDay() : null;
+
+        // Ambil ID hari libur yang secara spesifik dikurangi oleh adjustment manual HR
+        $deductedHolidayIds = DB::table('employee_ph_adjustments')
+            ->where('karyawan_nik', $employee->nik)
+            ->whereNotNull('public_holiday_id')
+            ->where('days', '<', 0)
+            ->pluck('public_holiday_id');
+
+        // Ambil ID hari libur yang secara spesifik ditambahkan oleh adjustment manual HR
+        $addedHolidayIds = DB::table('employee_ph_adjustments')
+            ->where('karyawan_nik', $employee->nik)
+            ->whereNotNull('public_holiday_id')
+            ->where('days', '>', 0)
+            ->pluck('public_holiday_id');
+
+        // Hari libur aktif dalam jendela 90 hari terakhir
+        $activeHolidays = PublicHoliday::query()
+            ->where('is_active', true)
+            ->whereDate('holiday_date', '<', now())
+            ->whereDate('holiday_date', '>', now()->subDays(90))
+            ->when($joinDate, fn ($q) => $q->whereDate('holiday_date', '>=', $joinDate))
+            ->whereNotIn('id', $deductedHolidayIds)
+            ->orderByDesc('holiday_date')
+            ->get();
+
+        if ($activeHolidays->isEmpty()) {
+            return 0;
+        }
+
+        // Ambil tanggal scan presensi fingerspot jika punya PIN
+        $attendedDates = collect();
+        if ($employee->pin) {
+            $attendedDates = FingerspotAttendanceLog::query()
+                ->where('pin', $employee->pin)
+                ->whereBetween('scan_date', [now()->subDays(90)->startOfDay(), now()->startOfDay()])
+                ->get(['scan_date'])
+                ->pluck('scan_date')
+                ->map(fn ($d) => Carbon::parse($d)->toDateString())
+                ->unique();
+        }
+
+        $userId = $user?->id ?? $employee->user?->id;
+        $granted = 0;
+
+        foreach ($activeHolidays as $holiday) {
+            $holidayDate = Carbon::parse($holiday->holiday_date);
+            $holidayDateStr = $holidayDate->toDateString();
+            $requiresAttendance = $holidayDate->gte(Carbon::parse(self::ATTENDANCE_REQUIRED_FROM));
+
+            $isEligible = $addedHolidayIds->contains($holiday->id)
+                || ! $requiresAttendance
+                || $attendedDates->contains($holidayDateStr);
+
+            if (! $isEligible) {
+                continue;
+            }
+
+            // Cek apakah sudah ada record di employee_ph_balances
+            $exists = EmployeePhBalance::query()
+                ->where('karyawan_nik', $employee->nik)
+                ->where('public_holiday_id', $holiday->id)
+                ->exists();
+
+            if (! $exists) {
+                EmployeePhBalance::create([
+                    'karyawan_nik'      => $employee->nik,
+                    'user_id'           => $userId,
+                    'public_holiday_id' => $holiday->id,
+                    'holiday_date'      => $holidayDateStr,
+                    'holiday_name'      => $holiday->name,
+                    'days'              => 1,
+                    'source'            => 'auto',
+                    'notes'             => 'Otomatis tersinkronisasi dari kehadiran PH',
+                    'created_by'        => null,
+                ]);
+                $granted++;
+            }
+        }
+
+        return $granted;
+    }
+
+    /**
+     * Rebuild / Sinkronisasi massal seluruh saldo PH dari absensi:
+     * 1. Kosongkan tabel employee_ph_balances jika $fresh = true
+     * 2. Ambil seluruh public holiday aktif yang jatuh dalam rentang 90 hari terakhir (dan <= hari ini)
+     * 3. Ambil absensi fingerspot seluruh karyawan aktif pada tanggal merah tersebut
+     * 4. Masukkan karyawan yang hadir (atau berhak) ke tabel employee_ph_balances
+     * 5. Abaikan tanggal merah yang sudah lewat dari 90 hari
+     *
+     * @param bool $fresh
+     * @return array
+     */
+    public function rebuildBalancesFromAttendance(bool $fresh = true): array
+    {
+        if ($fresh) {
+            DB::table('employee_ph_balances')->truncate();
+        }
+
+        $now = Carbon::now();
+        $cutoff90 = $now->copy()->subDays(90)->startOfDay();
+
+        // 1. Ambil hari libur aktif dalam rentang 90 hari terakhir
+        $activeHolidays = PublicHoliday::query()
+            ->where('is_active', true)
+            ->whereDate('holiday_date', '<=', $now->toDateString())
+            ->whereDate('holiday_date', '>=', $cutoff90->toDateString())
+            ->orderBy('holiday_date')
+            ->get();
+
+        if ($activeHolidays->isEmpty()) {
+            return [
+                'holidays_count'   => 0,
+                'records_inserted' => 0,
+                'breakdown'        => [],
+            ];
+        }
+
+        // 2. Ambil karyawan aktif
+        $employees = Karyawan::query()
+            ->whereRaw("UPPER(TRIM(COALESCE(status_karyawan, ''))) = ?", ['AKTIF'])
+            ->with('user')
+            ->get();
+
+        // 3. Batch load scan logs fingerspot dalam rentang 90 hari
+        $pins = $employees->pluck('pin')->filter()->unique()->values()->all();
+        $scanDatesByPin = collect();
+        if (! empty($pins)) {
+            $scanDatesByPin = FingerspotAttendanceLog::query()
+                ->whereIn('pin', $pins)
+                ->whereBetween('scan_date', [$cutoff90, $now->copy()->endOfDay()])
+                ->get(['pin', 'scan_date'])
+                ->groupBy('pin')
+                ->map(fn ($logs) => $logs
+                    ->pluck('scan_date')
+                    ->map(fn ($d) => Carbon::parse($d)->toDateString())
+                    ->unique()
+                );
+        }
+
+        // 4. Batch load adjustments per karyawan
+        $adjustments = DB::table('employee_ph_adjustments')
+            ->whereNotNull('public_holiday_id')
+            ->get();
+        $addedMap = $adjustments->where('days', '>', 0)->groupBy('karyawan_nik');
+        $deductedMap = $adjustments->where('days', '<', 0)->groupBy('karyawan_nik');
+
+        $totalInserted = 0;
+        $breakdown = [];
+
+        foreach ($activeHolidays as $holiday) {
+            $hDate = Carbon::parse($holiday->holiday_date);
+            $hDateStr = $hDate->toDateString();
+            $requiresAttendance = $hDate->gte(Carbon::parse(self::ATTENDANCE_REQUIRED_FROM));
+            $insertedThisHoliday = 0;
+
+            $recordsToInsert = [];
+
+            foreach ($employees as $employee) {
+                // Skip jika join_date setelah hari libur
+                if ($employee->join_date) {
+                    $joinDate = Carbon::parse($employee->join_date)->startOfDay();
+                    if ($hDate->lt($joinDate)) {
+                        continue;
+                    }
+                }
+
+                // Cek penyesuaian manual HR (pengurangan spesifik)
+                $empDeductions = $deductedMap->get($employee->nik, collect())->pluck('public_holiday_id')->all();
+                if (in_array($holiday->id, $empDeductions)) {
+                    continue;
+                }
+
+                // Cek penyesuaian manual HR (penambahan spesifik)
+                $empAdditions = $addedMap->get($employee->nik, collect())->pluck('public_holiday_id')->all();
+                $isAddedByHR = in_array($holiday->id, $empAdditions);
+
+                // Cek presensi scan fingerspot
+                $scans = $employee->pin ? $scanDatesByPin->get($employee->pin, collect()) : collect();
+                $isAttended = $scans->contains($hDateStr);
+
+                $isEligible = $isAddedByHR || ! $requiresAttendance || $isAttended;
+
+                if ($isEligible) {
+                    $recordsToInsert[] = [
+                        'karyawan_nik'      => $employee->nik,
+                        'user_id'           => $employee->user?->id,
+                        'public_holiday_id' => $holiday->id,
+                        'holiday_date'      => $hDateStr,
+                        'holiday_name'      => $holiday->name,
+                        'days'              => 1,
+                        'source'            => $isAddedByHR ? 'adjustment' : 'attendance',
+                        'notes'             => 'Otomatis dari absensi PH dalam batas 90 hari',
+                        'created_by'        => null,
+                        'created_at'        => now(),
+                        'updated_at'        => now(),
+                    ];
+                    $insertedThisHoliday++;
+                }
+            }
+
+            if (! empty($recordsToInsert)) {
+                DB::table('employee_ph_balances')->insert($recordsToInsert);
+                $totalInserted += count($recordsToInsert);
+            }
+
+            $breakdown[] = [
+                'id'       => $holiday->id,
+                'name'     => $holiday->name,
+                'date'     => $hDateStr,
+                'days_ago' => abs((int) $now->diffInDays($hDate)),
+                'inserted' => $insertedThisHoliday,
+            ];
+        }
+
+        Log::info("[PublicHolidayBalanceService] Rebuild balances selesai. Fresh: " . ($fresh ? 'true' : 'false') . ", Total Inserted: {$totalInserted}.");
+
+        return [
+            'holidays_count'   => $activeHolidays->count(),
+            'records_inserted' => $totalInserted,
+            'breakdown'        => $breakdown,
+        ];
+    }
+
+    /**
+     * Sinkronisasi massal seluruh karyawan aktif untuk PH eligible dalam 90 hari terakhir.
+     *
+     * @return int Total record baru yang ditambahkan
+     */
+    public function syncAllActiveEligibleHolidays(): int
+    {
+        $employees = Karyawan::query()
+            ->whereRaw("UPPER(TRIM(COALESCE(status_karyawan, ''))) = ?", ['AKTIF'])
+            ->with('user')
+            ->get();
+
+        $totalGranted = 0;
+        foreach ($employees as $employee) {
+            $totalGranted += $this->syncMissingEligibleForEmployee($employee, $employee->user);
+        }
+
+        Log::info("[PublicHolidayBalanceService] Mass sync selesai. Total saldo PH baru ditambahkan: {$totalGranted}.");
+        return $totalGranted;
+    }
+
+    /**
      * Hitung total saldo PH karyawan berdasarkan:
      * 1. SUM days dari employee_ph_balances
      * 2. SUM days dari employee_ph_adjustments (koreksi manual HR lama)
@@ -184,23 +440,36 @@ class PublicHolidayBalanceService
      */
     public function getBalance(string $nik, int $userId): array
     {
-        $balanceDays = (int) EmployeePhBalance::where('karyawan_nik', $nik)->sum('days');
+        $employee = \App\Models\Karyawan::where('nik', $nik)->first();
+        if ($employee) {
+            $this->syncMissingEligibleForEmployee($employee);
+        }
 
-        $adjustmentDays = (int) DB::table('employee_ph_adjustments')
+        $activeHolidayIds = EmployeePhBalance::query()
             ->where('karyawan_nik', $nik)
+            ->whereDate('holiday_date', '>', now()->subDays(90))
+            ->whereDate('holiday_date', '<', now())
+            ->pluck('public_holiday_id')
+            ->filter()
+            ->unique();
+
+        $generalAdjustmentDays = (int) DB::table('employee_ph_adjustments')
+            ->where('karyawan_nik', $nik)
+            ->whereNull('public_holiday_id')
             ->sum('days');
 
         $usedCount = (int) DB::table('public_holiday_requests')
             ->where('user_id', $userId)
+            ->whereIn('public_holiday_id', $activeHolidayIds)
             ->whereNotIn('status', ['rejected', 'cancelled'])
             ->count();
 
-        $totalGranted = $balanceDays + $adjustmentDays;
+        $totalGranted = $activeHolidayIds->count() + $generalAdjustmentDays;
         $remaining    = max($totalGranted - $usedCount, 0);
 
         return [
             'granted'   => max($totalGranted, 0),
-            'adjusted'  => $adjustmentDays,
+            'adjusted'  => $generalAdjustmentDays,
             'used'      => $usedCount,
             'remaining' => $remaining,
         ];

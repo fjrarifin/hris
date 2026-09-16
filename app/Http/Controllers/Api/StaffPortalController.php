@@ -1738,22 +1738,32 @@ class StaffPortalController extends Controller
     {
         $employee = $this->employeeFor($user);
 
-        // Saldo dari tabel employee_ph_balances (otomatis dari absensi)
-        $balanceDays = (int) EmployeePhBalance::query()
+        // Auto-sync jika ada PH eligible dalam 90 hari yang belum tercatat di employee_ph_balances
+        app(\App\Services\PublicHolidayBalanceService::class)->syncMissingEligibleForEmployee($employee, $user);
+
+        // Ambil ID hari libur aktif dalam jendela 90 hari yang tercatat di employee_ph_balances
+        $activeHolidayIds = EmployeePhBalance::query()
             ->where('karyawan_nik', $employee->nik)
+            ->whereDate('holiday_date', '>', now()->subDays(90))
+            ->whereDate('holiday_date', '<', now())
+            ->pluck('public_holiday_id')
+            ->filter()
+            ->unique();
+
+        // Koreksi manual umum HR (tanpa public_holiday_id spesifik)
+        $generalAdjustmentDays = (int) EmployeePhAdjustment::query()
+            ->where('karyawan_nik', $employee->nik)
+            ->whereNull('public_holiday_id')
             ->sum('days');
 
-        // Koreksi manual HR dari employee_ph_adjustments (tetap diperhitungkan)
-        $adjustmentDays = (int) EmployeePhAdjustment::query()
-            ->where('karyawan_nik', $employee->nik)
-            ->sum('days');
-
+        // Klaim yang menggunakan hari libur aktif saat ini
         $usedCount = (int) PublicHolidayRequest::query()
             ->where('user_id', $user->id)
+            ->whereIn('public_holiday_id', $activeHolidayIds)
             ->whereNotIn('status', ['rejected', 'cancelled'])
             ->count();
 
-        return max(0, ($balanceDays + $adjustmentDays) - $usedCount);
+        return max(0, ($activeHolidayIds->count() + $generalAdjustmentDays) - $usedCount);
     }
 
     private function extraOffBalance(User $user): int

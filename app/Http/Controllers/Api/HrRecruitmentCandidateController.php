@@ -1679,9 +1679,28 @@ class HrRecruitmentCandidateController extends Controller
             'Password formulir tidak valid.'
         );
 
-        $candidate->references()->delete();
+        // Pertahankan referensi yang sudah diisi oleh pemberi referensi agar jawabannya tidak terhapus
+        $submittedRefs = $candidate->references()->whereNotNull('submitted_at')->get();
+
+        // Hapus hanya referensi yang belum diisi oleh pemberi referensi
+        $candidate->references()->whereNull('submitted_at')->delete();
 
         foreach ($payload['references'] as $ref) {
+            // Cek apakah data ini adalah referensi yang sudah pernah disubmit oleh pemberi referensi
+            $matchedSubmitted = $submittedRefs->first(function ($s) use ($ref) {
+                return strcasecmp($s->name, $ref['name']) === 0 || $s->phone === $ref['phone'];
+            });
+
+            if ($matchedSubmitted) {
+                // Perbarui informasi detail jika ada perbaikan, tapi pertahankan answers, public_token, dan submitted_at
+                $matchedSubmitted->update([
+                    'company' => $ref['company'],
+                    'position' => $ref['position'],
+                    'relationship' => $ref['relationship'],
+                ]);
+                continue;
+            }
+
             $candidate->references()->create($ref + [
                 'form_type' => $this->isManagerialReference($candidate) ? 'managerial' : 'staff',
                 'public_token' => Str::random(64),
@@ -1695,6 +1714,31 @@ class HrRecruitmentCandidateController extends Controller
 
         return response()->json([
             'message' => 'Referensi kerja berhasil disimpan.',
+        ]);
+    }
+
+    public function unlockReferenceCheckSubmission(Request $request, RecruitmentCandidate $candidate): JsonResponse
+    {
+        $beforeAudit = app(HrdAuditLogService::class)->snapshot($candidate);
+
+        $candidate->update([
+            'reference_check_submitted_at' => null,
+        ]);
+
+        app(HrdAuditLogService::class)->record(
+            $request,
+            'RecruitmentCandidate',
+            'updated',
+            "Candidate #{$candidate->id}: {$candidate->name} (Unlocked Reference Check Form for Candidate)",
+            $beforeAudit,
+            $candidate->fresh(),
+            RecruitmentCandidate::class,
+            $candidate->id
+        );
+
+        return response()->json([
+            'message' => 'Akses formulir referensi kerja berhasil dibuka kembali untuk kandidat.',
+            'data' => $candidate->load(['vacancy', 'interviewer', 'userInterviews.interviewer', 'references', 'pkbSigners.employee']),
         ]);
     }
 
@@ -2659,6 +2703,9 @@ class HrRecruitmentCandidateController extends Controller
             'vacancy_title' => $candidate->vacancy?->title ?? 'Umum',
             'required_reference_count' => $this->requiredReferenceCount($candidate),
             'reference_check_submitted' => !empty($candidate->reference_check_submitted_at),
+            'references' => $candidate->references()->get([
+                'id', 'name', 'phone', 'company', 'position', 'relationship', 'submitted_at'
+            ]),
         ]);
     }
 

@@ -13,6 +13,11 @@ Schedule::command('fingerspot:sync-attendance')
     ->withoutOverlapping()
     ->runInBackground();
 
+Schedule::command('hris:sync-ph-balances')
+    ->dailyAt('23:30')
+    ->withoutOverlapping()
+    ->runInBackground();
+
 Schedule::command('attendance:send-incomplete-report')
     ->dailyAt('07:00')
     ->environments(['production'])
