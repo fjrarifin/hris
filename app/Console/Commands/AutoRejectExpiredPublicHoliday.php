@@ -36,7 +36,7 @@ class AutoRejectExpiredPublicHoliday extends Command
 
             $request->update([
                 'status' => 'rejected',
-                'reject_reason' => 'PH expired otomatis (60 hari terlewati)'
+                'reject_reason' => 'PH expired otomatis (90 hari terlewati)'
             ]);
 
             $request->user->notify(

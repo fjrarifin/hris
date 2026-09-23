@@ -1129,10 +1129,14 @@ class StaffPortalController extends Controller
             throw ValidationException::withMessages(['claim_date' => 'Tanggal pengambilan tidak boleh sebelum tanggal PH.']);
         }
 
-        $maxClaimDate = now()->startOfDay()->addDays(60);
+        if ($claimDate->gt($expiredAt)) {
+            throw ValidationException::withMessages(['claim_date' => 'Tanggal pengambilan melewati masa berlaku PH (maksimal 90 hari dari tanggal PH: '.$expiredAt->format('d M Y').').']);
+        }
+
+        $maxClaimDate = now()->startOfDay()->addDays(90);
 
         if ($claimDate->gt($maxClaimDate)) {
-            throw ValidationException::withMessages(['claim_date' => 'Tanggal pengambilan maksimal 60 hari ke depan.']);
+            throw ValidationException::withMessages(['claim_date' => 'Tanggal pengambilan maksimal 90 hari ke depan.']);
         }
 
         if (LeaveRequest::query()
@@ -1244,6 +1248,20 @@ class StaffPortalController extends Controller
                     Carbon::parse($source->periode_end)->addMonths(3)->format('d M Y')
                 ),
             ]);
+        }
+
+        if ($claimDate->gt($expiredAt)) {
+            throw ValidationException::withMessages([
+                'claim_date' => sprintf(
+                    'Tanggal pengambilan melewati batas masa berlaku Extra Off periode ini (%s).',
+                    Carbon::parse($source->periode_end)->addMonths(3)->format('d M Y')
+                ),
+            ]);
+        }
+
+        $maxClaimDate = now()->startOfDay()->addDays(90);
+        if ($claimDate->gt($maxClaimDate)) {
+            throw ValidationException::withMessages(['claim_date' => 'Tanggal pengambilan maksimal 90 hari ke depan.']);
         }
 
         if ($this->remainingExtraOffDays($user, $source) <= 0) {
