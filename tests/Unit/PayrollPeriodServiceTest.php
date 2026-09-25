@@ -55,4 +55,18 @@ class PayrollPeriodServiceTest extends TestCase
             Carbon::setTestNow();
         }
     }
+
+    public function test_august_25_to_september_24_period_has_31_calendar_days(): void
+    {
+        $service = new PayrollPeriodService();
+        $period = $service->periodFor('2026-09-10');
+
+        $this->assertSame('2026-08-25', $period['start_date']);
+        $this->assertSame('2026-09-24', $period['end_date']);
+
+        $start = Carbon::parse($period['start_date']);
+        $end = Carbon::parse($period['end_date']);
+        $totalDays = (int) $start->diffInDays($end) + 1;
+        $this->assertSame(31, $totalDays);
+    }
 }

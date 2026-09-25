@@ -18,6 +18,7 @@ use App\Models\PublicHolidayRequest;
 use App\Models\User;
 use App\Notifications\MinimumAttendanceWarningNotification;
 use App\Services\HrAttendanceReportService;
+use App\Services\PayrollPeriodService;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use Illuminate\Database\Eloquent\Builder;
@@ -38,7 +39,10 @@ class HrAttendanceController extends Controller
 
     private const APPROVED_PAID_ABSENCE_MINUTES = 8 * 60;
 
-    public function __construct(private readonly HrAttendanceReportService $attendanceReportService) {}
+    public function __construct(
+        private readonly HrAttendanceReportService $attendanceReportService,
+        private readonly PayrollPeriodService $periodService
+    ) {}
 
     public function options(): JsonResponse
     {
@@ -85,7 +89,7 @@ class HrAttendanceController extends Controller
             'filters' => $report['filters'],
             'dates' => $report['dates'],
             'summary' => $report['summary'],
-            'targets' => $this->monthlyTargets(),
+            'targets' => $this->monthlyTargets($report['filters']['start_date'], $report['filters']['end_date']),
             'records' => $report['records']->forPage($page, $perPage)->values(),
             'pagination' => [
                 'current_page' => $page,
@@ -291,9 +295,11 @@ class HrAttendanceController extends Controller
             ];
         }
 
+        $startDate = $asOfDate->copy()->startOfMonth()->toDateString();
+        $endDate = $asOfDate->toDateString();
         $report = $this->attendanceReportService->report([
-            'start_date' => $asOfDate->copy()->startOfMonth()->toDateString(),
-            'end_date' => $asOfDate->toDateString(),
+            'start_date' => $startDate,
+            'end_date' => $endDate,
         ]);
         $activeNiks = DB::table('t_kontrak_karyawan')
             ->where('status_kontrak', 'AKTIF')
@@ -301,11 +307,13 @@ class HrAttendanceController extends Controller
             ->whereDate('end_date', '>=', $asOfDate)
             ->pluck('nik');
 
+        $targets = $this->monthlyTargets($startDate, $endDate);
+
         $records = $report['records']
             ->whereIn('nik', $activeNiks)
-            ->map(function (array $record): array {
-                $attendanceShortage = max(self::IDEAL_MONTHLY_ATTENDANCE_DAYS - $record['total_attendance'], 0);
-                $minutesShortage = max(self::MINIMUM_MONTHLY_WORK_MINUTES - $record['total_work_duration_minutes'], 0);
+            ->map(function (array $record) use ($targets): array {
+                $attendanceShortage = max($targets['ideal_attendance_days'] - $record['total_attendance'], 0);
+                $minutesShortage = max($targets['minimum_work_duration_minutes'] - $record['total_work_duration_minutes'], 0);
 
                 return [
                     'nik' => $record['nik'],
@@ -328,7 +336,7 @@ class HrAttendanceController extends Controller
             'period_start' => $report['filters']['start_date'],
             'period_end' => $report['filters']['end_date'],
             'records' => $records,
-            ...$this->monthlyTargets(),
+            ...$targets,
         ];
     }
 
@@ -342,7 +350,7 @@ class HrAttendanceController extends Controller
             'start_date' => $periodStart->toDateString(),
             'end_date' => $periodEnd->toDateString(),
         ]);
-        $targets = $this->monthlyTargets();
+        $targets = $this->monthlyTargets($periodStart->toDateString(), $periodEnd->toDateString());
         $records = $report['records']
             ->map(function (array $record) use ($targets): array {
                 $attendanceDiff = $record['total_attendance'] - $targets['ideal_attendance_days'];
@@ -957,8 +965,21 @@ class HrAttendanceController extends Controller
         return $prefix.$this->workDurationLabel($absolute);
     }
 
-    private function monthlyTargets(): array
+    private function monthlyTargets(?string $startDate = null, ?string $endDate = null): array
     {
+        if ($startDate && $endDate) {
+            $summary = $this->periodService->workdaySummary($startDate, $endDate);
+            $workdays = $summary['workdays'];
+            $workMinutes = $workdays * 8 * 60;
+
+            return [
+                'ideal_attendance_days' => $workdays,
+                'minimum_work_duration_minutes' => $workMinutes,
+                'minimum_work_duration' => $this->workDurationLabel($workMinutes),
+                'approved_ph_leave_daily_minutes' => self::APPROVED_PAID_ABSENCE_MINUTES,
+            ];
+        }
+
         return [
             'ideal_attendance_days' => self::IDEAL_MONTHLY_ATTENDANCE_DAYS,
             'minimum_work_duration_minutes' => self::MINIMUM_MONTHLY_WORK_MINUTES,
