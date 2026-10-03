@@ -24,8 +24,8 @@ class HrRecruitmentDashboardController extends Controller
         'case_study' => 'Case Study',
         'interview_user' => 'Wawancara User',
         'reference_check' => 'Reference Check',
-        'offering' => 'Offering',
         'pkb' => 'PKB',
+        'offering' => 'Offering',
         'hired' => 'Hired & Onboarding',
         'rejected' => 'Rejected',
     ];

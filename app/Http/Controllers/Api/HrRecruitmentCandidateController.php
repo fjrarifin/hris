@@ -11,6 +11,7 @@ use App\Mail\HrdNewEmployeeNotificationMail;
 use App\Mail\OfferingLetterMail;
 use App\Models\Karyawan;
 use App\Models\RecruitmentCandidate;
+use App\Models\RecruitmentCandidateCaseStudy;
 use App\Models\RecruitmentCandidatePkbSigner;
 use App\Models\RecruitmentCandidateUserInterview;
 use App\Models\RecruitmentUserInterviewEvaluation;
@@ -32,7 +33,7 @@ class HrRecruitmentCandidateController extends Controller
     public function index(Request $request): JsonResponse
     {
         $candidates = RecruitmentCandidate::query()
-            ->with(['vacancy', 'interviewer', 'pic', 'atasanLangsung', 'userInterviews.interviewer', 'userInterviewEvaluations.interviewer', 'references', 'pkbSigners.employee'])
+            ->with(['vacancy', 'interviewer', 'pic', 'atasanLangsung', 'userInterviews.interviewer', 'userInterviewEvaluations.interviewer', 'references', 'pkbSigners.employee', 'caseStudies'])
             ->when($request->filled('vacancy_id'), fn ($query) => $query->where('vacancy_id', $request->input('vacancy_id')))
             ->when($request->filled('status'), fn ($query) => $query->where('status', $request->input('status')))
             ->latest()
@@ -192,7 +193,24 @@ class HrRecruitmentCandidateController extends Controller
 
     public function show(RecruitmentCandidate $candidate): JsonResponse
     {
-        $candidate->load(['vacancy', 'interviewer', 'pic', 'atasanLangsung', 'userInterviews.interviewer', 'references', 'pkbSigners.employee']);
+        $candidate->load(['vacancy', 'interviewer', 'pic', 'atasanLangsung', 'userInterviews.interviewer', 'references', 'pkbSigners.employee', 'caseStudies']);
+
+        if ($candidate->caseStudies->isEmpty() && ($candidate->case_study_sent_at || $candidate->case_study_submitted_file_path || $candidate->case_study_document_path || $candidate->case_study_token)) {
+            $candidate->caseStudies()->create([
+                'round' => 1,
+                'title' => 'Tahap 1',
+                'case_study_document_path' => $candidate->case_study_document_path,
+                'case_study_link' => $candidate->case_study_link,
+                'case_study_sent_at' => $candidate->case_study_sent_at,
+                'case_study_wa_sent_at' => $candidate->case_study_wa_sent_at,
+                'case_study_token' => $candidate->case_study_token,
+                'case_study_password' => $candidate->case_study_password,
+                'case_study_submitted_file_path' => $candidate->case_study_submitted_file_path,
+                'case_study_submitted_at' => $candidate->case_study_submitted_at,
+                'completed_at' => $candidate->case_study_submitted_at,
+            ]);
+            $candidate->load('caseStudies');
+        }
 
 
         // Auto-generate missing evaluation records for pre-existing scheduled interviews
@@ -482,10 +500,6 @@ class HrRecruitmentCandidateController extends Controller
         $nextStatus = $payload['status'];
         $stageChangeReason = $payload['stage_change_reason'] ?? null;
         unset($payload['status'], $payload['stage_change_reason']);
-        if ($candidate->status === 'reference_check' && $nextStatus === 'offering') {
-            $references = $candidate->references()->get();
-            abort_if($references->isEmpty() || $references->contains(fn ($reference) => ! $reference->submitted_at), 422, 'Seluruh pemberi referensi harus menyelesaikan formulir Reference Check terlebih dahulu.');
-        }
         $beforeAudit = app(HrdAuditLogService::class)->snapshot($candidate);
 
         $candidate->update($payload);
@@ -606,11 +620,19 @@ class HrRecruitmentCandidateController extends Controller
         ])->header('Cache-Control', 'private, no-store');
     }
 
-    public function previewCaseStudySubmission(RecruitmentCandidate $candidate): JsonResponse
+    public function previewCaseStudySubmission(Request $request, RecruitmentCandidate $candidate): JsonResponse
     {
-        abort_unless($candidate->case_study_submitted_file_path && Storage::disk('local')->exists($candidate->case_study_submitted_file_path), 404);
+        $round = $request->query('round');
+        $path = null;
+        if ($round) {
+            $caseStudy = $candidate->caseStudies()->where('round', $round)->first();
+            $path = $caseStudy?->case_study_submitted_file_path;
+        } else {
+            $path = $candidate->case_study_submitted_file_path;
+        }
 
-        $path = $candidate->case_study_submitted_file_path;
+        abort_unless($path && Storage::disk('local')->exists($path), 404);
+
         $mime = Storage::disk('local')->mimeType($path) ?: 'application/octet-stream';
 
         return response()->json([
@@ -620,11 +642,51 @@ class HrRecruitmentCandidateController extends Controller
         ])->header('Cache-Control', 'private, no-store');
     }
 
-    public function previewCaseStudyQuestion(RecruitmentCandidate $candidate): JsonResponse
+    public function previewCaseStudyRoundSubmission(RecruitmentCandidate $candidate, int $round): JsonResponse
     {
-        abort_unless($candidate->case_study_document_path && Storage::disk('local')->exists($candidate->case_study_document_path), 404);
+        $caseStudy = $candidate->caseStudies()->where('round', $round)->first();
+        $path = $caseStudy?->case_study_submitted_file_path ?: ($round == 1 ? $candidate->case_study_submitted_file_path : null);
 
-        $path = $candidate->case_study_document_path;
+        abort_unless($path && Storage::disk('local')->exists($path), 404);
+
+        $mime = Storage::disk('local')->mimeType($path) ?: 'application/octet-stream';
+
+        return response()->json([
+            'filename' => basename($path),
+            'mime_type' => $mime,
+            'content_base64' => base64_encode(Storage::disk('local')->get($path)),
+        ])->header('Cache-Control', 'private, no-store');
+    }
+
+    public function previewCaseStudyQuestion(Request $request, RecruitmentCandidate $candidate): JsonResponse
+    {
+        $round = $request->query('round');
+        $path = null;
+        if ($round) {
+            $caseStudy = $candidate->caseStudies()->where('round', $round)->first();
+            $path = $caseStudy?->case_study_document_path;
+        } else {
+            $path = $candidate->case_study_document_path;
+        }
+
+        abort_unless($path && Storage::disk('local')->exists($path), 404);
+
+        $mime = Storage::disk('local')->mimeType($path) ?: 'application/octet-stream';
+
+        return response()->json([
+            'filename' => basename($path),
+            'mime_type' => $mime,
+            'content_base64' => base64_encode(Storage::disk('local')->get($path)),
+        ])->header('Cache-Control', 'private, no-store');
+    }
+
+    public function previewCaseStudyRoundQuestion(RecruitmentCandidate $candidate, int $round): JsonResponse
+    {
+        $caseStudy = $candidate->caseStudies()->where('round', $round)->first();
+        $path = $caseStudy?->case_study_document_path ?: ($round == 1 ? $candidate->case_study_document_path : null);
+
+        abort_unless($path && Storage::disk('local')->exists($path), 404);
+
         $mime = Storage::disk('local')->mimeType($path) ?: 'application/octet-stream';
 
         return response()->json([
@@ -948,15 +1010,25 @@ class HrRecruitmentCandidateController extends Controller
 
     public function sendWaCaseStudyToCandidate(Request $request, RecruitmentCandidate $candidate): JsonResponse
     {
+        $round = (int) $request->input('round', 1);
+        if ($round < 1) {
+            $round = 1;
+        }
+
         abort_unless($candidate->phone, 422, 'Nomor HP kandidat tidak tersedia.');
-        abort_unless($candidate->case_study_sent_at, 422, 'Harap kirimkan soal/instruksi case study terlebih dahulu.');
+
+        $caseStudy = $candidate->caseStudies()->where('round', $round)->first();
+        $isSent = $caseStudy ? !empty($caseStudy->case_study_sent_at) : ($round === 1 && !empty($candidate->case_study_sent_at));
+
+        abort_unless($isSent, 422, "Harap kirimkan soal/instruksi case study Tahap {$round} terlebih dahulu.");
 
         $candidate->loadMissing(['vacancy', 'pic']);
         $picPhone = $candidate->pic ? $candidate->pic->no_hp : '-';
         $picName = $candidate->pic ? ($candidate->pic->nama_karyawan ?? $candidate->pic->name) : 'Tim HRD';
 
+        $roundSuffix = $round > 1 ? " Tahap {$round}" : "";
         $message = "Yth. Sdr/i. *{$candidate->name}*,\n\n".
-                   "Selamat! Kami menginformasikan bahwa Anda dinyatakan lolos ke tahapan selanjutnya, yaitu *Case Study*.\n\n".
+                   "Selamat! Kami menginformasikan bahwa Anda dinyatakan lolos ke tahapan selanjutnya, yaitu *Case Study{$roundSuffix}*.\n\n".
                    "Soal studi kasus, batas waktu, dan instruksi pengerjaan lengkap telah kami kirimkan ke email Anda: *{$candidate->email}*.\n\n".
                    "Jika Anda memiliki pertanyaan lebih lanjut, silakan hubungi PIC HRD Anda (*{$picName}*) di nomor *{$picPhone}*.\n\n".
                    "Hormat kami,\n".
@@ -971,15 +1043,22 @@ class HrRecruitmentCandidateController extends Controller
         }
 
         if ($success) {
-            $candidate->update([
-                'case_study_wa_sent_at' => now(),
-            ]);
+            if ($caseStudy) {
+                $caseStudy->update([
+                    'case_study_wa_sent_at' => now(),
+                ]);
+            }
+            if ($round === 1 || $round >= ($candidate->caseStudies()->max('round') ?? 1)) {
+                $candidate->update([
+                    'case_study_wa_sent_at' => now(),
+                ]);
+            }
 
             app(HrdAuditLogService::class)->record(
                 $request,
                 'RecruitmentCandidate',
                 'updated',
-                "Candidate #{$candidate->id}: {$candidate->name} (Sent Case Study WhatsApp Notification to Candidate)",
+                "Candidate #{$candidate->id}: {$candidate->name} (Sent Case Study Round {$round} WhatsApp Notification to Candidate)",
                 app(HrdAuditLogService::class)->snapshot($candidate),
                 $candidate,
                 RecruitmentCandidate::class,
@@ -987,8 +1066,8 @@ class HrRecruitmentCandidateController extends Controller
             );
 
             return response()->json([
-                'message' => 'Notifikasi WhatsApp berhasil dikirim ke kandidat.',
-                'data' => $candidate->fresh()->load(['vacancy', 'interviewer', 'userInterviews.interviewer', 'references', 'pkbSigners.employee']),
+                'message' => "Notifikasi WhatsApp studi kasus Tahap {$round} berhasil dikirim ke kandidat.",
+                'data' => $candidate->fresh()->load(['vacancy', 'interviewer', 'userInterviews.interviewer', 'references', 'pkbSigners.employee', 'caseStudies']),
             ]);
         }
 
@@ -1105,7 +1184,13 @@ class HrRecruitmentCandidateController extends Controller
 
     public function sendCaseStudy(Request $request, RecruitmentCandidate $candidate): JsonResponse
     {
+        $round = (int) $request->input('round', 1);
+        if ($round < 1) {
+            $round = 1;
+        }
+
         $request->validate([
+            'round' => ['nullable', 'integer', 'min:1', 'max:5'],
             'document' => ['nullable', 'file', 'mimes:pdf,docx,doc,zip', 'max:10240'],
             'link' => ['nullable', 'url', 'max:255'],
         ], [
@@ -1130,29 +1215,50 @@ class HrRecruitmentCandidateController extends Controller
         $token = Str::random(40);
         $caseStudyPassword = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
 
-        $candidate->update([
-            'case_study_document_path' => $documentPath ?: $candidate->case_study_document_path,
-            'case_study_link' => $request->input('link') ?: $candidate->case_study_link,
-            'case_study_sent_at' => now(),
-            'case_study_token' => $token,
-            'case_study_password' => Hash::make($caseStudyPassword),
+        $caseStudy = RecruitmentCandidateCaseStudy::query()->firstOrNew([
+            'candidate_id' => $candidate->id,
+            'round' => $round,
         ]);
+
+        $oldDoc = $caseStudy->case_study_document_path;
+        $caseStudy->title = "Tahap {$round}";
+        $caseStudy->case_study_document_path = $documentPath ?: $caseStudy->case_study_document_path;
+        $caseStudy->case_study_link = $request->input('link') ?: $caseStudy->case_study_link;
+        $caseStudy->case_study_sent_at = now();
+        $caseStudy->case_study_token = $token;
+        $caseStudy->case_study_password = Hash::make($caseStudyPassword);
+        $caseStudy->save();
+
+        if ($documentPath && $oldDoc && $oldDoc !== $documentPath) {
+            Storage::disk('local')->delete($oldDoc);
+        }
+
+        if ($round === 1 || $round >= ($candidate->caseStudies()->max('round') ?? 1)) {
+            $candidate->update([
+                'case_study_document_path' => $caseStudy->case_study_document_path,
+                'case_study_link' => $caseStudy->case_study_link,
+                'case_study_sent_at' => $caseStudy->case_study_sent_at,
+                'case_study_token' => $caseStudy->case_study_token,
+                'case_study_password' => $caseStudy->case_study_password,
+            ]);
+        }
+
         $candidate = app(RecruitmentStageService::class)->transition(
             $candidate,
             'case_study',
             $request->user(),
             null,
-            ['source' => 'send_case_study'],
+            ['source' => 'send_case_study', 'round' => $round],
         );
 
         try {
             $uploadLinkLong = rtrim((string) config('app.frontend_url'), '/')."/public/case-study/{$token}";
             $uploadLink = app(\App\Services\RecruitmentShortUrlService::class)->shorten($uploadLinkLong, now()->addDays(3));
-            $hasAttachment = !empty($candidate->case_study_document_path);
+            $hasAttachment = !empty($caseStudy->case_study_document_path);
             Mail::to($candidate->email)->send(new CandidateCaseStudyMail(
                 $candidate,
-                $candidate->case_study_link,
-                $hasAttachment ? basename($candidate->case_study_document_path) : null,
+                $caseStudy->case_study_link,
+                $hasAttachment ? basename($caseStudy->case_study_document_path) : null,
                 $uploadLink,
                 $caseStudyPassword
             ));
@@ -1164,7 +1270,7 @@ class HrRecruitmentCandidateController extends Controller
             $request,
             'RecruitmentCandidate',
             'updated',
-            "Candidate #{$candidate->id}: {$candidate->name} (Sent Case Study)",
+            "Candidate #{$candidate->id}: {$candidate->name} (Sent Case Study Round {$round})",
             $beforeAudit,
             $candidate->fresh(),
             RecruitmentCandidate::class,
@@ -1172,16 +1278,20 @@ class HrRecruitmentCandidateController extends Controller
         );
 
         return response()->json([
-            'message' => 'Studi kasus berhasil dikirim ke kandidat.',
-            'data' => $candidate->load(['vacancy', 'interviewer', 'userInterviews.interviewer', 'references', 'pkbSigners.employee']),
+            'message' => "Studi kasus Tahap {$round} berhasil dikirim ke kandidat.",
+            'data' => $candidate->load(['vacancy', 'interviewer', 'userInterviews.interviewer', 'references', 'pkbSigners.employee', 'caseStudies']),
         ]);
     }
 
     public function uploadCaseStudySubmission(Request $request, RecruitmentCandidate $candidate): JsonResponse
     {
-        abort_unless($candidate->case_study_sent_at, 422, 'Harap kirimkan soal/instruksi case study terlebih dahulu.');
+        $round = (int) $request->input('round', 1);
+        if ($round < 1) {
+            $round = 1;
+        }
 
         $request->validate([
+            'round' => ['nullable', 'integer', 'min:1', 'max:5'],
             'submission' => ['required', 'file', 'mimes:pdf,docx,doc,zip,rar', 'max:15360'],
         ], [
             'submission.required' => 'Berkas pengumpulan studi kasus wajib diunggah.',
@@ -1192,22 +1302,35 @@ class HrRecruitmentCandidateController extends Controller
         $beforeAudit = app(HrdAuditLogService::class)->snapshot($candidate);
 
         $path = $request->file('submission')->store('recruitment-case-study-submissions', 'local');
-        $oldPath = $candidate->case_study_submitted_file_path;
 
-        $candidate->update([
-            'case_study_submitted_file_path' => $path,
-            'case_study_submitted_at' => now(),
+        $caseStudy = RecruitmentCandidateCaseStudy::query()->firstOrNew([
+            'candidate_id' => $candidate->id,
+            'round' => $round,
         ]);
 
-        if ($oldPath) {
+        $oldPath = $caseStudy->case_study_submitted_file_path;
+        $caseStudy->title = "Tahap {$round}";
+        $caseStudy->case_study_submitted_file_path = $path;
+        $caseStudy->case_study_submitted_at = now();
+        $caseStudy->completed_at = now();
+        $caseStudy->save();
+
+        if ($oldPath && $oldPath !== $path) {
             Storage::disk('local')->delete($oldPath);
+        }
+
+        if ($round === 1 || $round >= ($candidate->caseStudies()->max('round') ?? 1)) {
+            $candidate->update([
+                'case_study_submitted_file_path' => $path,
+                'case_study_submitted_at' => now(),
+            ]);
         }
 
         app(HrdAuditLogService::class)->record(
             $request,
             'RecruitmentCandidate',
             'updated',
-            "Candidate #{$candidate->id}: {$candidate->name} (Uploaded Case Study Submission)",
+            "Candidate #{$candidate->id}: {$candidate->name} (Uploaded Case Study Round {$round} Submission)",
             $beforeAudit,
             $candidate->fresh(),
             RecruitmentCandidate::class,
@@ -1215,8 +1338,39 @@ class HrRecruitmentCandidateController extends Controller
         );
 
         return response()->json([
-            'message' => 'Penyelesaian studi kasus berhasil diunggah.',
-            'data' => $candidate->load(['vacancy', 'interviewer', 'userInterviews.interviewer', 'references', 'pkbSigners.employee']),
+            'message' => "Penyelesaian studi kasus Tahap {$round} berhasil diunggah.",
+            'data' => $candidate->load(['vacancy', 'interviewer', 'userInterviews.interviewer', 'references', 'pkbSigners.employee', 'caseStudies']),
+        ]);
+    }
+
+    public function addCaseStudyRound(Request $request, RecruitmentCandidate $candidate): JsonResponse
+    {
+        $payload = $request->validate([
+            'round' => ['required', 'integer', 'min:2', 'max:5'],
+        ]);
+
+        $round = (int) $payload['round'];
+        $previousRound = $round - 1;
+
+        $previousCaseStudy = $candidate->caseStudies()->where('round', $previousRound)->first();
+        $prevDone = $previousCaseStudy ? (!empty($previousCaseStudy->case_study_submitted_file_path) || !empty($previousCaseStudy->case_study_submitted_at)) : (!empty($candidate->case_study_submitted_file_path) || !empty($candidate->case_study_submitted_at));
+
+        abort_unless(
+            $prevDone,
+            422,
+            "Tahap {$previousRound} harus memiliki jawaban/penyelesaian sebelum membuat Tahap {$round}."
+        );
+
+        $caseStudy = RecruitmentCandidateCaseStudy::firstOrCreate([
+            'candidate_id' => $candidate->id,
+            'round' => $round,
+        ], [
+            'title' => "Tahap {$round}",
+        ]);
+
+        return response()->json([
+            'message' => "Case Study Tahap {$round} berhasil ditambahkan.",
+            'data' => $candidate->load(['vacancy', 'interviewer', 'userInterviews.interviewer', 'references', 'pkbSigners.employee', 'caseStudies']),
         ]);
     }
 
@@ -1404,10 +1558,16 @@ class HrRecruitmentCandidateController extends Controller
                         ->where('interviewer_nik', $nik)
                         ->first();
                     $cvLink = '';
+                    $hrSummaryLink = '';
                     if ($eval) {
                         $frontendUrl = config('app.frontend_url');
                         $longCvLink = rtrim((string) $frontendUrl, '/')."/public/evaluation/{$eval->token}/resume";
                         $cvLink = app(\App\Services\RecruitmentShortUrlService::class)->shorten($longCvLink);
+
+                        if (! empty($candidate->interview_hr_summary_path) || ! empty($candidate->interview_hr_text_summary)) {
+                            $longHrSummaryLink = rtrim((string) $frontendUrl, '/')."/public/evaluation/{$eval->token}/hr-summary";
+                            $hrSummaryLink = app(\App\Services\RecruitmentShortUrlService::class)->shorten($longHrSummaryLink);
+                        }
                     }
 
                     $waMessage = "Halo Bapak/Ibu {$interviewer->nama_karyawan},\n\n".
@@ -1419,8 +1579,14 @@ class HrRecruitmentCandidateController extends Controller
                                  "- Tipe: {$type}\n".
                                  "- Lokasi/Link: {$details}\n\n".
                                  "- Link CV : {$cvLink}\n".
-                                 "- Password CV : 123456\n\n".
-                                 'Mohon konfirmasi kepada HRD jika pada tanggal tersebut tidak bisa melakukan interview. Terima kasih.';
+                                 "- Password CV : 123456\n";
+
+                    if ($hrSummaryLink) {
+                        $waMessage .= "- Link Summary HR : {$hrSummaryLink}\n".
+                                      "- Password Summary HR : 123456\n";
+                    }
+
+                    $waMessage .= "\nMohon konfirmasi kepada HRD jika pada tanggal tersebut tidak bisa melakukan interview. Terima kasih.";
 
                     $sent = app(WhatsAppService::class)->sendMessage($interviewer->no_hp, $waMessage);
                     if ($sent) {
@@ -2023,13 +2189,25 @@ class HrRecruitmentCandidateController extends Controller
             'password' => ['required', 'digits:6'],
         ])->validate();
 
-        $candidate = RecruitmentCandidate::query()
-            ->where('case_study_token', $token)
-            ->firstOrFail();
+        $caseStudy = RecruitmentCandidateCaseStudy::where('case_study_token', $token)->first();
+        if ($caseStudy) {
+            $candidate = $caseStudy->candidate;
+            $passwordHash = $caseStudy->case_study_password;
+            $link = $caseStudy->case_study_link;
+            $submitted = !empty($caseStudy->case_study_submitted_file_path);
+            $roundTitle = $caseStudy->title ?: "Tahap {$caseStudy->round}";
+        } else {
+            $candidate = RecruitmentCandidate::query()
+                ->where('case_study_token', $token)
+                ->firstOrFail();
+            $passwordHash = $candidate->case_study_password;
+            $link = $candidate->case_study_link;
+            $submitted = !empty($candidate->case_study_submitted_file_path);
+            $roundTitle = 'Case Study';
+        }
 
         abort_unless(
-            $candidate->case_study_password
-                && Hash::check($validated['password'], $candidate->case_study_password),
+            $passwordHash && Hash::check($validated['password'], $passwordHash),
             403,
             'PIN Case Study tidak valid.'
         );
@@ -2037,16 +2215,26 @@ class HrRecruitmentCandidateController extends Controller
         return response()->json([
             'name' => $candidate->name,
             'vacancy_title' => $candidate->vacancy?->title ?? 'Umum',
-            'case_study_link' => $candidate->case_study_link,
-            'case_study_submitted' => !empty($candidate->case_study_submitted_file_path),
+            'round_title' => $roundTitle,
+            'case_study_link' => $link,
+            'case_study_submitted' => $submitted,
         ]);
     }
 
     public function submitPublicCaseStudy(Request $request, $token): JsonResponse
     {
-        $candidate = RecruitmentCandidate::query()
-            ->where('case_study_token', $token)
-            ->firstOrFail();
+        $caseStudy = RecruitmentCandidateCaseStudy::where('case_study_token', $token)->first();
+        if ($caseStudy) {
+            $candidate = $caseStudy->candidate;
+            $passwordHash = $caseStudy->case_study_password;
+            $alreadySubmitted = !empty($caseStudy->case_study_submitted_file_path);
+        } else {
+            $candidate = RecruitmentCandidate::query()
+                ->where('case_study_token', $token)
+                ->firstOrFail();
+            $passwordHash = $candidate->case_study_password;
+            $alreadySubmitted = !empty($candidate->case_study_submitted_file_path);
+        }
 
         $payload = $request->validate([
             'password' => ['required', 'digits:6'],
@@ -2058,28 +2246,63 @@ class HrRecruitmentCandidateController extends Controller
         ]);
 
         abort_unless(
-            $candidate->case_study_password
-                && Hash::check($payload['password'], $candidate->case_study_password),
+            $passwordHash && Hash::check($payload['password'], $passwordHash),
             403,
             'PIN Case Study tidak valid.'
         );
 
-        if (!empty($candidate->case_study_submitted_file_path)) {
+        if ($alreadySubmitted) {
             return response()->json([
                 'message' => 'Jawaban case study Anda sudah pernah dikirimkan sebelumnya dan tidak dapat diubah.',
             ], 422);
         }
 
         $path = $request->file('submission')->store('recruitment-case-study-submissions', 'local');
-        $oldPath = $candidate->case_study_submitted_file_path;
 
-        $candidate->update([
-            'case_study_submitted_file_path' => $path,
-            'case_study_submitted_at' => now(),
-        ]);
+        if ($caseStudy) {
+            $oldPath = $caseStudy->case_study_submitted_file_path;
+            $caseStudy->update([
+                'case_study_submitted_file_path' => $path,
+                'case_study_submitted_at' => now(),
+                'completed_at' => now(),
+            ]);
+            if ($oldPath) {
+                Storage::disk('local')->delete($oldPath);
+            }
+            if ($caseStudy->round === 1 || $caseStudy->round >= ($candidate->caseStudies()->max('round') ?? 1)) {
+                $candidate->update([
+                    'case_study_submitted_file_path' => $path,
+                    'case_study_submitted_at' => now(),
+                ]);
+            }
+        } else {
+            $oldPath = $candidate->case_study_submitted_file_path;
+            $candidate->update([
+                'case_study_submitted_file_path' => $path,
+                'case_study_submitted_at' => now(),
+            ]);
+            if ($oldPath) {
+                Storage::disk('local')->delete($oldPath);
+            }
+        }
 
-        if ($oldPath) {
-            Storage::disk('local')->delete($oldPath);
+        // WhatsApp notification to Screening PIC
+        $candidate->loadMissing(['pic', 'vacancy']);
+        if ($candidate->pic && !empty($candidate->pic->no_hp)) {
+            try {
+                $vacancyTitle = $candidate->vacancy?->title ?? '-';
+                $timeSubmitted = now()->locale('id')->translatedFormat('d F Y, H:i');
+                $roundText = ($caseStudy && $caseStudy->round > 1) ? " (Tahap {$caseStudy->round})" : "";
+                $waMsg = "Halo Bapak/Ibu *{$candidate->pic->nama_karyawan}*,\n\n".
+                         "Kandidat berikut telah mengumpulkan jawaban Case Study{$roundText}:\n\n".
+                         "- Nama Kandidat: *{$candidate->name}*\n".
+                         "- Posisi: *{$vacancyTitle}*\n".
+                         "- Waktu Submit: *{$timeSubmitted} WIB*\n\n".
+                         "Silakan periksa dan tinjau jawaban kandidat di modul Rekrutmen HRIS.\nTerima kasih.";
+                app(WhatsAppService::class)->sendMessage($candidate->pic->no_hp, $waMsg);
+            } catch (\Exception $e) {
+                Log::error('Failed sending case study submission WA to PIC', ['error' => $e->getMessage(), 'candidate_id' => $candidate->id]);
+            }
         }
 
         return response()->json([
@@ -2093,16 +2316,31 @@ class HrRecruitmentCandidateController extends Controller
             'employee_niks' => ['required', 'array', 'min:1'],
             'employee_niks.*' => ['required', 'string', 'exists:m_karyawan,nik'],
             'previous_salary' => ['nullable', 'integer', 'min:0'],
+            'offered_salary' => ['nullable', 'integer', 'min:0'],
+            'join_date' => ['nullable', 'date'],
+            'last_company' => ['nullable', 'string', 'max:255'],
         ]);
 
         $beforeAudit = app(HrdAuditLogService::class)->snapshot($candidate);
 
-        $previousSalary = $payload['previous_salary'] ?? $candidate->previous_salary;
-        abort_unless($previousSalary !== null, 422, 'Gaji saat ini/perusahaan sebelumnya harus diisi.');
+        $updateData = [];
+        if (array_key_exists('previous_salary', $payload) && $payload['previous_salary'] !== null) {
+            $updateData['previous_salary'] = $payload['previous_salary'];
+        }
+        if (array_key_exists('offered_salary', $payload) && $payload['offered_salary'] !== null) {
+            $updateData['offered_salary'] = $payload['offered_salary'];
+        }
+        if (array_key_exists('join_date', $payload) && $payload['join_date'] !== null) {
+            $updateData['join_date'] = $payload['join_date'];
+        }
+        if (array_key_exists('last_company', $payload) && $payload['last_company'] !== null) {
+            $updateData['last_company'] = $payload['last_company'];
+        }
 
-        $candidate->update([
-            'previous_salary' => $previousSalary,
-        ]);
+        if (! empty($updateData)) {
+            $candidate->update($updateData);
+        }
+
         $candidate = app(RecruitmentStageService::class)->transition(
             $candidate,
             'pkb',
@@ -3372,6 +3610,41 @@ class HrRecruitmentCandidateController extends Controller
             'filename' => 'Resume-'.str($candidate->name)->slug().'.pdf',
             'mime_type' => 'application/pdf',
             'content_base64' => base64_encode(Storage::disk('local')->get($candidate->resume_path)),
+        ]);
+    }
+
+    public function getPublicHrSummaryByEvaluationToken(Request $request, $token): JsonResponse
+    {
+        $payload = $request->validate([
+            'password' => ['required', 'string'],
+        ]);
+
+        abort_unless($payload['password'] === '123456', 403, 'Password Summary HR tidak valid.');
+
+        $evaluation = RecruitmentUserInterviewEvaluation::where('token', $token)->firstOrFail();
+        $candidate = $evaluation->candidate;
+
+        $hasFile = !empty($candidate->interview_hr_summary_path) && Storage::disk('local')->exists($candidate->interview_hr_summary_path);
+        $fileData = null;
+        if ($hasFile) {
+            $path = $candidate->interview_hr_summary_path;
+            $fileData = [
+                'filename' => basename($path),
+                'mime_type' => Storage::disk('local')->mimeType($path) ?: 'application/octet-stream',
+                'content_base64' => base64_encode(Storage::disk('local')->get($path)),
+            ];
+        }
+
+        abort_if(! $hasFile && empty($candidate->interview_hr_text_summary), 404, 'Hasil summary HR belum tersedia untuk kandidat ini.');
+
+        return response()->json([
+            'candidate_name' => $candidate->name,
+            'vacancy_title' => $candidate->vacancy?->title ?? 'Umum',
+            'interview_hr_date' => $candidate->interview_hr_date,
+            'interview_hr_time' => $candidate->interview_hr_time,
+            'text_summary' => $candidate->interview_hr_text_summary,
+            'has_file' => $hasFile,
+            'file' => $fileData,
         ]);
     }
 

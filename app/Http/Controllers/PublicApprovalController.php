@@ -4,13 +4,16 @@ namespace App\Http\Controllers;
 
 use App\Http\Services\ApprovalNotificationService;
 use App\Models\EmployeePermission;
+use App\Models\EmployeePhBalance;
 use App\Models\ExtraOffRequest;
 use App\Models\FingerspotAttendanceLog;
 use App\Models\LeaveRequest;
+use App\Models\OvertimeRequest;
 use App\Models\PublicHolidayRequest;
 use App\Notifications\LeaveStatusNotification;
 use App\Notifications\PublicHolidayStatusNotification;
 use App\Notifications\RequestStatusNotification;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 
 class PublicApprovalController extends Controller
@@ -263,11 +266,16 @@ class PublicApprovalController extends Controller
             return false;
         }
 
-        return $holiday->holiday_date->lt(self::PUBLIC_HOLIDAY_ATTENDANCE_REQUIRED_FROM)
+        return $holiday->holiday_date->lt(Carbon::parse(self::PUBLIC_HOLIDAY_ATTENDANCE_REQUIRED_FROM))
             || ($employee?->pin
                 && FingerspotAttendanceLog::query()
                     ->where('pin', $employee->pin)
                     ->whereDate('scan_date', $holiday->holiday_date)
+                    ->exists())
+            || ($employee?->nik
+                && EmployeePhBalance::query()
+                    ->where('karyawan_nik', $employee->nik)
+                    ->where('public_holiday_id', $holiday->id)
                     ->exists());
     }
 }

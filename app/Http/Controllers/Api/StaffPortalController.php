@@ -1949,6 +1949,11 @@ class StaffPortalController extends Controller
                     && FingerspotAttendanceLog::query()
                         ->where('pin', $employee->pin)
                         ->whereDate('scan_date', $holiday->holiday_date)
+                        ->exists())
+                || ($employee->nik
+                    && EmployeePhBalance::query()
+                        ->where('karyawan_nik', $employee->nik)
+                        ->where('public_holiday_id', $holiday->id)
                         ->exists()));
     }
 

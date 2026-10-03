@@ -134,6 +134,11 @@ class RecruitmentCandidate extends Model
         return $this->belongsTo(Karyawan::class, 'pic_nik', 'nik');
     }
 
+    public function caseStudies()
+    {
+        return $this->hasMany(RecruitmentCandidateCaseStudy::class, 'candidate_id')->orderBy('round');
+    }
+
     public function userInterviews()
     {
         return $this->hasMany(RecruitmentCandidateUserInterview::class, 'candidate_id');

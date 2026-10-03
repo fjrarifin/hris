@@ -17,8 +17,8 @@ class RecruitmentStageService
         'case_study',
         'interview_user',
         'reference_check',
-        'offering',
         'pkb',
+        'offering',
         'hired',
         'rejected',
     ];

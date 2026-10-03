@@ -126,6 +126,9 @@ Route::post('/public/candidates/evaluation/{token}', [HrRecruitmentCandidateCont
 Route::post('/public/candidates/evaluation/{token}/resume', [HrRecruitmentCandidateController::class, 'getPublicResumeByEvaluationToken'])
     ->middleware('throttle:10,1')
     ->withoutMiddleware(['auth']);
+Route::post('/public/candidates/evaluation/{token}/hr-summary', [HrRecruitmentCandidateController::class, 'getPublicHrSummaryByEvaluationToken'])
+    ->middleware('throttle:10,1')
+    ->withoutMiddleware(['auth']);
 
 // Public Event Absen Endpoints
 Route::get('/public/event-absen/{slug}', [PublicEventAbsenController::class, 'show'])
@@ -449,6 +452,9 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::get('recruitment/candidates/{candidate}/hr-interview-summary-preview', [HrRecruitmentCandidateController::class, 'previewHrInterviewSummary']);
                 Route::get('recruitment/candidates/{candidate}/case-study-submission-preview', [HrRecruitmentCandidateController::class, 'previewCaseStudySubmission']);
                 Route::get('recruitment/candidates/{candidate}/case-study-question-preview', [HrRecruitmentCandidateController::class, 'previewCaseStudyQuestion']);
+                Route::get('recruitment/candidates/{candidate}/case-study-round-submission-preview/{round}', [HrRecruitmentCandidateController::class, 'previewCaseStudyRoundSubmission']);
+                Route::get('recruitment/candidates/{candidate}/case-study-round-question-preview/{round}', [HrRecruitmentCandidateController::class, 'previewCaseStudyRoundQuestion']);
+                Route::post('recruitment/candidates/{candidate}/add-case-study-round', [HrRecruitmentCandidateController::class, 'addCaseStudyRound']);
 
                 Route::post('recruitment/candidates/{candidate}/upload-photo', [HrRecruitmentCandidateController::class, 'uploadPhoto']);
                 Route::get('recruitment/candidates/{candidate}/photo', [HrRecruitmentCandidateController::class, 'previewPhoto']);
