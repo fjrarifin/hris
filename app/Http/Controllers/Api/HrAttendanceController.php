@@ -678,10 +678,13 @@ class HrAttendanceController extends Controller
                     'overtime_scan_out' => null,
                 ]);
 
-                if (in_array($correction->correction_type, ['leave', 'public_holiday', 'extra_off'], true)) {
+                if (in_array($correction->correction_type, ['leave', 'public_holiday', 'extra_off', 'day_off'], true)) {
                     $attendance['scan_in'] = null;
                     $attendance['scan_out'] = null;
                     $attendance['force_absence'] = true;
+                    if ($correction->correction_type === 'day_off') {
+                        $attendance['is_day_off_correction'] = true;
+                    }
                 } else {
                     $attendance['scan_in'] = $correction->corrected_scan_in ?: $attendance['scan_in'];
                     $attendance['scan_out'] = $correction->corrected_scan_out ?: $attendance['scan_out'];
@@ -737,18 +740,36 @@ class HrAttendanceController extends Controller
 
                 $key = $this->recordKey($employee->nik, $request->date->toDateString());
                 $attendance = $attendanceDays->get($key);
-                if (! $attendance || ! $attendance['overtime_scan_in'] || ! $attendance['overtime_scan_out']) {
+
+                // Hitung menit lembur dari pengajuan yang sudah disetujui HRD
+                try {
+                    $reqStart = Carbon::parse($request->date->toDateString().' '.$request->start_time);
+                    $reqEnd = Carbon::parse($request->date->toDateString().' '.$request->end_time);
+                    if ($reqEnd->lt($reqStart)) {
+                        $reqEnd->addDay();
+                    }
+                    $minutes = max(0, (int) $reqStart->diffInMinutes($reqEnd));
+                } catch (\Throwable) {
+                    $minutes = 0;
+                }
+
+                if ($minutes <= 0) {
                     return;
                 }
 
-                $scanOut = Carbon::createFromFormat('H:i:s', $attendance['overtime_scan_out']);
-                $approvedEnd = Carbon::parse($request->end_time);
-                if ($scanOut->lt($approvedEnd)) {
-                    return;
+                // Jika ada data scan pulang lembur dan karyawan pulang lebih awal, sesuaikan menitnya
+                if ($attendance && ! empty($attendance['overtime_scan_out'])) {
+                    try {
+                        $scanOut = Carbon::createFromFormat('H:i:s', $attendance['overtime_scan_out']);
+                        $approvedEnd = Carbon::parse($request->end_time);
+                        $approvedStart = Carbon::parse($request->start_time);
+                        if ($scanOut->lt($approvedEnd) && $scanOut->gt($approvedStart)) {
+                            $minutes = (int) $approvedStart->diffInMinutes($scanOut);
+                        }
+                    } catch (\Throwable) {
+                    }
                 }
 
-                $approvedStart = Carbon::parse($request->start_time);
-                $minutes = (int) $approvedStart->diffInMinutes($approvedEnd);
                 $overtimeDays->put($key, (int) $overtimeDays->get($key, 0) + $minutes);
             });
 

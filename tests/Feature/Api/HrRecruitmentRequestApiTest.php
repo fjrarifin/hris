@@ -53,6 +53,11 @@ class HrRecruitmentRequestApiTest extends TestCase
             $table->string('nik')->primary();
             $table->string('nama_karyawan');
             $table->string('jabatan')->nullable();
+            $table->string('posisi_title')->nullable();
+            $table->string('departement')->nullable();
+            $table->string('unit')->nullable();
+            $table->string('divisi')->nullable();
+            $table->string('no_hp')->nullable();
             $table->string('nama_atasan_langsung')->nullable();
             $table->string('atasan_langsung_nik', 30)->nullable();
             $table->string('atasan_tidak_langsung_nik', 30)->nullable();
@@ -63,6 +68,7 @@ class HrRecruitmentRequestApiTest extends TestCase
             $table->id();
             $table->string('title', 150);
             $table->string('department', 100)->nullable();
+            $table->string('unit', 100)->nullable();
             $table->text('description')->nullable();
             $table->enum('status', ['draft', 'open', 'closed'])->default('draft');
             $table->timestamps();
@@ -73,8 +79,42 @@ class HrRecruitmentRequestApiTest extends TestCase
             $table->string('requester_nik', 30)->index();
             $table->string('title', 150);
             $table->string('department', 100)->nullable();
+            $table->string('unit', 100)->nullable();
             $table->integer('quantity')->default(1);
             $table->text('description')->nullable();
+            $table->string('hiring_type', 30)->default('new_hiring');
+            $table->string('replaced_employee_nik', 30)->nullable();
+            $table->string('replaced_employee_name', 150)->nullable();
+            $table->string('replaced_employee_position', 150)->nullable();
+            $table->string('employment_status', 30)->default('pkwt');
+            $table->string('direct_report_nik', 30)->nullable();
+            $table->string('direct_report_name', 150)->nullable();
+            $table->json('subordinates')->nullable();
+            $table->boolean('requires_gm')->default(false);
+            $table->string('approval_step', 30)->default('manager');
+            $table->string('manager_nik', 30)->nullable();
+            $table->string('manager_name', 150)->nullable();
+            $table->string('manager_status', 30)->default('pending');
+            $table->timestamp('manager_approved_at')->nullable();
+            $table->text('manager_notes')->nullable();
+            $table->string('gm_nik', 30)->nullable();
+            $table->string('gm_name', 150)->nullable();
+            $table->string('gm_status', 30)->nullable();
+            $table->timestamp('gm_approved_at')->nullable();
+            $table->text('gm_notes')->nullable();
+            $table->string('hrbp_nik', 30)->nullable();
+            $table->string('hrbp_name', 150)->nullable();
+            $table->string('hrbp_status', 30)->default('pending');
+            $table->timestamp('hrbp_approved_at')->nullable();
+            $table->text('hrbp_notes')->nullable();
+            $table->string('approval_token', 64)->nullable();
+            $table->timestamp('approval_token_expires_at')->nullable();
+            $table->string('hiring_status', 30)->default('pending');
+            $table->date('request_date')->nullable();
+            $table->date('start_date')->nullable();
+            $table->date('finished_date')->nullable();
+            $table->string('pic_hiring_nik', 30)->nullable();
+            $table->string('pic_hiring_name', 150)->nullable();
             $table->enum('status', ['pending', 'approved', 'rejected'])->default('pending');
             $table->foreignId('vacancy_id')->nullable();
             $table->text('hrd_notes')->nullable();
@@ -110,6 +150,9 @@ class HrRecruitmentRequestApiTest extends TestCase
             'nik' => 'MGR001',
             'nama_karyawan' => 'Manager HR',
             'jabatan' => 'Manager',
+            'posisi_title' => 'Manager',
+            'departement' => 'Creative',
+            'unit' => 'Design',
         ]);
 
         Sanctum::actingAs($managerUser);
@@ -117,15 +160,20 @@ class HrRecruitmentRequestApiTest extends TestCase
         $response = $this->postJson('/api/staff/recruitment/requests', [
             'title' => 'Graphic Designer',
             'department' => 'Creative',
+            'unit' => 'Design',
             'quantity' => 2,
             'description' => 'We need help for marketing designs.',
+            'hiring_type' => 'new_hiring',
+            'employment_status' => 'pkwt',
+            'requires_gm' => false,
         ]);
 
         $response->assertStatus(201);
         $this->assertDatabaseHas('recruitment_requests', [
             'title' => 'Graphic Designer',
             'requester_nik' => 'MGR001',
-            'status' => 'pending',
+            'hiring_type' => 'new_hiring',
+            'employment_status' => 'pkwt',
         ]);
     }
 
@@ -143,8 +191,11 @@ class HrRecruitmentRequestApiTest extends TestCase
             'requester_nik' => 'MGR001',
             'title' => 'Android Developer',
             'department' => 'IT Mobile',
+            'unit' => 'Mobile Dev',
             'quantity' => 1,
             'status' => 'pending',
+            'hiring_type' => 'new_hiring',
+            'employment_status' => 'pkwt',
         ]);
 
         Sanctum::actingAs($hrdUser);
@@ -158,6 +209,7 @@ class HrRecruitmentRequestApiTest extends TestCase
         $response->assertStatus(200);
         $request->refresh();
         $this->assertEquals('approved', $request->status);
+        $this->assertEquals('accepted', $request->hiring_status);
         $this->assertNotNull($request->vacancy_id);
         $this->assertDatabaseHas('recruitment_vacancies', [
             'id' => $request->vacancy_id,

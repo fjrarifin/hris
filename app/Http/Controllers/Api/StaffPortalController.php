@@ -7,6 +7,7 @@ use App\Http\Controllers\LeaveAccrualService;
 use App\Http\Services\ApprovalNotificationService;
 use App\Http\Services\ApprovalRoutingService;
 use App\Http\Services\WhatsAppService;
+use App\Models\AttendanceCorrection;
 use App\Models\EmployeeChangeLog;
 use App\Models\EmployeeDailySchedule;
 use App\Models\EmployeeExtraOff;
@@ -1756,6 +1757,9 @@ class StaffPortalController extends Controller
     {
         $employee = $this->employeeFor($user);
 
+        // Auto-cancel request PH dan EO yang sudah approved jika karyawan ternyata scan masuk pada hari tersebut
+        $this->autoCancelPhAndEoIfWorked($user, $employee);
+
         // Auto-sync jika ada PH eligible dalam 90 hari yang belum tercatat di employee_ph_balances
         app(\App\Services\PublicHolidayBalanceService::class)->syncMissingEligibleForEmployee($employee, $user);
 
@@ -1792,6 +1796,9 @@ class StaffPortalController extends Controller
     private function availableExtraOffSources(User $user): Collection
     {
         $employee = $this->employeeFor($user);
+
+        // Auto-cancel request PH dan EO yang sudah approved jika karyawan ternyata scan masuk pada hari tersebut
+        $this->autoCancelPhAndEoIfWorked($user, $employee);
 
         return EmployeeExtraOff::query()
             ->where('karyawan_nik', $employee->nik)
@@ -1837,6 +1844,71 @@ class StaffPortalController extends Controller
             ->whereDate('source_period_end', $source->periode_end)
             ->whereNotIn('status', ['rejected', 'cancelled'])
             ->count();
+    }
+
+    private function autoCancelPhAndEoIfWorked(User $user, ?Karyawan $employee): void
+    {
+        if (! $employee || ! $employee->pin) {
+            return;
+        }
+
+        // Auto-cancel PH requests yang claim_date-nya terdapat scan masuk
+        $phRequests = PublicHolidayRequest::query()
+            ->where('user_id', $user->id)
+            ->where('status', 'approved')
+            ->whereNotNull('claim_date')
+            ->get();
+
+        foreach ($phRequests as $req) {
+            $hasScan = FingerspotAttendanceLog::query()
+                ->where('pin', $employee->pin)
+                ->whereDate('scan_date', $req->claim_date)
+                ->exists();
+
+            if ($hasScan) {
+                $isDayOffCorrected = AttendanceCorrection::query()
+                    ->where('nik', $employee->nik)
+                    ->whereDate('attendance_date', $req->claim_date)
+                    ->where('correction_type', 'day_off')
+                    ->exists();
+
+                if (! $isDayOffCorrected) {
+                    $req->update([
+                        'status' => 'cancelled',
+                        'reject_reason' => 'Dibatalkan otomatis karena karyawan hadir/scan masuk pada tanggal tersebut.',
+                    ]);
+                }
+            }
+        }
+
+        // Auto-cancel Extra Off requests yang claim_date-nya terdapat scan masuk
+        $eoRequests = ExtraOffRequest::query()
+            ->where('user_id', $user->id)
+            ->where('status', 'approved')
+            ->whereNotNull('claim_date')
+            ->get();
+
+        foreach ($eoRequests as $req) {
+            $hasScan = FingerspotAttendanceLog::query()
+                ->where('pin', $employee->pin)
+                ->whereDate('scan_date', $req->claim_date)
+                ->exists();
+
+            if ($hasScan) {
+                $isDayOffCorrected = AttendanceCorrection::query()
+                    ->where('nik', $employee->nik)
+                    ->whereDate('attendance_date', $req->claim_date)
+                    ->where('correction_type', 'day_off')
+                    ->exists();
+
+                if (! $isDayOffCorrected) {
+                    $req->update([
+                        'status' => 'cancelled',
+                        'reject_reason' => 'Dibatalkan otomatis karena karyawan hadir/scan masuk pada tanggal tersebut.',
+                    ]);
+                }
+            }
+        }
     }
 
     private function hasDateConflict(User $user, Carbon $date): bool

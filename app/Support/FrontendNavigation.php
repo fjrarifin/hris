@@ -258,7 +258,7 @@ class FrontendNavigation
             ->values()
             ->all();
 
-        $supervisorKeys = ['staff-approvals', 'staff-overtime', 'staff-team-schedules', 'staff-team-attendances', 'staff-subordinate-candidates'];
+        $supervisorKeys = ['staff-approvals', 'staff-overtime', 'staff-recruitment-requests', 'staff-team-schedules', 'staff-team-attendances', 'staff-subordinate-candidates'];
         $supervisorAnchor = $menus
             ->first(fn (array $menu) => in_array($menu['key'], $supervisorKeys, true))['key'] ?? null;
         $supervisorChildren = $menus
@@ -389,9 +389,20 @@ class FrontendNavigation
     {
         $employee = $user->karyawan;
 
-        return $employee
-            ? \App\Models\Karyawan::query()->where('atasan_langsung_nik', $employee->nik)->exists()
-            : false;
+        if (! $employee) {
+            return false;
+        }
+
+        $hasDirect = \App\Models\Karyawan::query()
+            ->where('atasan_langsung_nik', $employee->nik)
+            ->exists();
+
+        $positionTitle = strtolower(trim((string) ($employee->posisi_title ?: $employee->jabatan)));
+        $isLeaderOrAbove = in_array($positionTitle, [
+            'leader', 'spv', 'supervisor', 'asst. manager', 'manager', 'gm', 'general manager', 'head', 'coordinator'
+        ], true);
+
+        return $hasDirect || $isLeaderOrAbove;
     }
 
     private function hasScheduleSubordinates(User $user): bool

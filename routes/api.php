@@ -500,7 +500,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
             Route::middleware('frontend.menu:hr-recruitment-requests')->group(function () {
                 Route::get('recruitment/requests', [HrRecruitmentRequestController::class, 'index']);
+                Route::get('recruitment/requests/options', [HrRecruitmentRequestController::class, 'options']);
                 Route::post('recruitment/requests/{recruitmentRequest}/decide', [HrRecruitmentRequestController::class, 'decide']);
+                Route::post('recruitment/requests/{recruitmentRequest}/hiring-update', [HrRecruitmentRequestController::class, 'updateHiring']);
             });
         });
 
@@ -634,6 +636,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
             Route::middleware('frontend.menu:staff-recruitment-requests')->group(function () {
                 Route::get('/recruitment/requests', [StaffRecruitmentRequestController::class, 'index']);
+                Route::get('/recruitment/requests/options', [StaffRecruitmentRequestController::class, 'options']);
                 Route::post('/recruitment/requests', [StaffRecruitmentRequestController::class, 'store']);
             });
 

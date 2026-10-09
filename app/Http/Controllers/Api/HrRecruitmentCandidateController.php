@@ -1337,6 +1337,33 @@ class HrRecruitmentCandidateController extends Controller
             $candidate->id
         );
 
+        // WhatsApp notification to Screening PIC
+        $candidate->loadMissing(['pic', 'vacancy']);
+        $picEmployee = $candidate->pic;
+        if (! $picEmployee && $candidate->pic_nik) {
+            $picEmployee = \App\Models\Karyawan::where('nik', $candidate->pic_nik)->first();
+        }
+        if (! $picEmployee && $candidate->vacancy?->supervisor_nik) {
+            $picEmployee = \App\Models\Karyawan::where('nik', $candidate->vacancy->supervisor_nik)->first();
+        }
+
+        if ($picEmployee && ! empty($picEmployee->no_hp)) {
+            try {
+                $vacancyTitle = $candidate->vacancy?->title ?? '-';
+                $timeSubmitted = now()->locale('id')->translatedFormat('d F Y, H:i');
+                $roundText = $round > 1 ? " (Tahap {$round})" : "";
+                $waMsg = "Halo Bapak/Ibu *{$picEmployee->nama_karyawan}*,\n\n".
+                         "Kandidat berikut telah mengumpulkan jawaban Case Study{$roundText}:\n\n".
+                         "- Nama Kandidat: *{$candidate->name}*\n".
+                         "- Posisi: *{$vacancyTitle}*\n".
+                         "- Waktu Submit: *{$timeSubmitted} WIB*\n\n".
+                         "Silakan periksa dan tinjau jawaban kandidat di modul Rekrutmen HRIS.\nTerima kasih.";
+                app(WhatsAppService::class)->sendMessage($picEmployee->no_hp, $waMsg);
+            } catch (\Exception $e) {
+                Log::error('Failed sending case study submission WA to PIC on upload', ['error' => $e->getMessage(), 'candidate_id' => $candidate->id]);
+            }
+        }
+
         return response()->json([
             'message' => "Penyelesaian studi kasus Tahap {$round} berhasil diunggah.",
             'data' => $candidate->load(['vacancy', 'interviewer', 'userInterviews.interviewer', 'references', 'pkbSigners.employee', 'caseStudies']),
@@ -1560,14 +1587,12 @@ class HrRecruitmentCandidateController extends Controller
                     $cvLink = '';
                     $hrSummaryLink = '';
                     if ($eval) {
-                        $frontendUrl = config('app.frontend_url');
+                        $frontendUrl = config('app.frontend_url') ?: $request->getSchemeAndHttpHost();
                         $longCvLink = rtrim((string) $frontendUrl, '/')."/public/evaluation/{$eval->token}/resume";
                         $cvLink = app(\App\Services\RecruitmentShortUrlService::class)->shorten($longCvLink);
 
-                        if (! empty($candidate->interview_hr_summary_path) || ! empty($candidate->interview_hr_text_summary)) {
-                            $longHrSummaryLink = rtrim((string) $frontendUrl, '/')."/public/evaluation/{$eval->token}/hr-summary";
-                            $hrSummaryLink = app(\App\Services\RecruitmentShortUrlService::class)->shorten($longHrSummaryLink);
-                        }
+                        $longHrSummaryLink = rtrim((string) $frontendUrl, '/')."/public/evaluation/{$eval->token}/hr-summary";
+                        $hrSummaryLink = app(\App\Services\RecruitmentShortUrlService::class)->shorten($longHrSummaryLink);
                     }
 
                     $waMessage = "Halo Bapak/Ibu {$interviewer->nama_karyawan},\n\n".
@@ -2288,18 +2313,26 @@ class HrRecruitmentCandidateController extends Controller
 
         // WhatsApp notification to Screening PIC
         $candidate->loadMissing(['pic', 'vacancy']);
-        if ($candidate->pic && !empty($candidate->pic->no_hp)) {
+        $picEmployee = $candidate->pic;
+        if (! $picEmployee && $candidate->pic_nik) {
+            $picEmployee = \App\Models\Karyawan::where('nik', $candidate->pic_nik)->first();
+        }
+        if (! $picEmployee && $candidate->vacancy?->supervisor_nik) {
+            $picEmployee = \App\Models\Karyawan::where('nik', $candidate->vacancy->supervisor_nik)->first();
+        }
+
+        if ($picEmployee && ! empty($picEmployee->no_hp)) {
             try {
                 $vacancyTitle = $candidate->vacancy?->title ?? '-';
                 $timeSubmitted = now()->locale('id')->translatedFormat('d F Y, H:i');
                 $roundText = ($caseStudy && $caseStudy->round > 1) ? " (Tahap {$caseStudy->round})" : "";
-                $waMsg = "Halo Bapak/Ibu *{$candidate->pic->nama_karyawan}*,\n\n".
+                $waMsg = "Halo Bapak/Ibu *{$picEmployee->nama_karyawan}*,\n\n".
                          "Kandidat berikut telah mengumpulkan jawaban Case Study{$roundText}:\n\n".
                          "- Nama Kandidat: *{$candidate->name}*\n".
                          "- Posisi: *{$vacancyTitle}*\n".
                          "- Waktu Submit: *{$timeSubmitted} WIB*\n\n".
                          "Silakan periksa dan tinjau jawaban kandidat di modul Rekrutmen HRIS.\nTerima kasih.";
-                app(WhatsAppService::class)->sendMessage($candidate->pic->no_hp, $waMsg);
+                app(WhatsAppService::class)->sendMessage($picEmployee->no_hp, $waMsg);
             } catch (\Exception $e) {
                 Log::error('Failed sending case study submission WA to PIC', ['error' => $e->getMessage(), 'candidate_id' => $candidate->id]);
             }

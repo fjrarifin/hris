@@ -10,6 +10,8 @@ use App\Models\FingerspotAttendanceLog;
 use App\Models\LeaveRequest;
 use App\Models\OvertimeRequest;
 use App\Models\PublicHolidayRequest;
+use App\Models\RecruitmentRequest;
+use App\Services\RecruitmentRequestApprovalService;
 use App\Notifications\LeaveStatusNotification;
 use App\Notifications\PublicHolidayStatusNotification;
 use App\Notifications\RequestStatusNotification;
@@ -76,6 +78,11 @@ class PublicApprovalController extends Controller
             return view('approval.expired');
         }
 
+        if ($request instanceof RecruitmentRequest) {
+            app(RecruitmentRequestApprovalService::class)->approve($request, null, request('notes'));
+            return view('approval.approved-success');
+        }
+
         if ($request instanceof PublicHolidayRequest && ! $this->hasWorkedOnPublicHoliday($request)) {
             return view('approval.ph-attendance-required');
         }
@@ -128,6 +135,11 @@ class PublicApprovalController extends Controller
             return view('approval.expired');
         }
 
+        if ($request instanceof RecruitmentRequest) {
+            app(RecruitmentRequestApprovalService::class)->reject($request, null, request('notes') ?: request('reason'));
+            return view('approval.rejected-success');
+        }
+
         $request->update([
             'manager_approved_at' => now(),
             'manager_approved_by' => null, // karena via token
@@ -169,6 +181,9 @@ class PublicApprovalController extends Controller
                 ->first()
             ?? OvertimeRequest::with('user')
                 ->where('approval_token', $token)
+                ->first()
+            ?? RecruitmentRequest::with(['requester', 'vacancy', 'replacedEmployee', 'directReport'])
+                ->where('approval_token', $token)
                 ->first();
     }
 
@@ -197,6 +212,10 @@ class PublicApprovalController extends Controller
 
         if ($request instanceof OvertimeRequest) {
             return 'overtime';
+        }
+
+        if ($request instanceof RecruitmentRequest) {
+            return 'recruitment';
         }
 
         return 'unknown';

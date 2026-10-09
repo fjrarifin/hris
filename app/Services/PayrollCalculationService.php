@@ -235,7 +235,7 @@ class PayrollCalculationService
         $items = collect([
             $this->item('Gaji Pokok', 'earning', $profile->gaji_pokok),
             $this->item('Tunjangan Jabatan', 'earning', $profile->tunjangan_jabatan),
-            $this->item('Lembur', 'earning', round(($profile->gaji_pokok / 173) * (((int) $attendance['overtime_minutes']) / 60) * 1.5)),
+            $this->item('Lembur', 'earning', round(($profile->gaji_pokok / 173) * (((int) ($attendance['overtime_minutes'] ?? 0)) / 60) * 1.5)),
             $this->item('Potongan Izin', 'deduction', $permissionDays * $tttDailyRate),
             $this->item('Potongan Sakit Tanpa Surat', 'deduction', $sickWithoutDocumentDays * $tttDailyRate),
         ]);

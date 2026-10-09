@@ -24,6 +24,7 @@ class HrAttendanceCorrectionExport implements FromCollection, ShouldAutoSize, Wi
                 'public_holiday' => 'Libur Nasional (PH)',
                 'leave' => 'Cuti',
                 'extra_off' => 'Libur Ekstra (EO)',
+                'day_off' => 'Libur (Koreksi Tidak Hadir)',
                 default => $correction ? ($correction['correction_type'] ?? 'Koreksi Jam') : '-'
             };
 
