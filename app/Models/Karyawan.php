@@ -23,6 +23,7 @@ class Karyawan extends Model
     protected $fillable = [
         'id',
         'pin',
+        'rfid_tag',
         'nik',
         'nama_karyawan',
         'jabatan',
