@@ -55,15 +55,64 @@ class PerformanceManagementService
         }
 
         $jabatan = $this->findEmployeeJabatan($employee);
-        $templates = $jabatan->kpiTemplates()->where('is_active', true)->orderBy('id')->get();
+        $reviewItems = collect();
 
-        if ($templates->isEmpty() || abs((float) $templates->sum('bobot') - 100) > 0.001) {
-            throw ValidationException::withMessages([
-                'employee_nik' => ['Jabatan karyawan belum memiliki KPI aktif dengan total bobot 100%.'],
-            ]);
+        // 1. Check active template assignments for this employee
+        $assignments = \App\Models\KpiTemplateAssignment::query()
+            ->with(['template.items' => fn ($q) => $q->where('is_active', true)->orderBy('urutan')->orderBy('id')])
+            ->where('employee_nik', $employee->nik)
+            ->where('status', 'active')
+            ->whereHas('template', fn ($q) => $q->where('status', 'approved')->where('is_active', true))
+            ->get();
+
+        if ($assignments->isNotEmpty()) {
+            foreach ($assignments as $assignment) {
+                $template = $assignment->template;
+                if (! $template || $template->items->isEmpty()) {
+                    continue;
+                }
+                $weightMultiplier = (float) ($assignment->weight_percentage ?: 100) / 100;
+                foreach ($template->items as $item) {
+                    $reviewItems->push([
+                        'kpi_template_id' => $template->id,
+                        'kpi_template_item_id' => $item->id,
+                        'nama_kpi_snapshot' => $item->nama_kpi,
+                        'target_snapshot' => $item->target,
+                        'satuan_snapshot' => $item->satuan,
+                        'bobot_snapshot' => round((float) $item->bobot * $weightMultiplier, 2),
+                    ]);
+                }
+            }
         }
 
-        return DB::transaction(function () use ($period, $employee, $jabatan, $templates, $reviewerId): PerformanceReview {
+        // 2. Fallback to default approved template for employee's jabatan
+        if ($reviewItems->isEmpty()) {
+            $template = KpiTemplate::query()
+                ->where('master_jabatan_id', $jabatan->id)
+                ->where('status', 'approved')
+                ->where('is_active', true)
+                ->with(['items' => fn ($q) => $q->where('is_active', true)->orderBy('urutan')->orderBy('id')])
+                ->first();
+
+            if (! $template || $template->items->isEmpty()) {
+                throw ValidationException::withMessages([
+                    'employee_nik' => ['Karyawan belum memiliki template KPI aktif yang disetujui.'],
+                ]);
+            }
+
+            foreach ($template->items as $item) {
+                $reviewItems->push([
+                    'kpi_template_id' => $template->id,
+                    'kpi_template_item_id' => $item->id,
+                    'nama_kpi_snapshot' => $item->nama_kpi,
+                    'target_snapshot' => $item->target,
+                    'satuan_snapshot' => $item->satuan,
+                    'bobot_snapshot' => (float) $item->bobot,
+                ]);
+            }
+        }
+
+        return DB::transaction(function () use ($period, $employee, $jabatan, $reviewItems, $reviewerId): PerformanceReview {
             $review = PerformanceReview::query()->create([
                 'employee_nik' => $employee->nik,
                 'performance_period_id' => $period->id,
@@ -74,13 +123,7 @@ class PerformanceManagementService
                 'status' => 'draft',
             ]);
 
-            $review->items()->createMany($templates->map(fn (KpiTemplate $template): array => [
-                'kpi_template_id' => $template->id,
-                'nama_kpi_snapshot' => $template->nama_kpi,
-                'target_snapshot' => $template->target,
-                'satuan_snapshot' => $template->satuan,
-                'bobot_snapshot' => $template->bobot,
-            ])->all());
+            $review->items()->createMany($reviewItems->all());
 
             return $review->load(['employee', 'period', 'reviewer', 'items']);
         });

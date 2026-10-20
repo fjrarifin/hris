@@ -18,5 +18,6 @@ class DatabaseSeeder extends Seeder
         $this->call(CashierSupervisorHierarchySeeder::class);
         $this->call(CommonTalentJobdeskKpiSeeder::class);
         $this->call(June2026PerformanceReviewSeeder::class);
+        $this->call(KpiDepartmentTemplatesSeeder::class);
     }
 }

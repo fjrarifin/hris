@@ -2903,6 +2903,7 @@ class HrRecruitmentCandidateController extends Controller
             'no_bpjs' => ['nullable', 'string', 'max:50'],
             'bank' => ['nullable', 'string', 'max:50'],
             'no_rekening' => ['nullable', 'string', 'max:50'],
+            'nama_pemilik_rekening' => ['nullable', 'string', 'max:150'],
             'pendidikan_terakhir' => ['nullable', 'string', 'max:50'],
             'nama_institusi' => ['nullable', 'string', 'max:150'],
             'jurusan' => ['nullable', 'string', 'max:100'],
@@ -2929,9 +2930,18 @@ class HrRecruitmentCandidateController extends Controller
 
         $beforeAudit = app(HrdAuditLogService::class)->snapshot($candidate);
 
-        $candidate->update([
-            'onboarding_data' => $payload,
-        ]);
+        $existingData = is_array($candidate->onboarding_data) ? $candidate->onboarding_data : [];
+        $mergedData = array_merge($existingData, $payload);
+
+        $updates = [
+            'onboarding_data' => $mergedData,
+        ];
+
+        if (!empty($payload['join_date'])) {
+            $updates['join_date'] = $payload['join_date'];
+        }
+
+        $candidate->update($updates);
 
         app(HrdAuditLogService::class)->record(
             $request,

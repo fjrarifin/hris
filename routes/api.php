@@ -42,6 +42,7 @@ use App\Http\Controllers\Api\OnlineUserController;
 use App\Http\Controllers\Api\StaffPerformanceReviewController;
 use App\Http\Controllers\Api\StaffPortalController;
 use App\Http\Controllers\Api\StaffRecruitmentRequestController;
+use App\Http\Controllers\Api\StaffKpiTemplateController;
 use App\Http\Controllers\Api\StaffTalentController;
 use App\Http\Controllers\Api\StaffTeamAttendanceController;
 use App\Http\Controllers\Api\StaffTeamScheduleController;
@@ -391,7 +392,9 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::apiResource('jobdesks', HrJobdeskController::class)->except(['show']);
                 Route::get('/jobdesks/{jobdesk}/pdf-preview', [HrJobdeskController::class, 'previewPdf']);
                 Route::post('/kpis/jabatans/{jabatan}/sync-active', [HrKpiTemplateController::class, 'syncActive']);
-                Route::apiResource('kpis', HrKpiTemplateController::class)->parameters(['kpis' => 'kpiTemplate'])->except(['show']);
+                Route::patch('/kpis/{kpiTemplate}/decide', [HrKpiTemplateController::class, 'decide']);
+                Route::get('/kpis/assignments', [HrKpiTemplateController::class, 'assignments']);
+                Route::apiResource('kpis', HrKpiTemplateController::class)->parameters(['kpis' => 'kpiTemplate']);
                 Route::apiResource('periods', HrPerformancePeriodController::class)->parameters(['periods' => 'performancePeriod'])->only(['index', 'store', 'update']);
                 Route::get('/reviews', [HrPerformanceReviewController::class, 'index']);
                 Route::post('/reviews', [HrPerformanceReviewController::class, 'store']);
@@ -632,6 +635,20 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::prefix('talent')->middleware('frontend.menu:staff-talent')->group(function () {
                 Route::get('/', [StaffTalentController::class, 'index']);
                 Route::get('/jobdesks/{jobdesk}/pdf-preview', [StaffTalentController::class, 'previewPdf']);
+            });
+
+            Route::prefix('kpi-templates')->middleware('frontend.menu:staff-kpi-templates')->group(function () {
+                Route::get('/', [StaffKpiTemplateController::class, 'index']);
+                Route::get('/options', [StaffKpiTemplateController::class, 'options']);
+                Route::get('/subordinates', [StaffKpiTemplateController::class, 'subordinates']);
+                Route::post('/', [StaffKpiTemplateController::class, 'store']);
+                Route::get('/{kpiTemplate}', [StaffKpiTemplateController::class, 'show']);
+                Route::put('/{kpiTemplate}', [StaffKpiTemplateController::class, 'update']);
+                Route::delete('/{kpiTemplate}', [StaffKpiTemplateController::class, 'destroy']);
+                Route::post('/{kpiTemplate}/submit', [StaffKpiTemplateController::class, 'submit']);
+                Route::post('/{kpiTemplate}/decide', [StaffKpiTemplateController::class, 'decide']);
+                Route::post('/{kpiTemplate}/assign', [StaffKpiTemplateController::class, 'assign']);
+                Route::delete('/assignments/{assignment}', [StaffKpiTemplateController::class, 'unassign']);
             });
 
             Route::middleware('frontend.menu:staff-recruitment-requests')->group(function () {

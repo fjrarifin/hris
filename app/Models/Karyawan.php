@@ -134,6 +134,11 @@ class Karyawan extends Model
         return $this->getRelationValue('atasanTidakLangsung')?->nama_karyawan;
     }
 
+    public function kpiAssignments()
+    {
+        return $this->hasMany(KpiTemplateAssignment::class, 'employee_nik', 'nik');
+    }
+
     public function isHolding(): bool
     {
         return false;
