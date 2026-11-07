@@ -83,6 +83,10 @@ class PublicApprovalController extends Controller
             return view('approval.approved-success');
         }
 
+        if ($request instanceof ExtraOffRequest) {
+            $request->assertReplacementIsValid();
+        }
+
         if ($request instanceof PublicHolidayRequest && ! $this->hasWorkedOnPublicHoliday($request)) {
             return view('approval.ph-attendance-required');
         }
@@ -278,6 +282,11 @@ class PublicApprovalController extends Controller
 
         if (! $holiday || ! $holiday->is_active) {
             return false;
+        }
+
+        if ($employee && app(\App\Services\PublicHolidayBalanceService::class)
+            ->recordedHolidayIds($employee)->contains($holiday->id)) {
+            return true;
         }
 
         $joinDate = $employee?->join_date ? Carbon::parse($employee->join_date)->startOfDay() : null;

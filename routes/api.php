@@ -353,6 +353,11 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/approvals/{type}', [HrApprovalController::class, 'index']);
             Route::post('/approvals/{type}/{id}', [HrApprovalController::class, 'decide']);
             Route::post('/approvals/{type}/{id}/cancel', [HrApprovalController::class, 'cancel']);
+            Route::middleware('frontend.menu:hr-permission-recap')->group(function () {
+                Route::get('/permission-recap', [\App\Http\Controllers\Api\HrPermissionRecapController::class, 'index']);
+                Route::get('/permission-recap/export', [\App\Http\Controllers\Api\HrPermissionRecapController::class, 'export']);
+                Route::get('/permission-recap/{permission}/document', [\App\Http\Controllers\Api\HrPermissionRecapController::class, 'document']);
+            });
             Route::get('/overtime-recap', [\App\Http\Controllers\Api\HrOvertimeRecapController::class, 'index']);
             Route::get('/overtime-recap/export', [\App\Http\Controllers\Api\HrOvertimeRecapController::class, 'export']);
             Route::get('/leave-balances', [\App\Http\Controllers\Api\HrLeaveBalanceController::class, 'index']);

@@ -23,7 +23,9 @@ class ApprovedAbsenceAutoCancelledNotification extends Notification
 
     public function toArray(object $notifiable): array
     {
-        $label = strtoupper($this->type) === 'PH' ? 'PH' : 'Cuti';
+        $label = match (strtoupper($this->type)) {
+            'PH' => 'PH', 'EO' => 'Extra Off', default => 'Cuti'
+        };
 
         return [
             'title' => "{$label} Otomatis Dibatalkan",

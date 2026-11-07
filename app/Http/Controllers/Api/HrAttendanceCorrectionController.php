@@ -322,6 +322,7 @@ class HrAttendanceCorrectionController extends Controller
             'corrected_scan_in' => ['nullable', 'date_format:H:i'],
             'corrected_scan_out' => ['nullable', 'date_format:H:i'],
             'public_holiday_id' => ['nullable', 'integer', 'exists:public_holidays,id'],
+            'extra_off_source_id' => ['nullable', 'integer'],
             'extra_off_source_period_start' => ['nullable', 'date'],
             'extra_off_source_period_end' => ['nullable', 'date', 'after_or_equal:extra_off_source_period_start'],
             'has_missing_attendance_form' => ['nullable', 'boolean'],
@@ -494,6 +495,7 @@ class HrAttendanceCorrectionController extends Controller
                 ->all(),
             'extra_off_sources' => $this->availableExtraOffSources($user, $employee, $currentExtraOffRequestId)
                 ->map(fn (array $source): array => [
+                    'source_id' => $source['source_id'],
                     'source_period_start' => $source['source_period_start'],
                     'source_period_end' => $source['source_period_end'],
                     'label' => $source['label'],
@@ -638,19 +640,24 @@ class HrAttendanceCorrectionController extends Controller
             ->where('karyawan_nik', $employee->nik)
             ->whereDate('periode_start', $validated['extra_off_source_period_start'])
             ->whereDate('periode_end', $validated['extra_off_source_period_end'])
+            ->when(! empty($validated['extra_off_source_id']), fn ($q) => $q->whereKey($validated['extra_off_source_id']), fn ($q) => $q->whereNull('public_holiday_request_id'))
             ->first();
 
         if (! $source) {
             throw ValidationException::withMessages(['extra_off_source_period_start' => ['Sumber Extra Off periode ini tidak ditemukan.']]);
         }
 
-        $expiredAt = Carbon::parse($source->periode_end)->addMonths(3)->endOfDay();
+        $expiredAt = $source->expirationDate();
         if (now()->gt($expiredAt)) {
             throw ValidationException::withMessages([
                 'extra_off_source_period_start' => [
-                    sprintf('Masa berlaku pengajuan Extra Off periode ini telah kadaluwarsa pada %s.', Carbon::parse($source->periode_end)->addMonths(3)->format('d M Y'))
+                    sprintf('Masa berlaku pengajuan Extra Off periode ini telah kadaluwarsa pada %s.', $source->expirationDate()->format('d M Y'))
                 ],
             ]);
+        }
+
+        if ($date->gt($expiredAt)) {
+            throw ValidationException::withMessages(['date' => ['Tanggal pengambilan melewati masa berlaku Extra Off.']]);
         }
 
         if ($this->remainingExtraOffDays($employeeUser, $source) <= 0) {
@@ -659,6 +666,7 @@ class HrAttendanceCorrectionController extends Controller
 
         $extraOff = ExtraOffRequest::query()->create([
             'user_id' => $employeeUser->id,
+            'employee_extra_off_id' => $source->id,
             'source_period_start' => $source->periode_start,
             'source_period_end' => $source->periode_end,
             'claim_date' => $date->toDateString(),
@@ -785,6 +793,7 @@ class HrAttendanceCorrectionController extends Controller
                 ->map(fn (Carbon $date): string => $date->toDateString())
                 ->unique()
             : collect();
+        $recordedIds = app(\App\Services\PublicHolidayBalanceService::class)->recordedHolidayIds($employee);
         $approvedIds = PublicHolidayRequest::query()
             ->where('user_id', $user->id)
             ->where(function ($q) {
@@ -803,11 +812,13 @@ class HrAttendanceCorrectionController extends Controller
             ->where('is_active', true)
             ->whereDate('holiday_date', '<', now())
             ->whereDate('holiday_date', '>', now()->subDays(90))
-            ->when($joinDate, fn ($q) => $q->whereDate('holiday_date', '>=', $joinDate))
+            ->when($joinDate, fn ($q) => $q->where(fn ($eligible) => $eligible
+                ->whereDate('holiday_date', '>=', $joinDate)->orWhereIn('id', $recordedIds)))
             ->whereNotIn('id', $approvedIds)
             ->orderByDesc('holiday_date')
             ->get()
-            ->filter(fn (PublicHoliday $holiday): bool => $holiday->holiday_date->lt(Carbon::parse(self::PUBLIC_HOLIDAY_ATTENDANCE_REQUIRED_FROM))
+            ->filter(fn (PublicHoliday $holiday): bool => $recordedIds->contains($holiday->id)
+                || $holiday->holiday_date->lt(Carbon::parse(self::PUBLIC_HOLIDAY_ATTENDANCE_REQUIRED_FROM))
                 || $attendedDates->contains($holiday->holiday_date->toDateString()))
             ->values();
     }
@@ -822,13 +833,14 @@ class HrAttendanceCorrectionController extends Controller
             ->map(function (EmployeeExtraOff $source) use ($user, $currentRequestId): array {
                 $used = $this->usedExtraOffDays($user, $source, $currentRequestId);
                 $remaining = max((int) $source->days - $used, 0);
-                $expiredAt = Carbon::parse($source->periode_end)->addMonths(3);
+                $expiredAt = $source->expirationDate();
                 $isExpired = now()->startOfDay()->gt($expiredAt->copy()->endOfDay());
 
                 return [
+                    'source_id' => $source->id,
                     'source_period_start' => $source->periode_start->toDateString(),
                     'source_period_end' => $source->periode_end->toDateString(),
-                    'label' => $source->periode_start->format('d M Y').' - '.$source->periode_end->format('d M Y'),
+                    'label' => ($source->public_holiday_request_id ? 'Pengganti PH #'.$source->public_holiday_request_id.' ? ' : '').$source->periode_start->format('d M Y').' - '.$source->periode_end->format('d M Y'),
                     'remaining_days' => $isExpired ? 0 : $remaining,
                     'expired_at' => $expiredAt->toDateString(),
                     'is_expired' => $isExpired,
@@ -840,7 +852,7 @@ class HrAttendanceCorrectionController extends Controller
 
     private function remainingExtraOffDays(User $user, EmployeeExtraOff $source): int
     {
-        $expiredAt = Carbon::parse($source->periode_end)->addMonths(3)->endOfDay();
+        $expiredAt = $source->expirationDate();
         if (now()->gt($expiredAt)) {
             return 0;
         }
@@ -852,8 +864,7 @@ class HrAttendanceCorrectionController extends Controller
     {
         return ExtraOffRequest::query()
             ->where('user_id', $user->id)
-            ->whereDate('source_period_start', $source->periode_start)
-            ->whereDate('source_period_end', $source->periode_end)
+            ->forSource($source)
             ->where(function ($q) {
                 $q->where('status', 'approved')
                     ->orWhere(function ($pendingQ) {

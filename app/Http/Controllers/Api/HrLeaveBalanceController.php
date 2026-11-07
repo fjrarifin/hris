@@ -112,6 +112,7 @@ class HrLeaveBalanceController extends Controller
         $employee = Karyawan::with('user')->where('nik', $nik)->firstOrFail();
         $user = $employee->user;
         if ($user) {
+            app(\App\Services\AttendedDayOffCancellationService::class)->reconcile($user->id);
             app(LeaveAccrualService::class)->generateMonthly($user);
         }
 
@@ -241,12 +242,11 @@ class HrLeaveBalanceController extends Controller
                 if ($user && $pStart && $pEnd) {
                     $used = ExtraOffRequest::query()
                         ->where('user_id', $user->id)
-                        ->whereDate('source_period_start', $pStart)
-                        ->whereDate('source_period_end', $pEnd)
+                        ->forSource($source)
                         ->whereNotIn('status', ['rejected', 'cancelled'])
                         ->count();
                 }
-                $expiredAt = $pEnd ? $pEnd->copy()->addMonths(3) : null;
+                $expiredAt = $pEnd ? $source->expirationDate() : null;
                 $isExpired = $expiredAt ? now()->gt($expiredAt->copy()->endOfDay()) : false;
                 $remaining = $isExpired ? 0 : max((int) $source->days - $used, 0);
                 $labelStr = ($pStart && $pEnd) ? ($pStart->format('d M Y').' - '.$pEnd->format('d M Y')) : '-';
@@ -377,6 +377,7 @@ class HrLeaveBalanceController extends Controller
     {
         foreach ($employees as $emp) {
             if ($emp->user) {
+                app(\App\Services\AttendedDayOffCancellationService::class)->reconcile($emp->user->id);
                 app(LeaveAccrualService::class)->generateMonthly($emp->user);
             }
         }
@@ -528,13 +529,11 @@ class HrLeaveBalanceController extends Controller
 
                 foreach ($eoSources as $source) {
                     $pEnd = $source->periode_end ? Carbon::parse($source->periode_end) : null;
-                    if ($pEnd && now()->gt($pEnd->copy()->addMonths(3)->endOfDay())) {
+                    if ($pEnd && now()->gt($source->expirationDate())) {
                         continue;
                     }
                     $usedForSource = $eoRequests->filter(function ($req) use ($source) {
-                        if (! $req->source_period_start || ! $source->periode_start) return false;
-                        return Carbon::parse($req->source_period_start)->equalTo(Carbon::parse($source->periode_start))
-                            && Carbon::parse($req->source_period_end)->equalTo(Carbon::parse($source->periode_end));
+                        return $source->matchesRequest($req);
                     })->count();
                     $remainingEoDays += max((int) $source->days - $usedForSource, 0);
                 }
@@ -584,6 +583,7 @@ class HrLeaveBalanceController extends Controller
             : collect();
 
         $joinDate = $employee->join_date ? Carbon::parse($employee->join_date)->startOfDay() : null;
+        $recordedIds = app(\App\Services\PublicHolidayBalanceService::class)->recordedHolidayIds($employee);
 
         $deductedHolidayIds = EmployeePhAdjustment::query()
             ->where('karyawan_nik', $employee->nik)
@@ -595,11 +595,13 @@ class HrLeaveBalanceController extends Controller
             ->where('is_active', true)
             ->whereDate('holiday_date', '<', now())
             ->whereDate('holiday_date', '>', now()->subDays(90))
-            ->when($joinDate, fn ($q) => $q->whereDate('holiday_date', '>=', $joinDate))
+            ->when($joinDate, fn ($q) => $q->where(fn ($eligible) => $eligible
+                ->whereDate('holiday_date', '>=', $joinDate)->orWhereIn('id', $recordedIds)))
             ->whereNotIn('id', $deductedHolidayIds)
             ->orderByDesc('holiday_date')
             ->get()
-            ->filter(fn (PublicHoliday $holiday) => Carbon::parse($holiday->holiday_date)->lt(Carbon::parse(self::PUBLIC_HOLIDAY_ATTENDANCE_REQUIRED_FROM))
+            ->filter(fn (PublicHoliday $holiday) => $recordedIds->contains($holiday->id)
+                || Carbon::parse($holiday->holiday_date)->lt(Carbon::parse(self::PUBLIC_HOLIDAY_ATTENDANCE_REQUIRED_FROM))
                 || $attendedDates->contains(Carbon::parse($holiday->holiday_date)->toDateString()))
             ->values();
     }

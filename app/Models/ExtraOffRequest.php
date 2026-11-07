@@ -8,6 +8,7 @@ class ExtraOffRequest extends Model
 {
     protected $fillable = [
         'user_id',
+        'employee_extra_off_id',
         'source_period_start',
         'source_period_end',
         'claim_date',
@@ -29,6 +30,33 @@ class ExtraOffRequest extends Model
         'hr_approved_at' => 'datetime',
         'approval_token_expires_at' => 'datetime',
     ];
+
+    public function assertReplacementIsValid(): void
+    {
+        if (! $this->employee_extra_off_id) {
+            return;
+        }
+        $source = EmployeeExtraOff::find($this->employee_extra_off_id);
+        if ($source?->public_holiday_request_id && (now()->gt($source->expirationDate()) || $this->claim_date->gt($source->expirationDate()))) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'decision' => 'Extra Off pengganti PH sudah melewati masa berlaku.',
+            ]);
+        }
+    }
+
+    public function scopeForSource($query, EmployeeExtraOff $source)
+    {
+        return $query->where(function ($query) use ($source) {
+            $query->where('employee_extra_off_id', $source->id);
+            if (! $source->public_holiday_request_id) {
+                $query->orWhere(function ($legacy) use ($source) {
+                    $legacy->whereNull('employee_extra_off_id')
+                        ->whereDate('source_period_start', $source->periode_start)
+                        ->whereDate('source_period_end', $source->periode_end);
+                });
+            }
+        });
+    }
 
     public function user()
     {

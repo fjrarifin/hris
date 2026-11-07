@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Karyawan;
+use App\Models\User;
 use App\Services\EmployeeContractReminderService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;

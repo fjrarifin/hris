@@ -769,12 +769,11 @@ class HrisWhatsAppAgent
                 foreach ($eoRecords as $eo) {
                     $pStart = Carbon::parse($eo->periode_start)->format('d M Y');
                     $pEnd = Carbon::parse($eo->periode_end)->format('d M Y');
-                    $expAt = Carbon::parse($eo->periode_end)->addMonths(3);
+                    $expAt = $eo->expirationDate();
                     $isExp = now()->gt($expAt->endOfDay());
                     $expStr = $expAt->locale('id')->translatedFormat('d F Y');
                     $usedCount = $user ? \App\Models\ExtraOffRequest::where('user_id', $user->id)
-                        ->whereDate('source_period_start', $eo->periode_start)
-                        ->whereDate('source_period_end', $eo->periode_end)
+                        ->forSource($eo)
                         ->whereNotIn('status', ['rejected', 'cancelled'])
                         ->count() : 0;
                     $statusKet = $isExp ? "KADALUWARSA (expired pada {$expStr})" : "Masih Berlaku s/d {$expStr}";
@@ -1168,12 +1167,11 @@ class HrisWhatsAppAgent
         $eoSources = EmployeeExtraOff::where('karyawan_nik', $karyawan->nik)->where('days', '>', 0)->get();
         foreach ($eoSources as $source) {
             $pEnd = $source->periode_end ? \Carbon\Carbon::parse($source->periode_end) : null;
-            $expiredAt = $pEnd ? $pEnd->copy()->addMonths(3) : null;
+            $expiredAt = $pEnd ? $source->expirationDate() : null;
             $isExpired = $expiredAt ? now()->gt($expiredAt->copy()->endOfDay()) : false;
             if (! $isExpired) {
                 $used = \App\Models\ExtraOffRequest::where('user_id', $user->id)
-                    ->whereDate('source_period_start', $source->periode_start)
-                    ->whereDate('source_period_end', $source->periode_end)
+                    ->forSource($source)
                     ->whereNotIn('status', ['rejected', 'cancelled'])
                     ->count();
                 $eoBalance += max(0, (int) $source->days - $used);

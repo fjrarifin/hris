@@ -17,7 +17,8 @@ class PayrollCalculationServiceTest extends TestCase
         $service = new PayrollCalculationService(
             Mockery::mock(PayrollAttendanceReadinessService::class),
             Mockery::mock(PayrollValidationService::class),
-            Mockery::mock(PayrollPeriodService::class)
+            Mockery::mock(PayrollPeriodService::class),
+            Mockery::mock(\App\Services\PublicHolidayBalanceService::class)
         );
         $profile = new EmployeePayrollProfile([
             'gaji_pokok' => 4106250,
@@ -54,7 +55,8 @@ class PayrollCalculationServiceTest extends TestCase
         $service = new PayrollCalculationService(
             Mockery::mock(PayrollAttendanceReadinessService::class),
             Mockery::mock(PayrollValidationService::class),
-            Mockery::mock(PayrollPeriodService::class)
+            Mockery::mock(PayrollPeriodService::class),
+            Mockery::mock(\App\Services\PublicHolidayBalanceService::class)
         );
         $profile = new EmployeePayrollProfile([
             'gaji_pokok' => 3000000,

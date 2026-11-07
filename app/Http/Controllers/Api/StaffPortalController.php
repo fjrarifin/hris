@@ -1085,6 +1085,7 @@ class StaffPortalController extends Controller
     public function publicHolidays(Request $request): JsonResponse
     {
         $user = $request->user();
+        $balance = $this->publicHolidayBalance($user);
         $eligibleHolidays = $this->eligiblePublicHolidays($user);
         $usedHolidayIds = PublicHolidayRequest::query()
             ->where('user_id', $user->id)
@@ -1092,7 +1093,7 @@ class StaffPortalController extends Controller
             ->pluck('public_holiday_id');
 
         return response()->json([
-            'balance' => $this->publicHolidayBalance($user),
+            'balance' => $balance,
             'holidays' => $eligibleHolidays->whereNotIn('id', $usedHolidayIds)->values(),
             'requests' => PublicHolidayRequest::query()
                 ->with(['holiday', 'user.karyawan'])
@@ -1213,6 +1214,7 @@ class StaffPortalController extends Controller
     public function storeExtraOff(Request $request): JsonResponse
     {
         $data = $request->validate([
+            'source_id' => ['nullable', 'integer'],
             'source_period_start' => ['required', 'date'],
             'source_period_end' => ['required', 'date', 'after_or_equal:source_period_start'],
             'claim_date' => ['required', 'date'],
@@ -1235,18 +1237,19 @@ class StaffPortalController extends Controller
             ->where('karyawan_nik', $employee->nik)
             ->whereDate('periode_start', $data['source_period_start'])
             ->whereDate('periode_end', $data['source_period_end'])
+            ->when(! empty($data['source_id']), fn ($q) => $q->whereKey($data['source_id']), fn ($q) => $q->whereNull('public_holiday_request_id'))
             ->first();
 
         if (! $source) {
             throw ValidationException::withMessages(['source_period_start' => 'Saldo Extra Off periode ini tidak ditemukan.']);
         }
 
-        $expiredAt = Carbon::parse($source->periode_end)->addMonths(3)->endOfDay();
+        $expiredAt = $source->expirationDate();
         if (now()->gt($expiredAt)) {
             throw ValidationException::withMessages([
                 'source_period_start' => sprintf(
-                    'Masa berlaku pengajuan Extra Off periode ini telah kadaluwarsa pada tanggal %s (maksimal pengajuan 3 bulan dari akhir periode payroll).',
-                    Carbon::parse($source->periode_end)->addMonths(3)->format('d M Y')
+                    'Masa berlaku pengajuan Extra Off periode ini telah kadaluwarsa pada tanggal %s (sesuai masa berlaku sumber saldo).',
+                    $source->expirationDate()->format('d M Y')
                 ),
             ]);
         }
@@ -1255,7 +1258,7 @@ class StaffPortalController extends Controller
             throw ValidationException::withMessages([
                 'claim_date' => sprintf(
                     'Tanggal pengambilan melewati batas masa berlaku Extra Off periode ini (%s).',
-                    Carbon::parse($source->periode_end)->addMonths(3)->format('d M Y')
+                    $source->expirationDate()->format('d M Y')
                 ),
             ]);
         }
@@ -1275,6 +1278,7 @@ class StaffPortalController extends Controller
 
         $extraOff = ExtraOffRequest::create([
             'user_id' => $user->id,
+            'employee_extra_off_id' => $source->id,
             'source_period_start' => $source->periode_start,
             'source_period_end' => $source->periode_end,
             'claim_date' => $claimDate,
@@ -1480,6 +1484,9 @@ class StaffPortalController extends Controller
         abort_unless($model->status === 'pending' && ! $model->manager_approved_at, 422, 'Pengajuan sudah diproses.');
 
         $approved = $data['decision'] === 'approved';
+        if ($approved && $model instanceof ExtraOffRequest) {
+            $model->assertReplacementIsValid();
+        }
         if ($type === 'ph' && $approved && ! $this->hasWorkedOnPublicHoliday($model->user, $model->holiday)) {
             throw ValidationException::withMessages([
                 'decision' => 'PH tidak dapat disetujui karena karyawan tidak memiliki scan pada hari libur nasional tersebut.',
@@ -1808,13 +1815,14 @@ class StaffPortalController extends Controller
             ->map(function (EmployeeExtraOff $source) use ($user): array {
                 $used = $this->usedExtraOffDays($user, $source);
                 $remaining = max((int) $source->days - $used, 0);
-                $expiredAt = Carbon::parse($source->periode_end)->addMonths(3);
+                $expiredAt = $source->expirationDate();
                 $isExpired = now()->startOfDay()->gt($expiredAt->copy()->endOfDay());
 
                 return [
+                    'source_id' => $source->id,
                     'source_period_start' => $source->periode_start->toDateString(),
                     'source_period_end' => $source->periode_end->toDateString(),
-                    'label' => $source->periode_start->format('d M Y').' - '.$source->periode_end->format('d M Y'),
+                    'label' => ($source->public_holiday_request_id ? 'Pengganti PH #'.$source->public_holiday_request_id.' ? ' : '').$source->periode_start->format('d M Y').' - '.$source->periode_end->format('d M Y'),
                     'days' => (int) $source->days,
                     'used_days' => $used,
                     'remaining_days' => $isExpired ? 0 : $remaining,
@@ -1828,7 +1836,7 @@ class StaffPortalController extends Controller
 
     private function remainingExtraOffDays(User $user, EmployeeExtraOff $source): int
     {
-        $expiredAt = Carbon::parse($source->periode_end)->addMonths(3)->endOfDay();
+        $expiredAt = $source->expirationDate();
         if (now()->gt($expiredAt)) {
             return 0;
         }
@@ -1840,8 +1848,7 @@ class StaffPortalController extends Controller
     {
         return ExtraOffRequest::query()
             ->where('user_id', $user->id)
-            ->whereDate('source_period_start', $source->periode_start)
-            ->whereDate('source_period_end', $source->periode_end)
+            ->forSource($source)
             ->whereNotIn('status', ['rejected', 'cancelled'])
             ->count();
     }
@@ -1852,63 +1859,7 @@ class StaffPortalController extends Controller
             return;
         }
 
-        // Auto-cancel PH requests yang claim_date-nya terdapat scan masuk
-        $phRequests = PublicHolidayRequest::query()
-            ->where('user_id', $user->id)
-            ->where('status', 'approved')
-            ->whereNotNull('claim_date')
-            ->get();
-
-        foreach ($phRequests as $req) {
-            $hasScan = FingerspotAttendanceLog::query()
-                ->where('pin', $employee->pin)
-                ->whereDate('scan_date', $req->claim_date)
-                ->exists();
-
-            if ($hasScan) {
-                $isDayOffCorrected = AttendanceCorrection::query()
-                    ->where('nik', $employee->nik)
-                    ->whereDate('attendance_date', $req->claim_date)
-                    ->where('correction_type', 'day_off')
-                    ->exists();
-
-                if (! $isDayOffCorrected) {
-                    $req->update([
-                        'status' => 'cancelled',
-                        'reject_reason' => 'Dibatalkan otomatis karena karyawan hadir/scan masuk pada tanggal tersebut.',
-                    ]);
-                }
-            }
-        }
-
-        // Auto-cancel Extra Off requests yang claim_date-nya terdapat scan masuk
-        $eoRequests = ExtraOffRequest::query()
-            ->where('user_id', $user->id)
-            ->where('status', 'approved')
-            ->whereNotNull('claim_date')
-            ->get();
-
-        foreach ($eoRequests as $req) {
-            $hasScan = FingerspotAttendanceLog::query()
-                ->where('pin', $employee->pin)
-                ->whereDate('scan_date', $req->claim_date)
-                ->exists();
-
-            if ($hasScan) {
-                $isDayOffCorrected = AttendanceCorrection::query()
-                    ->where('nik', $employee->nik)
-                    ->whereDate('attendance_date', $req->claim_date)
-                    ->where('correction_type', 'day_off')
-                    ->exists();
-
-                if (! $isDayOffCorrected) {
-                    $req->update([
-                        'status' => 'cancelled',
-                        'reject_reason' => 'Dibatalkan otomatis karena karyawan hadir/scan masuk pada tanggal tersebut.',
-                    ]);
-                }
-            }
-        }
+        app(\App\Services\AttendedDayOffCancellationService::class)->reconcile($user->id);
     }
 
     private function hasDateConflict(User $user, Carbon $date): bool
@@ -1974,17 +1925,20 @@ class StaffPortalController extends Controller
             ->whereNull('public_holiday_id')
             ->sum('days');
 
+        $recordedIds = app(\App\Services\PublicHolidayBalanceService::class)->recordedHolidayIds($employee);
         $allHolidays = PublicHoliday::query()
             ->where('is_active', true)
             ->whereDate('holiday_date', '<', now())
             ->whereDate('holiday_date', '>', now()->subDays(90))
-            ->when($joinDate, fn ($q) => $q->whereDate('holiday_date', '>=', $joinDate))
+            ->when($joinDate, fn ($q) => $q->where(fn ($eligible) => $eligible
+                ->whereDate('holiday_date', '>=', $joinDate)->orWhereIn('id', $recordedIds)))
             ->whereNotIn('id', $deductedHolidayIds)
             ->orderByDesc('holiday_date')
             ->get();
 
         $directlyEligible = $allHolidays->filter(fn (PublicHoliday $holiday) => 
-            $addedHolidayIds->contains($holiday->id)
+            $recordedIds->contains($holiday->id)
+            || $addedHolidayIds->contains($holiday->id)
             || ! $this->requiresAttendanceForPublicHoliday($holiday)
             || $attendedDates->contains($holiday->holiday_date->toDateString())
         );
@@ -2011,6 +1965,10 @@ class StaffPortalController extends Controller
     {
         $employee = $this->employeeFor($user);
         $joinDate = $employee->join_date ? Carbon::parse($employee->join_date)->startOfDay() : null;
+        if ($holiday->is_active && app(\App\Services\PublicHolidayBalanceService::class)
+            ->recordedHolidayIds($employee)->contains($holiday->id)) {
+            return true;
+        }
         if ($joinDate && $holiday->holiday_date->lt($joinDate)) {
             return false;
         }

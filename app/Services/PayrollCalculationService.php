@@ -132,6 +132,7 @@ class PayrollCalculationService
                         'karyawan_nik' => $record['nik'],
                         'periode_start' => $preview['filters']['start_date'],
                         'periode_end' => $preview['filters']['end_date'],
+                        'source' => 'payroll',
                     ],
                     [
                         'hari_kerja' => $record['periode_hari_kerja'],
@@ -180,6 +181,7 @@ class PayrollCalculationService
                         'karyawan_nik' => $record['nik'],
                         'periode_start' => $preview['filters']['start_date'],
                         'periode_end' => $preview['filters']['end_date'],
+                        'source' => 'payroll',
                     ],
                     [
                         'days' => $calculation['extra_off_days'],
@@ -229,8 +231,6 @@ class PayrollCalculationService
         );
         $tttDailyRate = (int) round($tttFull / $periodWorkdays);
         $tttProrata = (int) round(($tttFull / $periodWorkdays) * $paidHariMasuk);
-        $tttComponent = PayrollComponent::query()->where('nama', 'Tunjangan Tidak Tetap')->first();
-        $isTttManual = $tttComponent ? ($tttComponent->input_mode === 'manual') : true;
 
         $items = collect([
             $this->item('Gaji Pokok', 'earning', $profile->gaji_pokok),
@@ -240,9 +240,8 @@ class PayrollCalculationService
             $this->item('Potongan Sakit Tanpa Surat', 'deduction', $sickWithoutDocumentDays * $tttDailyRate),
         ]);
 
-        if (! $isTttManual) {
-            $items->push($this->item('Tunjangan Tidak Tetap', 'earning', $tttProrata));
-        }
+        // Nilai awal otomatis; tetap dapat disesuaikan melalui review payroll.
+        $items->push($this->item('Tunjangan Tidak Tetap', 'earning', $tttProrata));
 
         if ($bpjsActive) {
             $bpjsItems = [

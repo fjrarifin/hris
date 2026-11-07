@@ -12,6 +12,7 @@ class PayrollReviewService
 {
     private const MANUAL_ADJUSTABLE_CALCULATED_COMPONENTS = [
         'Lembur',
+        'Tunjangan Tidak Tetap',
     ];
 
     public function __construct(

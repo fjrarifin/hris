@@ -218,7 +218,7 @@ class HrPayrollProcessController extends Controller
                 ->where(function ($query): void {
                     $query
                         ->where('input_mode', 'manual')
-                        ->orWhere('nama', 'Lembur');
+                        ->orWhereIn('nama', ['Lembur', 'Tunjangan Tidak Tetap']);
                 })
                 ->orderBy('type')
                 ->orderBy('nama')

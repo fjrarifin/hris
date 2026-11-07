@@ -98,6 +98,7 @@ class FrontendNavigation
         $attendanceKeys = [
             'attendance',
             'hr-overtime-recap',
+            'hr-permission-recap',
             'it-event-absen',
             'hr-leave-balances',
             'hr-leave-adjustments',

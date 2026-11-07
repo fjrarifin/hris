@@ -237,7 +237,8 @@ class HrAttendanceReportService
         AttendanceCorrection::query()
             ->with('corrector')
             ->whereIn('nik', $selectedNiks)
-            ->whereBetween('attendance_date', [$start->toDateString(), $end->toDateString()])
+            ->whereDate('attendance_date', '>=', $start->toDateString())
+            ->whereDate('attendance_date', '<=', $end->toDateString())
             ->get()
             ->each(function (AttendanceCorrection $correction) use ($attendanceDays): void {
                 $date = $correction->attendance_date->toDateString();
@@ -285,6 +286,7 @@ class HrAttendanceReportService
                 }
                 if ($correction->absence_type === ExtraOffRequest::class && $correction->absence_id) {
                     $request = ExtraOffRequest::query()->find($correction->absence_id);
+                    $correctionPayload['extra_off_source_id'] = $request?->employee_extra_off_id;
                     $correctionPayload['extra_off_source_period_start'] = $request?->source_period_start?->toDateString();
                     $correctionPayload['extra_off_source_period_end'] = $request?->source_period_end?->toDateString();
                 }
@@ -301,7 +303,8 @@ class HrAttendanceReportService
             ->with('user.karyawan')
             ->where('status', 'approved')
             ->whereNotNull('hr_approved_at')
-            ->whereBetween('date', [$start->toDateString(), $end->toDateString()])
+            ->whereDate('date', '>=', $start->toDateString())
+            ->whereDate('date', '<=', $end->toDateString())
             ->get()
             ->each(function (OvertimeRequest $request) use ($overtimeDays, $selectedNiks, $attendanceDays): void {
                 $employee = $request->user?->karyawan;
@@ -331,12 +334,10 @@ class HrAttendanceReportService
                 // Jika ada data scan pulang lembur dan karyawan pulang lebih awal, sesuaikan menitnya
                 if ($attendance && ! empty($attendance['overtime_scan_out'])) {
                     try {
-                        $scanOut = Carbon::createFromFormat('H:i:s', $attendance['overtime_scan_out']);
-                        $approvedEnd = Carbon::parse($request->end_time);
-                        $approvedStart = Carbon::parse($request->start_time);
-                        if ($scanOut->lt($approvedEnd) && $scanOut->gt($approvedStart)) {
-                            $minutes = (int) $approvedStart->diffInMinutes($scanOut);
-                        }
+                        $scanOut = Carbon::parse($request->date->toDateString().' '.$attendance['overtime_scan_out']);
+                        // Scan sebelum/saat jam mulai berarti tidak ada lembur yang terlaksana.
+                        $actualEnd = $scanOut->min($reqEnd);
+                        $minutes = max(0, (int) $reqStart->diffInMinutes($actualEnd, false));
                     } catch (\Throwable) {
                     }
                 }

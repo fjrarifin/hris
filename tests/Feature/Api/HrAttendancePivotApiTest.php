@@ -27,9 +27,10 @@ class HrAttendancePivotApiTest extends TestCase
     {
         parent::setUp();
 
-        Carbon::setTestNow('2026-05-26 12:00:00');
+        Carbon::setTestNow('2026-05-30 12:00:00');
 
         foreach ([
+            'extra_off_requests',
             'public_holiday_requests',
             'attendance_corrections',
             'employee_permissions',
@@ -198,6 +199,129 @@ class HrAttendancePivotApiTest extends TestCase
         $this->assertContains('Total Lembur', $summaryHeadings);
     }
 
+    public function test_payroll_overtime_is_capped_by_scan_out_and_requires_hr_approval(): void
+    {
+        $staff = $this->employee('EMP001', 'Ayu', 'PIN-A', '2026-01-01');
+        foreach (['2026-05-24' => ['17:00:00', 0], '2026-05-25' => ['18:00:00', 0], '2026-05-26' => ['19:00:00', 60], '2026-05-27' => ['21:00:00', 120]] as $date => [$scanOut, $expected]) {
+            $this->log('PIN-A', $date.' 08:00:00', '0');
+            $this->log('PIN-A', $date.' '.$scanOut, '1');
+            OvertimeRequest::create([
+                'user_id' => $staff->id, 'date' => $date, 'start_time' => '18:00:00',
+                'end_time' => '20:00:00', 'reason' => 'Test', 'status' => 'approved', 'hr_approved_at' => now(),
+            ]);
+            $report = app(HrAttendanceReportService::class)->report(['start_date' => $date, 'end_date' => $date]);
+            $this->assertSame($expected, $report['records']->first()['total_overtime_minutes']);
+        }
+        OvertimeRequest::query()->update(['hr_approved_at' => null]);
+        $report = app(HrAttendanceReportService::class)->report(['start_date' => '2026-05-24', 'end_date' => '2026-05-27']);
+        $this->assertSame(0, $report['records']->first()['total_overtime_minutes']);
+    }
+
+    public function test_permission_recap_filters_overlapping_period_and_exports_same_records(): void
+    {
+        Schema::create('master_departments', function (Blueprint $table): void {
+            $table->id(); $table->string('name'); $table->boolean('is_active')->default(true);
+        });
+        Schema::table('employee_permissions', function (Blueprint $table): void {
+            $table->text('reason')->nullable();
+            $table->string('document')->nullable(); $table->string('reject_reason')->nullable();
+            $table->timestamp('manager_approved_at')->nullable();
+        });
+        FrontendMenu::create(['key' => 'hr-permission-recap', 'label' => 'Rekap', 'path' => '/hr/permission-recap', 'allowed_levels' => '2', 'is_active' => true]);
+        $staff = $this->employee('EMP001', 'Ayu', 'PIN-A', '2026-01-01');
+        \Illuminate\Support\Facades\Storage::fake('public');
+        \Illuminate\Support\Facades\Storage::disk('public')->put('test.pdf', '%PDF-test');
+        $permission = EmployeePermission::create([
+            'user_id' => $staff->id, 'type' => 'sakit', 'date' => '2026-05-23', 'end_date' => '2026-05-26',
+            'status' => 'approved', 'hr_approved_at' => now(), 'document' => 'test.pdf',
+        ]);
+        EmployeePermission::create(['user_id' => $staff->id, 'type' => 'izin', 'date' => '2026-05-25', 'status' => 'pending']);
+        $query = '?start_date=2026-05-24&end_date=2026-05-25&type=sakit&status=approved&search=Ayu';
+        $this->getJson('/api/hr/permission-recap'.$query)->assertOk()
+            ->assertJsonCount(1, 'records')->assertJsonPath('records.0.days', 2)
+            ->assertJsonPath('summary.sick_days', 2)->assertJsonPath('summary.permission_days', 0);
+        \Maatwebsite\Excel\Facades\Excel::fake();
+        $this->get('/api/hr/permission-recap/export'.$query)->assertOk();
+        \Maatwebsite\Excel\Facades\Excel::assertDownloaded('Rekap_Izin_Sakit_'.now()->format('Ymd_His').'.xlsx', function ($export) {
+            return $export->collection()->count() === 1 && $export->collection()->first()[7] === 2;
+        });
+        $this->get('/api/hr/permission-recap/'.$permission->id.'/document')->assertOk()->assertDownload('test.pdf');
+        \Illuminate\Support\Facades\Storage::disk('public')->delete('test.pdf');
+        $this->get('/api/hr/permission-recap/'.$permission->id.'/document')->assertNotFound();
+        $this->getJson('/api/hr/permission-recap?status=invalid')->assertUnprocessable();
+        Sanctum::actingAs($staff);
+        $this->getJson('/api/hr/permission-recap/'.$permission->id.'/document')->assertForbidden();
+        $this->getJson('/api/hr/permission-recap')->assertForbidden();
+    }
+
+    public function test_manager_submission_hr_approval_and_duplicate_rejection(): void
+    {
+        \Illuminate\Support\Facades\Notification::fake();
+        Schema::table('m_karyawan', function (Blueprint $table): void {
+            $table->string('atasan_langsung_nik')->nullable();
+            $table->string('status_karyawan')->nullable();
+        });
+        Schema::table('overtime_requests', function (Blueprint $table): void {
+            $table->unsignedBigInteger('requested_by_user_id')->nullable();
+            $table->unsignedBigInteger('hr_approved_by')->nullable();
+            $table->string('reject_reason')->nullable();
+        });
+        $manager = $this->employee('MGR001', 'Manager', null, '2026-01-01');
+        $staff = $this->employee('EMP001', 'Ayu', 'PIN-A', '2026-01-01');
+        Karyawan::where('nik', 'EMP001')->update(['atasan_langsung_nik' => 'MGR001', 'status_karyawan' => 'AKTIF']);
+        $notifier = \Mockery::mock(\App\Http\Services\ApprovalNotificationService::class);
+        $notifier->shouldReceive('notifyOvertimeAssigned')->once();
+        $controller = new \App\Http\Controllers\Api\StaffPortalController(
+            $notifier, \Mockery::mock(\App\Http\Services\ApprovalRoutingService::class),
+            \Mockery::mock(\App\Http\Services\WhatsAppService::class)
+        );
+        $request = \Illuminate\Http\Request::create('/', 'POST', [
+            'employee_niks' => ['EMP001'], 'date' => '2026-05-29', 'start_time' => '18:00', 'end_time' => '20:00', 'reason' => 'Tutup buku',
+        ]);
+        $request->setUserResolver(fn () => $manager);
+        $this->assertSame(201, $controller->storeOvertime($request)->getStatusCode());
+        $overtime = OvertimeRequest::first();
+        $this->assertSame('pending', $overtime->status);
+        $hr = User::where('username', 'HR001')->first();
+        $decision = \Illuminate\Http\Request::create('/', 'POST', ['decision' => 'approved']);
+        $decision->setUserResolver(fn () => $hr);
+        $this->assertSame(200, app(\App\Http\Controllers\Api\HrApprovalController::class)->decide($decision, 'overtime', $overtime->id)->getStatusCode());
+        $this->assertNotNull($overtime->fresh()->hr_approved_at);
+        $this->expectException(\Illuminate\Validation\ValidationException::class);
+        $controller->storeOvertime($request);
+    }
+
+    public function test_automatic_allowance_can_be_adjusted_and_saved_without_duplicate_items(): void
+    {
+        Schema::create('payroll_components', function (Blueprint $table): void {
+            $table->id(); $table->string('nama'); $table->string('type'); $table->string('input_mode');
+            $table->boolean('is_active'); $table->timestamps();
+        });
+        Schema::create('payrolls', function (Blueprint $table): void {
+            $table->id(); $table->string('karyawan_nik'); $table->string('approval_status');
+            $table->boolean('is_locked')->default(false);
+            $table->integer('total_pendapatan')->default(0); $table->integer('total_potongan')->default(0);
+            $table->integer('total_dibayarkan')->default(0); $table->timestamps();
+        });
+        Schema::create('payroll_items', function (Blueprint $table): void {
+            $table->id(); $table->unsignedBigInteger('payroll_id'); $table->unsignedBigInteger('component_id');
+            $table->string('nama_item'); $table->string('type'); $table->integer('amount'); $table->timestamps();
+        });
+        $this->employee('EMP001', 'Ayu', 'PIN-A', '2026-01-01');
+        $component = \App\Models\PayrollComponent::create(['nama' => 'Tunjangan Tidak Tetap', 'type' => 'earning', 'input_mode' => 'calculated', 'is_active' => true]);
+        $payroll = \App\Models\Payroll::create(['karyawan_nik' => 'EMP001', 'approval_status' => 'draft']);
+        $payroll->items()->create(['component_id' => $component->id, 'nama_item' => $component->nama, 'type' => 'earning', 'amount' => 1500000]);
+        $validator = \Mockery::mock(\App\Services\PayrollValidationService::class);
+        $validator->shouldReceive('validateAndStore')->twice()->andReturn([]);
+        $service = new \App\Services\PayrollReviewService(\Mockery::mock(\App\Services\PayrollAttendanceReadinessService::class), $validator);
+        $updated = $service->updateManualAdjustments($payroll, [['component_id' => $component->id, 'amount' => 1250000]]);
+        $this->assertSame(1, $updated->items->count());
+        $this->assertEquals(1250000, $updated->total_dibayarkan);
+        $updated = $service->updateManualAdjustments($updated, [['component_id' => $component->id, 'amount' => 0]]);
+        $this->assertCount(0, $updated->items);
+        $this->assertEquals(0, $updated->total_dibayarkan);
+    }
+
     private function createTables(): void
     {
         Schema::create('users', function (Blueprint $table): void {
@@ -294,11 +418,21 @@ class HrAttendancePivotApiTest extends TestCase
             $table->timestamps();
         });
 
+        Schema::create('extra_off_requests', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('user_id');
+            $table->date('claim_date');
+            $table->string('status');
+            $table->timestamp('hr_approved_at')->nullable();
+            $table->timestamps();
+        });
+
         Schema::create('employee_permissions', function (Blueprint $table): void {
             $table->id();
             $table->unsignedBigInteger('user_id');
             $table->string('type');
             $table->date('date');
+            $table->date('end_date')->nullable();
             $table->string('status');
             $table->timestamp('hr_approved_at')->nullable();
             $table->timestamps();

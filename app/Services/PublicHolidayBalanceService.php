@@ -172,14 +172,15 @@ class PublicHolidayBalanceService
         ]);
     }
 
-    /**
-     * Sinkronisasi jatah PH yang memenuhi syarat (eligible) untuk satu karyawan
-     * jika record di employee_ph_balances belum ada.
-     *
-     * @param  Karyawan  $employee
-     * @param  User|null $user
-     * @return int Jumlah record baru yang ditambahkan
-     */
+    /** Recorded entitlements survive contract renewal and changes to join_date. */
+    public function recordedHolidayIds(Karyawan $employee): \Illuminate\Support\Collection
+    {
+        return EmployeePhBalance::query()
+            ->where('karyawan_nik', $employee->nik)
+            ->where('days', '>', 0)
+            ->pluck('public_holiday_id');
+    }
+
     public function syncMissingEligibleForEmployee(Karyawan $employee, ?\App\Models\User $user = null): int
     {
         $joinDate = $employee->join_date ? Carbon::parse($employee->join_date)->startOfDay() : null;

@@ -65,6 +65,9 @@ class HrApprovalController extends Controller
 
         $item = $this->query($this->model($type), $type)->findOrFail($id);
         abort_unless($this->canDecide($item), 422, 'Pengajuan ini sudah diproses.');
+        if ($validated['decision'] === 'approved' && $item instanceof ExtraOffRequest) {
+            $item->assertReplacementIsValid();
+        }
 
 
         $item->update([

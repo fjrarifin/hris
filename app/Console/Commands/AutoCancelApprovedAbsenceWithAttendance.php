@@ -18,7 +18,7 @@ class AutoCancelApprovedAbsenceWithAttendance extends Command
 {
     protected $signature = 'absence:auto-cancel-attended {--date= : Tanggal absensi yang dicek, default kemarin (Y-m-d)}';
 
-    protected $description = 'Batalkan cuti/PH yang sudah disetujui jika karyawan tercatat masuk pada tanggal pengajuan.';
+    protected $description = 'Batalkan cuti/PH/Extra Off jika karyawan tercatat masuk; PH/EO juga memeriksa absensi historis yang terlambat masuk.';
 
     public function handle(): int
     {
@@ -28,7 +28,12 @@ class AutoCancelApprovedAbsenceWithAttendance extends Command
 
         $cancelled = 0;
         $cancelled += $this->cancelLeaves($date);
-        $cancelled += $this->cancelPublicHolidayRequests($date);
+        $cancelled += app(\App\Services\AttendedDayOffCancellationService::class)->reconcile(
+            date: $this->option('date') ? $date : null,
+            onCancelled: fn ($request, $employee) => $this->notifySupervisor(
+                $request, $request instanceof PublicHolidayRequest ? 'PH' : 'EO', $employee, $request->claim_date
+            )
+        );
 
         $this->info("Pemeriksaan {$date->toDateString()} selesai. {$cancelled} pengajuan dibatalkan.");
 
@@ -67,37 +72,6 @@ class AutoCancelApprovedAbsenceWithAttendance extends Command
         return $cancelled;
     }
 
-    private function cancelPublicHolidayRequests(Carbon $date): int
-    {
-        $requests = PublicHolidayRequest::query()
-            ->with(['user.karyawan', 'holiday'])
-            ->where('status', 'approved')
-            ->whereNotNull('manager_approved_at')
-            ->whereDate('claim_date', $date)
-            ->get();
-
-        $cancelled = 0;
-        foreach ($requests as $request) {
-            $employee = $request->user?->karyawan;
-            if (! $this->hasAttendance($employee, $date)) {
-                continue;
-            }
-
-            DB::transaction(function () use ($request, $employee, $date): void {
-                $request->update([
-                    'status' => 'cancelled',
-                    'reject_reason' => 'Otomatis dibatalkan karena karyawan tercatat masuk kerja pada tanggal pengambilan PH.',
-                ]);
-
-                $this->notifySupervisor($request, 'PH', $employee, $date);
-            });
-
-            $cancelled++;
-        }
-
-        return $cancelled;
-    }
-
     private function hasAttendance(?Karyawan $employee, Carbon $date): bool
     {
         return filled($employee?->pin)
@@ -120,7 +94,9 @@ class AutoCancelApprovedAbsenceWithAttendance extends Command
             ? User::query()->where('username', $supervisorEmployee->nik)->first()
             : null;
 
-        $label = $type === 'PH' ? 'PH' : 'cuti';
+        $label = match ($type) {
+            'PH' => 'PH', 'EO' => 'Extra Off', default => 'cuti'
+        };
         $formattedDate = $date->format('d/m/Y');
         $message = "Pengajuan {$label} {$employee->nama_karyawan} tanggal {$formattedDate} otomatis dibatalkan karena karyawan tercatat masuk kerja pada tanggal tersebut. Jatah pengajuan dikembalikan mengikuti status pembatalan ini.";
 
