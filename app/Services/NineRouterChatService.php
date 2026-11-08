@@ -13,9 +13,9 @@ class NineRouterChatService
      */
     public function chat(string $prompt, string $systemPrompt, array $history = []): ?string
     {
-        $apiKey = trim((string) config('services.ninerouter.api_key', 'sk-0de72b6d36d00d02-ub1zv4-b8f5d965'));
-        $baseUrl = rtrim((string) config('services.ninerouter.base_url', 'http://localhost:20128/v1'), '/');
-        $model = trim((string) config('services.ninerouter.model', 'GEMINI'));
+        $apiKey = trim((string) config('services.ninerouter.api_key', 'sk-05ab3b5d37835165-dvtlha-727df559'));
+        $baseUrl = rtrim((string) config('services.ninerouter.base_url', 'http://10.20.10.80:20128/v1'), '/');
+        $model = trim((string) config('services.ninerouter.model', 'ag/gemini-4-argon-medium'));
         $timeout = min((int) config('services.ninerouter.timeout', 20), 40);
 
         if ($apiKey === '' || $baseUrl === '') {

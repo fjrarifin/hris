@@ -30,6 +30,9 @@ class AutoRejectExpiredPublicHoliday extends Command
         $expiredRequests = PublicHolidayRequest::with('user')
             ->where('status', 'pending')
             ->where('expired_at', '<', now())
+            // Pengajuan yang masuk sebelum expired boleh punya tanggal claim setelah expired,
+            // jadi baru di-reject otomatis jika tanggal claim-nya juga sudah lewat.
+            ->whereDate('claim_date', '<', now()->toDateString())
             ->get();
 
         foreach ($expiredRequests as $request) {

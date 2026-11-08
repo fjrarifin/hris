@@ -67,9 +67,9 @@ return [
     ],
 
     'ninerouter' => [
-        'api_key' => env('NINEROUTER_API_KEY', 'sk-0de72b6d36d00d02-ub1zv4-b8f5d965'),
-        'base_url' => env('NINEROUTER_BASE_URL', 'http://localhost:20128/v1'),
-        'model' => env('NINEROUTER_MODEL', 'GEMINI'),
+        'api_key' => env('NINEROUTER_API_KEY', 'sk-05ab3b5d37835165-dvtlha-727df559'),
+        'base_url' => env('NINEROUTER_BASE_URL', 'http://10.20.10.80:20128/v1'),
+        'model' => env('NINEROUTER_MODEL', 'ag/gemini-4-argon-medium'),
         'timeout' => (int) env('NINEROUTER_TIMEOUT', 15),
     ],
 

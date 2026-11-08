@@ -1204,7 +1204,7 @@ class HrisWhatsAppAgent
         $prompt .= "Tugas: Buat 1 atau 2 kalimat singkat yang merangkum secara jelas inti topik/kendala apa yang sebenarnya sedang dihadapi atau ditanyakan oleh karyawan untuk dibaca oleh Tim IT Support di grup tiket.\n";
         $prompt .= "Aturan: Tulis langsung inti kendalanya dengan bahasa Indonesia yang jelas tanpa basa-basi.";
 
-        $summary = $this->openRouter->chat($prompt, '') ?? $this->gemini->chat($prompt, '');
+        $summary = $this->aiEngine->chat($prompt, '');
 
         if ($summary && trim($summary) !== '') {
             return trim($summary);
