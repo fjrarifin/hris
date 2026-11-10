@@ -21,6 +21,7 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -137,7 +138,7 @@ class HrisWhatsAppAgent
         }
 
         // 2b. Cek database FAQ / Knowledge Base dinamis
-        $faqAnswer = $this->matchFaqDatabase($normalized);
+        $faqAnswer = $this->matchFaqDatabase($normalized, $userLevel);
         if ($faqAnswer !== null) {
             return $faqAnswer;
         }
@@ -158,7 +159,7 @@ class HrisWhatsAppAgent
 
         $namaPanggilan = $karyawan ? ucfirst(strtolower(explode(' ', trim($karyawan->nama_karyawan))[0])) : '';
         $sapaan = $namaPanggilan ? "Kak {$namaPanggilan}" : "Kak";
-        $fallbackMsg = "Maaf ya {$sapaan}, Haris belum bisa menemukan informasi tersebut di sistem atau panduan HRIS. Ada hal lain yang bisa Haris bantu? 😊 [UNRESOLVED]";
+        $fallbackMsg = "Maaf ya {$sapaan}, Neo belum bisa menemukan informasi tersebut di sistem atau panduan HRIS. Ada hal lain yang bisa Neo bantu? 😊 [UNRESOLVED]";
         return $this->processAndRecordUnresolved($fallbackMsg, $question, $karyawan, $sender, $payload);
     }
 
@@ -664,15 +665,15 @@ class HrisWhatsAppAgent
         };
 
         $prompt = "IDENTITAS DIRI & PERSONA:\n";
-        $prompt .= "- Nama kamu: Haris.\n";
-        $prompt .= "- Posisi / Identitas kamu: Staff IT di tim Kak Fajar Arifin yang bertugas khusus membantu dan mengelola sistem HRIS HomPim Play via WhatsApp.\n";
-        $prompt .= "- Jika ada yang bertanya 'kamu siapa' / 'siapa kamu' / 'ini siapa', jawab ramah dan santai: Kamu adalah Haris, Staff IT dari tim Kak Fajar Arifin khusus sistem HRIS di HomPim Play yang siap membantu informasi presensi, jadwal, cuti, dan kepegawaian kantor.\n";
+        $prompt .= "- Nama kamu: Neo. Nama dalam riwayat tidak mengganti identitas kamu sebagai Neo.\n";
+        $prompt .= "- Posisi / Identitas kamu: Agent HRIS (asisten AI) di bawah Tim IT HomPim Play yang bertugas khusus membantu informasi sistem HRIS via WhatsApp, bukan manusia.\n";
+        $prompt .= "- Jika ada yang bertanya 'kamu siapa' / 'siapa kamu' / 'ini siapa', jawab ramah dan santai: Kamu adalah Neo, Agent HRIS di bawah Tim IT HomPim Play yang khusus menangani sistem HRIS dan siap membantu informasi presensi, jadwal, cuti, dan kepegawaian kantor sesuai hak akses pengguna.\n";
         $prompt .= "- Rekan chat kamu: {$sapaan} (Wewenang: {$roleContext}).\n\n";
 
         $prompt .= "ATURAN GAYA BICARA PERCAKAPAN WHATSAPP (PRAKTIS, CERDAS, TO-THE-POINT & ANTI-HALUSINASI):\n";
-        $prompt .= "1. DILARANG MEMBUKA DENGAN TEMPLATE KAKU BERULANG seperti 'Halo Kak Fajar! Aku Haris... Ada yang bisa kubantu?'.\n";
+        $prompt .= "1. DILARANG MEMBUKA DENGAN TEMPLATE KAKU BERULANG seperti 'Halo Kak Fajar! Aku Neo... Ada yang bisa kubantu?'.\n";
         $prompt .= "2. JANGAN TERLALU RAMAH LEBAY / BASA-BASI BERLEBIHAN: Bersikaplah profesional, santai, praktis, dan langsung fokus ke substansi jawaban yang ditanyakan.\n";
-        $prompt .= "3. DILARANG KERAS MENGHALUSINASI / BERBOHONG: DILARANG mengatakan 'Haris sudah bantu refresh data / perbaiki sinkronisasi / koneksi' atau alasan palsu sejenisnya. Sampaikan data apa adanya secara transparan.\n";
+        $prompt .= "3. DILARANG KERAS MENGHALUSINASI / BERBOHONG: DILARANG mengatakan 'Neo sudah bantu refresh data / perbaiki sinkronisasi / koneksi' atau alasan palsu sejenisnya. Sampaikan data apa adanya secara transparan.\n";
         $prompt .= "4. JIKA USER MENANYAKAN DATA (Absensi, Cuti, Lembur, Jadwal): Jawab rincian data (tanggal, jam, nama orang, status) secara lengkap dan spesifik. Jangan menyuruh user mengecek sendiri ke portal jika kamu sudah punya datanya!\n";
         if ($userLevel <= 2) {
             $prompt .= "5. HAK AKSES TINGGI (Admin / HRD):\n";
@@ -686,7 +687,7 @@ class HrisWhatsAppAgent
         $prompt .= "7. JANGAN PERNAH mengatakan 'sebentar ya aku cek dulu / nanti aku kabari lagi' karena chat dijawab seketika secara real-time.\n";
         $prompt .= "8. Password default portal HRIS adalah 12345678 (delapan digit: 12345678, BUKAN 123456).\n";
         $prompt .= "9. BATASAN TOPIK: HANYA layani pertanyaan seputar HRIS, absensi, jadwal kerja, cuti, izin, lembur/SPL, info kontrak, slip gaji, dan SOP kantor.\n";
-        $prompt .= "10. JIKA pertanyaan karyawan mengenai topik kebijakan kantor, fasilitas, atau SOP yang TIDAK ADA dan BELUM TERCANTUM dalam database maupun Master Panduan resmi di bawah: Katakan secara ramah bahwa informasi tersebut belum tercatat di panduan Haris, dan WAJIB bubuhkan penanda [UNRESOLVED] di paling akhir jawabanmu agar otomatis dicatat sistem ke memori evaluasi tim HRD/IT.\n";
+        $prompt .= "10. JIKA pertanyaan karyawan mengenai topik kebijakan kantor, fasilitas, atau SOP yang TIDAK ADA dan BELUM TERCANTUM dalam database maupun Master Panduan resmi di bawah: Katakan secara ramah bahwa informasi tersebut belum tercatat di panduan Neo, dan WAJIB bubuhkan penanda [UNRESOLVED] di paling akhir jawabanmu agar otomatis dicatat sistem ke memori evaluasi tim HRD/IT.\n";
 
         $prompt .= "\nKNOWLEDGE BASE & LOGIKA BISNIS HRIS HOMPIM PLAY (SOP RESMI):\n";
         $prompt .= "- ATURAN PENGAJUAN LEMBUR (SPL / SURAT PERINTAH LEMBUR):\n";
@@ -808,19 +809,53 @@ class HrisWhatsAppAgent
         return $prompt;
     }
 
-    private function matchFaqDatabase(string $normalized): ?string
+    private function matchFaqDatabase(string $normalized, int $userLevel = 3): ?string
     {
-        $faqs = \App\Models\WhatsappBotFaq::where('is_active', true)->get();
+        return $this->findFaq($normalized, $userLevel)?->answer;
+    }
+
+    /**
+     * Cari FAQ aktif yang cocok. Urutan: priority terbesar dulu, lalu id terkecil.
+     * FAQ hanya berlaku bila level user (0 = paling tinggi) <= max_user_level FAQ tersebut.
+     */
+    private function findFaq(string $normalized, int $userLevel): ?\App\Models\WhatsappBotFaq
+    {
+        if (! Schema::hasTable('t_whatsapp_bot_faq')) {
+            return null;
+        }
+
+        $faqs = \App\Models\WhatsappBotFaq::where('is_active', true)
+            ->where('max_user_level', '>=', $userLevel)
+            ->orderByDesc('priority')
+            ->orderBy('id')
+            ->get();
+
         foreach ($faqs as $faq) {
             $keywords = array_filter(array_map('trim', explode(',', strtolower($faq->keywords))));
             foreach ($keywords as $kw) {
-                if ($kw !== '' && str_contains($normalized, $kw)) {
-                    return $faq->answer;
+                if ($kw === '') {
+                    continue;
+                }
+
+                if ($faq->match_type === 'exact') {
+                    if ($normalized === $this->normalizeText($kw)) {
+                        return $faq;
+                    }
+                } elseif (str_contains($normalized, $kw)) {
+                    return $faq;
                 }
             }
         }
 
         return null;
+    }
+
+    /**
+     * Dipakai halaman admin (uji FAQ) agar hasilnya identik dengan perilaku bot.
+     */
+    public function testFaqMatch(string $question, int $userLevel = 3): ?\App\Models\WhatsappBotFaq
+    {
+        return $this->findFaq($this->normalizeText($question), $userLevel);
     }
 
     private function findKaryawanByPayload(array $payload, string $sender): Karyawan|KaryawanHolding|null
@@ -834,52 +869,58 @@ class HrisWhatsAppAgent
             $phone62 = str_starts_with($cleanPhone, '0') ? '62' . substr($cleanPhone, 1) : $cleanPhone;
 
             // A. Cek langsung ke tabel m_karyawan (karyawan aktif kantor)
-            $karyawan = Karyawan::query()
-                ->where(function ($q) use ($phone08, $phone62) {
-                    $q->where('no_hp', $phone08)
-                        ->orWhere('no_hp', $phone62)
-                        ->orWhereRaw("REPLACE(REPLACE(REPLACE(no_hp, '-', ''), ' ', ''), '+', '') IN (?, ?)", [$phone08, $phone62]);
-                })
-                ->where(function ($q) {
-                    $q->whereNull('status_karyawan')->orWhere('status_karyawan', '!=', 'Resign');
-                })
-                ->first();
-
-            if ($karyawan) {
-                return $karyawan;
-            }
-
-            // B. Cek ke tabel m_karyawan_holding (karyawan holding yang aktif)
-            $holding = KaryawanHolding::query()
-                ->where('is_active', true)
-                ->where(function ($q) use ($phone08, $phone62) {
-                    $q->where('no_hp', $phone08)
-                        ->orWhere('no_hp', $phone62)
-                        ->orWhereRaw("REPLACE(REPLACE(REPLACE(no_hp, '-', ''), ' ', ''), '+', '') IN (?, ?)", [$phone08, $phone62]);
-                })
-                ->first();
-
-            if ($holding) {
-                return $holding;
-            }
-
-            // C. Cek ke tabel users (jika nomor terdaftar di akun profil portal user)
-            $user = User::query()
-                ->where(function ($q) use ($phone08, $phone62) {
-                    $q->where('phone', $phone08)
-                        ->orWhere('phone', $phone62)
-                        ->orWhereRaw("REPLACE(REPLACE(REPLACE(phone, '-', ''), ' ', ''), '+', '') IN (?, ?)", [$phone08, $phone62]);
-                })
-                ->first();
-
-            if ($user && $user->username) {
-                $karyawanByUser = Karyawan::where('nik', $user->username)
+            if (Schema::hasTable('m_karyawan')) {
+                $karyawan = Karyawan::query()
+                    ->where(function ($q) use ($phone08, $phone62) {
+                        $q->where('no_hp', $phone08)
+                            ->orWhere('no_hp', $phone62)
+                            ->orWhereRaw("REPLACE(REPLACE(REPLACE(no_hp, '-', ''), ' ', ''), '+', '') IN (?, ?)", [$phone08, $phone62]);
+                    })
                     ->where(function ($q) {
                         $q->whereNull('status_karyawan')->orWhere('status_karyawan', '!=', 'Resign');
                     })
                     ->first();
-                if ($karyawanByUser) {
-                    return $karyawanByUser;
+
+                if ($karyawan) {
+                    return $karyawan;
+                }
+            }
+
+            // B. Cek ke tabel m_karyawan_holding (karyawan holding yang aktif)
+            if (Schema::hasTable('m_karyawan_holding')) {
+                $holding = KaryawanHolding::query()
+                    ->where('is_active', true)
+                    ->where(function ($q) use ($phone08, $phone62) {
+                        $q->where('no_hp', $phone08)
+                            ->orWhere('no_hp', $phone62)
+                            ->orWhereRaw("REPLACE(REPLACE(REPLACE(no_hp, '-', ''), ' ', ''), '+', '') IN (?, ?)", [$phone08, $phone62]);
+                    })
+                    ->first();
+
+                if ($holding) {
+                    return $holding;
+                }
+            }
+
+            // C. Cek ke tabel users (jika nomor terdaftar di akun profil portal user)
+            if (Schema::hasTable('users') && Schema::hasTable('m_karyawan')) {
+                $user = User::query()
+                    ->where(function ($q) use ($phone08, $phone62) {
+                        $q->where('phone', $phone08)
+                            ->orWhere('phone', $phone62)
+                            ->orWhereRaw("REPLACE(REPLACE(REPLACE(phone, '-', ''), ' ', ''), '+', '') IN (?, ?)", [$phone08, $phone62]);
+                    })
+                    ->first();
+
+                if ($user && $user->username) {
+                    $karyawanByUser = Karyawan::where('nik', $user->username)
+                        ->where(function ($q) {
+                            $q->whereNull('status_karyawan')->orWhere('status_karyawan', '!=', 'Resign');
+                        })
+                        ->first();
+                    if ($karyawanByUser) {
+                        return $karyawanByUser;
+                    }
                 }
             }
         }
@@ -889,45 +930,53 @@ class HrisWhatsAppAgent
         if ($pushName !== '') {
             $cleanPushName = $this->cleanUnicodeName($pushName);
             if (strlen($cleanPushName) >= 3) {
-                $karyawanByName = Karyawan::query()
-                    ->where('nama_karyawan', 'LIKE', '%' . $cleanPushName . '%')
-                    ->where(function ($q) {
-                        $q->whereNull('status_karyawan')->orWhere('status_karyawan', '!=', 'Resign');
-                    })
-                    ->first();
+                if (Schema::hasTable('m_karyawan')) {
+                    $karyawanByName = Karyawan::query()
+                        ->where('nama_karyawan', 'LIKE', '%' . $cleanPushName . '%')
+                        ->where(function ($q) {
+                            $q->whereNull('status_karyawan')->orWhere('status_karyawan', '!=', 'Resign');
+                        })
+                        ->first();
 
-                if ($karyawanByName) {
-                    return $karyawanByName;
+                    if ($karyawanByName) {
+                        return $karyawanByName;
+                    }
                 }
 
-                $holdingByName = KaryawanHolding::query()
-                    ->where('is_active', true)
-                    ->where('nama', 'LIKE', '%' . $cleanPushName . '%')
-                    ->first();
+                if (Schema::hasTable('m_karyawan_holding')) {
+                    $holdingByName = KaryawanHolding::query()
+                        ->where('is_active', true)
+                        ->where('nama', 'LIKE', '%' . $cleanPushName . '%')
+                        ->first();
 
-                if ($holdingByName) {
-                    return $holdingByName;
+                    if ($holdingByName) {
+                        return $holdingByName;
+                    }
                 }
 
                 // Coba bagian kata pertama
                 $firstWord = explode(' ', $cleanPushName)[0];
                 if (strlen($firstWord) >= 3) {
-                    $karyawanByFirst = Karyawan::query()
-                        ->where('nama_karyawan', 'LIKE', '%' . $firstWord . '%')
-                        ->where(function ($q) {
-                            $q->whereNull('status_karyawan')->orWhere('status_karyawan', '!=', 'Resign');
-                        })
-                        ->first();
-                    if ($karyawanByFirst) {
-                        return $karyawanByFirst;
+                    if (Schema::hasTable('m_karyawan')) {
+                        $karyawanByFirst = Karyawan::query()
+                            ->where('nama_karyawan', 'LIKE', '%' . $firstWord . '%')
+                            ->where(function ($q) {
+                                $q->whereNull('status_karyawan')->orWhere('status_karyawan', '!=', 'Resign');
+                            })
+                            ->first();
+                        if ($karyawanByFirst) {
+                            return $karyawanByFirst;
+                        }
                     }
 
-                    $holdingByFirst = KaryawanHolding::query()
-                        ->where('is_active', true)
-                        ->where('nama', 'LIKE', '%' . $firstWord . '%')
-                        ->first();
-                    if ($holdingByFirst) {
-                        return $holdingByFirst;
+                    if (Schema::hasTable('m_karyawan_holding')) {
+                        $holdingByFirst = KaryawanHolding::query()
+                            ->where('is_active', true)
+                            ->where('nama', 'LIKE', '%' . $firstWord . '%')
+                            ->first();
+                        if ($holdingByFirst) {
+                            return $holdingByFirst;
+                        }
                     }
                 }
             }
@@ -938,6 +987,10 @@ class HrisWhatsAppAgent
 
     private function findInactiveHoldingByPayload(array $payload, string $sender): ?KaryawanHolding
     {
+        if (! Schema::hasTable('m_karyawan_holding')) {
+            return null;
+        }
+
         $rawPhone = (string) (data_get($payload, 'sender_phone') ?: data_get($payload, 'phone', $sender));
         $cleanPhone = preg_replace('/[^0-9]/', '', explode('@', $rawPhone)[0]);
 
@@ -1235,7 +1288,7 @@ class HrisWhatsAppAgent
         $cleanPhone = preg_replace('/[^0-9]/', '', $sender);
 
         // 1. Cek langsung kolom phone di tabel users
-        if ($cleanPhone !== '') {
+        if ($cleanPhone !== '' && Schema::hasTable('users')) {
             $phone08 = str_starts_with($cleanPhone, '62') ? '0' . substr($cleanPhone, 2) : $cleanPhone;
             $phone62 = str_starts_with($cleanPhone, '0') ? '62' . substr($cleanPhone, 1) : $cleanPhone;
 
@@ -1264,9 +1317,11 @@ class HrisWhatsAppAgent
 
         // 3. Cek akun User berdasarkan NIK Karyawan (khusus karyawan reguler HRIS)
         if ($karyawan && ! ($karyawan instanceof KaryawanHolding)) {
-            $user = User::where('username', $karyawan->nik)->first();
-            if ($user && $user->level !== null) {
-                $levels[] = (int) $user->level;
+            if (Schema::hasTable('users')) {
+                $user = User::where('username', $karyawan->nik)->first();
+                if ($user && $user->level !== null) {
+                    $levels[] = (int) $user->level;
+                }
             }
 
             // Cek jika jabatan / divisi adalah IT atau HRD/HRGA
@@ -1284,13 +1339,7 @@ class HrisWhatsAppAgent
 
     private function getKnowledgeBase(): string
     {
-        $kbPath = resource_path('knowledge/hris_employee_manual.md');
-        if (file_exists($kbPath)) {
-            return Cache::remember('hris_employee_manual_kb', 3600, function () use ($kbPath) {
-                return file_get_contents($kbPath);
-            });
-        }
-        return '';
+        return \App\Services\NeoKnowledgeRepository::compiled();
     }
 
     private function processAndRecordUnresolved(
@@ -1311,7 +1360,7 @@ class HrisWhatsAppAgent
             $this->logUnresolvedQuery($question, $rawAnswer, $karyawan, $sender, $payload);
 
             if (! str_contains($rawAnswer, 'catat ke memori') && ! str_contains($rawAnswer, 'catatan evaluasi') && ! str_contains($rawAnswer, 'teruskan')) {
-                $rawAnswer .= "\n\n_(Pertanyaan ini sudah Haris simpan ke memori catatan evaluasi tim HRD/IT agar segera dilengkapi panduannya ya Kak 🙏)_";
+                $rawAnswer .= "\n\n_(Pertanyaan ini sudah Neo simpan ke memori catatan evaluasi tim HRD/IT agar segera dilengkapi panduannya ya Kak 🙏)_";
             }
         }
 

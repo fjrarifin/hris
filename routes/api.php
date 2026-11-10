@@ -258,6 +258,27 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::get('/', [\App\Http\Controllers\Api\CommandServiceToggleController::class, 'index']);
                 Route::put('/{commandServiceToggle}', [\App\Http\Controllers\Api\CommandServiceToggleController::class, 'update']);
             });
+        Route::prefix('neo')
+            ->middleware(['level:0,2', 'frontend.menu:it-neo-knowledge'])
+            ->group(function () {
+                Route::get('/knowledge', [\App\Http\Controllers\Api\NeoKnowledgeController::class, 'index']);
+                Route::post('/knowledge', [\App\Http\Controllers\Api\NeoKnowledgeController::class, 'store']);
+                Route::put('/knowledge/{id}', [\App\Http\Controllers\Api\NeoKnowledgeController::class, 'update']);
+                Route::delete('/knowledge/{id}', [\App\Http\Controllers\Api\NeoKnowledgeController::class, 'destroy']);
+                Route::get('/knowledge/{id}/revisions', [\App\Http\Controllers\Api\NeoKnowledgeController::class, 'revisions']);
+                Route::post('/knowledge/{id}/revisions/{revisionId}/restore', [\App\Http\Controllers\Api\NeoKnowledgeController::class, 'restore']);
+
+                Route::get('/faqs', [\App\Http\Controllers\Api\NeoFaqController::class, 'index']);
+                Route::post('/faqs', [\App\Http\Controllers\Api\NeoFaqController::class, 'store']);
+                Route::post('/faqs/test', [\App\Http\Controllers\Api\NeoFaqController::class, 'test']);
+                Route::put('/faqs/{id}', [\App\Http\Controllers\Api\NeoFaqController::class, 'update']);
+                Route::delete('/faqs/{id}', [\App\Http\Controllers\Api\NeoFaqController::class, 'destroy']);
+
+                Route::get('/unresolved', [\App\Http\Controllers\Api\NeoUnresolvedController::class, 'index']);
+                Route::put('/unresolved/{id}', [\App\Http\Controllers\Api\NeoUnresolvedController::class, 'update']);
+                Route::delete('/unresolved/{id}', [\App\Http\Controllers\Api\NeoUnresolvedController::class, 'destroy']);
+                Route::post('/unresolved/{id}/to-faq', [\App\Http\Controllers\Api\NeoUnresolvedController::class, 'toFaq']);
+            });
         Route::prefix('it/fingerspot')
             ->middleware(['level:0', 'frontend.menu:it-fingerspot'])
             ->group(function () {

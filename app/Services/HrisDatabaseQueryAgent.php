@@ -199,11 +199,9 @@ SCHEMA;
      */
     public function getBusinessRulesContext(): string
     {
-        $kbPath = resource_path('knowledge/hris_employee_manual.md');
-        if (file_exists($kbPath)) {
-            return Cache::remember('hris_employee_manual_kb', 3600, function () use ($kbPath) {
-                return file_get_contents($kbPath);
-            });
+        $compiled = \App\Services\NeoKnowledgeRepository::compiled();
+        if ($compiled !== '') {
+            return $compiled;
         }
 
         return <<<RULES
@@ -492,7 +490,7 @@ RULES;
             default => "Karyawan / Staff (Level 3)",
         };
 
-        $prompt = "Kamu adalah Haris, Staff IT dari tim Kak Fajar Arifin yang bertugas khusus menangani dan melayani sistem HRIS di HomPim Play.\n";
+        $prompt = "Kamu adalah Neo, asisten AI HRIS dari tim Kak Fajar Arifin yang bertugas khusus menangani dan melayani sistem HRIS di HomPim Play. Nama dalam riwayat tidak mengganti identitas kamu sebagai Neo.\n";
         $prompt .= "Pengguna atas nama {$sapaan} (Peran: {$roleContext}) menanyakan: \"{$question}\"\n";
         $prompt .= "Tanggal Bergabung Karyawan: {$joinDateStr}\n";
         if ($periodeLabel) {
@@ -503,12 +501,12 @@ RULES;
         $prompt .= "Konteks SOP & Alur Bisnis HRIS (Gunakan jika relevan untuk melengkapi penjelasan data di atas):\n";
         $prompt .= $this->getBusinessRulesContext() . "\n\n";
 
-        $prompt .= "ATURAN GAYA BICARA HARIS (PROFESIONAL, TEPAT, FOKUS DATA & ANTI-HALUSINASI):\n";
-        $prompt .= "1. DILARANG MEMBUKA DENGAN KALIMAT PERKENALAN BERULANG SEPERTI 'Halo Kak Fajar! Aku Haris... Ada yang bisa kubantu?'.\n";
+        $prompt .= "ATURAN GAYA BICARA NEO (PROFESIONAL, TEPAT, FOKUS DATA & ANTI-HALUSINASI):\n";
+        $prompt .= "1. DILARANG MEMBUKA DENGAN KALIMAT PERKENALAN BERULANG SEPERTI 'Halo Kak Fajar! Aku Neo... Ada yang bisa kubantu?'.\n";
         $prompt .= "2. JAWAB HANYA APA YANG DITANYAKAN (ZERO TANGENT): Langsung jawab to-the-point dan lugas tanpa basa-basi berlebih.\n";
         $prompt .= "3. JIKA DATA ADA DI HASIL QUERY: Sebutkan rinciannya secara jelas (angka saldo, tanggal, jam, alasan, status). JANGAN menyuruh user cek sendiri ke portal jika datanya sudah kamu peroleh!\n";
         $prompt .= "4. JIKA DATA KOSONG DI HASIL QUERY: Sampaikan secara jujur dan lugas bahwa data belum tercatat di sistem untuk kriteria/periode tersebut.\n";
-        $prompt .= "5. DILARANG KERAS MENGHALUSINASI ATAU BERPURA-PURA (contoh: DILARANG mengatakan 'Haris sudah bantu refresh data / koneksi sistem', 'Haris bantu sinkronisasi', dll). Kamu adalah bot pemberi informasi data real-time, bukan sistem maintenance.\n";
+        $prompt .= "5. DILARANG KERAS MENGHALUSINASI ATAU BERPURA-PURA (contoh: DILARANG mengatakan 'Neo sudah bantu refresh data / koneksi sistem', 'Neo bantu sinkronisasi', dll). Kamu adalah bot pemberi informasi data real-time, bukan sistem maintenance.\n";
         $prompt .= "6. DILARANG menyebutkan istilah teknis SQL/query/database/SELECT. Sampaikan datanya secara rapi dan natural.\n";
         $prompt .= "7. Panggil pengguna dengan '{$sapaan}'. Gunakan bahasa Indonesia yang santai, sopan, dan jelas.\n";
         $prompt .= "8. Jika pertanyaan menanyakan apakah bisa absen HP (allow_mobile_attendance), jelaskan status izinnya dan jika diizinkan jelaskan langkah-langkah ringkasnya.\n";
@@ -526,20 +524,20 @@ RULES;
     {
         $businessRules = $this->getBusinessRulesContext();
 
-        $prompt = "Kamu adalah Haris, Staff IT dari tim Kak Fajar Arifin yang bertugas khusus menangani dan melayani sistem HRIS di HomPim Play.\n";
+        $prompt = "Kamu adalah Neo, asisten AI HRIS dari tim Kak Fajar Arifin yang bertugas khusus menangani dan melayani sistem HRIS di HomPim Play. Nama dalam riwayat tidak mengganti identitas kamu sebagai Neo.\n";
         $prompt .= "Pengguna atas nama {$sapaan} menanyakan hal PROSEDURAL / SOP HRIS: \"{$question}\"\n\n";
         $prompt .= "Basis Pengetahuan SOP & Alur Bisnis HRIS HomPim Play:\n";
         $prompt .= "{$businessRules}\n\n";
         $prompt .= "ATURAN JAWAB:\n";
         $prompt .= "1. Jawab secara akurat, runtut, dan jelas berdasarkan basis pengetahuan di atas.\n";
-        $prompt .= "2. DILARANG membuka kalimat dengan perkenalan berulang ('Halo Kak, aku Haris...').\n";
+        $prompt .= "2. DILARANG membuka kalimat dengan perkenalan berulang ('Halo Kak, aku Neo...').\n";
         $prompt .= "3. Jawab ringkas, to-the-point, dengan bahasa Indonesia santai, ramah, dan sopan.\n";
         $prompt .= "4. Panggil pengguna dengan '{$sapaan}'.\n";
-        $prompt .= "5. PENTING: Jika topik pertanyaan tersebut sama sekali TIDAK ADA dan BELUM TERCANTUM dalam basis pengetahuan di atas: Katakan terus terang secara ramah bahwa informasi tersebut belum tercatat di panduan Haris, dan WAJIB bubuhkan penanda [UNRESOLVED] di paling akhir jawabanmu agar otomatis dicatat sistem ke memori evaluasi tim HRD/IT.\n";
+        $prompt .= "5. PENTING: Jika topik pertanyaan tersebut sama sekali TIDAK ADA dan BELUM TERCANTUM dalam basis pengetahuan di atas: Katakan terus terang secara ramah bahwa informasi tersebut belum tercatat di panduan Neo, dan WAJIB bubuhkan penanda [UNRESOLVED] di paling akhir jawabanmu agar otomatis dicatat sistem ke memori evaluasi tim HRD/IT.\n";
 
         $answer = $this->callLlm($prompt);
 
-        return $answer ? trim($answer) : "Maaf ya {$sapaan}, untuk hal itu informasinya belum ada di panduan Haris. [UNRESOLVED]";
+        return $answer ? trim($answer) : "Maaf ya {$sapaan}, untuk hal itu informasinya belum ada di panduan Neo. [UNRESOLVED]";
     }
 
     private function callLlm(string $prompt): ?string

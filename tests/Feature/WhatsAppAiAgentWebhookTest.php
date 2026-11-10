@@ -13,17 +13,28 @@ class WhatsAppAiAgentWebhookTest extends TestCase
 
         config()->set('services.whatsapp.url', 'http://whatsapp.test');
         config()->set('services.whatsapp.device_id', 'device-id');
+        config()->set('services.hris_agent.bot_url', '');
         config()->set('services.hris_agent.enabled', true);
         config()->set('services.hris_agent.trigger_prefix', '');
         config()->set('services.hris_agent.webhook_token', '');
         config()->set('services.hris_agent.allowed_senders', []);
+        config()->set('services.hris_agent.admin_phones', '082219449223,6282219449223,628123456789');
         config()->set('services.hris_agent.created_date', '2026-05-28');
     }
 
     public function test_it_answers_basic_hris_question_from_whatsapp_webhook(): void
     {
         Http::fake([
-            'http://whatsapp.test/send/message' => Http::response(['ok' => true]),
+            'http://whatsapp.test/*' => Http::response(['ok' => true]),
+            '*' => Http::response([
+                'candidates' => [
+                    ['content' => ['parts' => [['text' => 'Human Resource Information System']]]]
+                ],
+                'choices' => [
+                    ['message' => ['content' => 'Human Resource Information System']]
+                ],
+                'response' => 'Human Resource Information System',
+            ]),
         ]);
 
         $response = $this->postJson('/api/whatsapp/ai-agent/webhook', [
@@ -34,14 +45,24 @@ class WhatsAppAiAgentWebhookTest extends TestCase
         $response->assertOk()
             ->assertJson(['status' => 'sent']);
 
-        Http::assertSent(fn ($request): bool => $request['phone'] === '6282219449223'
-            && str_contains($request['message'], 'Human Resource Information System'));
+        Http::assertSent(fn ($request): bool => $request->url() === 'http://whatsapp.test/send/message'
+            && data_get($request->data(), 'phone') === '6282219449223'
+            && str_contains((string) data_get($request->data(), 'message'), 'Human Resource Information System'));
     }
 
     public function test_it_answers_created_date_from_nested_gowa_payload(): void
     {
         Http::fake([
-            'http://whatsapp.test/send/message' => Http::response(['ok' => true]),
+            'http://whatsapp.test/*' => Http::response(['ok' => true]),
+            '*' => Http::response([
+                'candidates' => [
+                    ['content' => ['parts' => [['text' => 'Aplikasi dibuat tanggal 2026-05-28']]]]
+                ],
+                'choices' => [
+                    ['message' => ['content' => 'Aplikasi dibuat tanggal 2026-05-28']]
+                ],
+                'response' => 'Aplikasi dibuat tanggal 2026-05-28',
+            ]),
         ]);
 
         $response = $this->postJson('/api/whatsapp/ai-agent/webhook', [
@@ -59,8 +80,9 @@ class WhatsAppAiAgentWebhookTest extends TestCase
         $response->assertOk()
             ->assertJson(['status' => 'sent']);
 
-        Http::assertSent(fn ($request): bool => $request['phone'] === '628123456789'
-            && str_contains($request['message'], '2026-05-28'));
+        Http::assertSent(fn ($request): bool => $request->url() === 'http://whatsapp.test/send/message'
+            && data_get($request->data(), 'phone') === '628123456789'
+            && str_contains((string) data_get($request->data(), 'message'), '2026-05-28'));
     }
 
     public function test_it_rejects_webhook_when_token_is_invalid(): void
