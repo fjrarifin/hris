@@ -206,6 +206,60 @@ class StaffPublicHolidayApiTest extends TestCase
         parent::tearDown();
     }
 
+    public function test_ph_claim_can_be_after_expiry_when_submitted_while_valid(): void
+    {
+        Carbon::setTestNow('2026-08-10 09:00:00');
+        $holiday = $this->createHoliday('PH historical', '2026-05-14');
+        $this->mock(ApprovalNotificationService::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('notifyManager')->once();
+        });
+
+        $this->postJson('/api/staff/public-holiday', [
+            'public_holiday_id' => $holiday->id,
+            'claim_date' => '2026-08-20',
+        ])->assertCreated();
+
+        $claim = PublicHolidayRequest::sole();
+        $this->assertSame('2026-08-12', $claim->expired_at->toDateString());
+        $this->assertSame('2026-08-20', $claim->claim_date->toDateString());
+        $this->assertTrue($claim->claim_date->gt($claim->expired_at));
+    }
+
+    public function test_ph_submission_after_expiry_is_rejected(): void
+    {
+        Carbon::setTestNow('2026-08-13 09:00:00');
+        $holiday = $this->createHoliday('PH historical', '2026-05-14');
+
+        $this->postJson('/api/staff/public-holiday', [
+            'public_holiday_id' => $holiday->id,
+            'claim_date' => '2026-08-20',
+        ])->assertUnprocessable()->assertJsonValidationErrors('public_holiday_id');
+
+        $this->assertDatabaseCount('public_holiday_requests', 0);
+    }
+
+    public function test_ph_claim_keeps_past_date_and_90_day_submission_limits(): void
+    {
+        Carbon::setTestNow('2026-08-10 09:00:00');
+        $holiday = $this->createHoliday('PH historical', '2026-05-14');
+        $this->mock(ApprovalNotificationService::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('notifyManager')->once();
+        });
+
+        foreach ([-1, 91] as $days) {
+            $this->postJson('/api/staff/public-holiday', [
+                'public_holiday_id' => $holiday->id,
+                'claim_date' => now()->startOfDay()->addDays($days)->toDateString(),
+            ])->assertUnprocessable()->assertJsonValidationErrors('claim_date');
+        }
+        $this->assertDatabaseCount('public_holiday_requests', 0);
+
+        $this->postJson('/api/staff/public-holiday', [
+            'public_holiday_id' => $holiday->id,
+            'claim_date' => now()->startOfDay()->addDays(90)->toDateString(),
+        ])->assertCreated();
+    }
+
     public function test_historical_ph_is_available_without_scan_while_new_ph_requires_attendance(): void
     {
         $historical = $this->createHoliday('Kenaikan Yesus Kristus', '2026-05-14');
@@ -522,11 +576,6 @@ class StaffPublicHolidayApiTest extends TestCase
         $this->assertSame('cancelled', $claim->fresh()->status);
         $this->getJson('/api/staff/extra-off')->assertOk()->assertJsonPath('balance', 3);
         $this->assertSame(1, \App\Models\EmployeeExtraOff::where('source', 'ph_conversion')->count());
-        // Claim beyond conversion cutoff is rejected even though regular EO lasts three months.
-        $this->postJson('/api/staff/extra-off', [
-            'source_id' => $replacement->id, 'source_period_start' => '2026-06-25',
-            'source_period_end' => '2026-07-24', 'claim_date' => '2026-07-25',
-        ])->assertUnprocessable()->assertJsonValidationErrors('claim_date');
         Schema::dropIfExists('employee_permissions');
         Schema::create('employee_permissions', function (Blueprint $table): void {
             $table->id();
@@ -537,7 +586,7 @@ class StaffPublicHolidayApiTest extends TestCase
         });
         $this->postJson('/api/staff/extra-off', [
             'source_id' => $replacement->id, 'source_period_start' => '2026-06-25',
-            'source_period_end' => '2026-07-24', 'claim_date' => '2026-07-24',
+            'source_period_end' => '2026-07-24', 'claim_date' => '2026-07-25',
         ])->assertCreated();
         $this->assertSame($replacement->id, (int) \App\Models\ExtraOffRequest::sole()->employee_extra_off_id);
         $this->getJson('/api/staff/extra-off')->assertOk()->assertJsonPath('balance', 2);
@@ -547,8 +596,11 @@ class StaffPublicHolidayApiTest extends TestCase
         \App\Models\ExtraOffRequest::sole()->assertReplacementIsValid();
         Carbon::setTestNow('2026-07-25 00:00:00');
         $this->getJson('/api/staff/extra-off')->assertOk()->assertJsonPath('balance', 2);
-        $this->expectException(\Illuminate\Validation\ValidationException::class);
         \App\Models\ExtraOffRequest::sole()->assertReplacementIsValid();
+        $this->postJson('/api/staff/extra-off', [
+            'source_id' => $replacement->id, 'source_period_start' => '2026-06-25',
+            'source_period_end' => '2026-07-24', 'claim_date' => '2026-07-26',
+        ])->assertUnprocessable()->assertJsonValidationErrors('source_period_start');
     }
 
     public function test_conversion_on_the_24th_expires_that_day_and_active_ph_is_not_converted(): void
@@ -611,6 +663,94 @@ class StaffPublicHolidayApiTest extends TestCase
         $this->assertSame('cancelled', $request->fresh()->status);
         $this->assertSame(1, \App\Models\EmployeeExtraOff::count());
         $this->assertSame('2026-07-24', $source->fresh()->expires_at->toDateString());
+    }
+
+    public function test_payroll_extra_off_allows_claim_after_expiry_but_keeps_submission_date_limits(): void
+    {
+        Carbon::setTestNow('2026-11-20 09:00:00');
+        $source = \App\Models\EmployeeExtraOff::create([
+            'karyawan_nik' => 'EMP001', 'periode_start' => '2026-07-25',
+            'periode_end' => '2026-08-24', 'days' => 2, 'source' => 'payroll',
+        ]);
+        Schema::dropIfExists('employee_permissions');
+        Schema::create('employee_permissions', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('user_id');
+            $table->date('date');
+            $table->date('end_date')->nullable();
+            $table->string('status');
+        });
+        $this->mock(ApprovalNotificationService::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('notifyManager')->twice();
+        });
+        $payload = [
+            'source_id' => $source->id, 'source_period_start' => '2026-07-25',
+            'source_period_end' => '2026-08-24',
+        ];
+
+        $this->postJson('/api/staff/extra-off', $payload + ['claim_date' => '2026-11-30'])
+            ->assertCreated();
+        $this->assertDatabaseHas('extra_off_requests', [
+            'employee_extra_off_id' => $source->id, 'claim_date' => '2026-11-30 00:00:00',
+        ]);
+        $this->postJson('/api/staff/extra-off', $payload + ['claim_date' => now()->addDays(91)->toDateString()])
+            ->assertUnprocessable()->assertJsonValidationErrors('claim_date');
+        $this->postJson('/api/staff/extra-off', $payload + ['claim_date' => '2026-11-19'])
+            ->assertUnprocessable()->assertJsonValidationErrors('claim_date');
+        $this->postJson('/api/staff/extra-off', $payload + ['claim_date' => '2026-11-30'])
+            ->assertUnprocessable()->assertJsonValidationErrors('claim_date');
+
+        Carbon::setTestNow('2026-11-24 23:59:59');
+        $this->postJson('/api/staff/extra-off', $payload + ['claim_date' => now()->startOfDay()->addDays(90)->toDateString()])
+            ->assertCreated();
+        Carbon::setTestNow('2026-11-25 00:00:00');
+        $this->postJson('/api/staff/extra-off', $payload + ['claim_date' => '2026-12-01'])
+            ->assertUnprocessable()->assertJsonValidationErrors('source_period_start');
+    }
+
+    public function test_hr_extra_off_correction_allows_claim_after_expiry(): void
+    {
+        Carbon::setTestNow('2026-11-20 09:00:00');
+        $source = \App\Models\EmployeeExtraOff::create([
+            'karyawan_nik' => 'EMP001', 'periode_start' => '2026-07-25',
+            'periode_end' => '2026-08-24', 'days' => 1, 'source' => 'payroll',
+        ]);
+        $request = \Illuminate\Http\Request::create('/');
+        $request->setUserResolver(fn () => $this->employee);
+        $controller = app(\App\Http\Controllers\Api\HrAttendanceCorrectionController::class);
+        $method = new \ReflectionMethod($controller, 'createApprovedExtraOffCorrection');
+        $payload = [
+            'extra_off_source_id' => $source->id,
+            'extra_off_source_period_start' => '2026-07-25',
+            'extra_off_source_period_end' => '2026-08-24',
+        ];
+
+        $result = $method->invoke($controller, $request, $this->employee, $this->employee->karyawan, Carbon::parse('2026-11-30'), $payload);
+        $claim = \App\Models\ExtraOffRequest::findOrFail($result['id']);
+        $this->assertSame('2026-11-30', $claim->claim_date->toDateString());
+        $this->assertSame('approved', $claim->status);
+
+        Carbon::setTestNow('2026-11-25 00:00:00');
+        $this->expectException(\Illuminate\Validation\ValidationException::class);
+        $method->invoke($controller, $request, $this->employee, $this->employee->karyawan, Carbon::parse('2026-12-01'), $payload);
+    }
+
+    public function test_replacement_extra_off_submitted_after_expiry_cannot_be_approved(): void
+    {
+        $source = \App\Models\EmployeeExtraOff::create([
+            'karyawan_nik' => 'EMP001', 'periode_start' => '2026-05-25',
+            'periode_end' => '2026-06-24', 'expires_at' => '2026-06-24',
+            'days' => 1, 'source' => 'ph_conversion', 'public_holiday_request_id' => 123,
+        ]);
+        Carbon::setTestNow('2026-06-25 09:00:00');
+        $claim = \App\Models\ExtraOffRequest::create([
+            'user_id' => $this->employee->id, 'employee_extra_off_id' => $source->id,
+            'source_period_start' => '2026-05-25', 'source_period_end' => '2026-06-24',
+            'claim_date' => '2026-06-26', 'status' => 'pending',
+        ]);
+
+        $this->expectException(\Illuminate\Validation\ValidationException::class);
+        $claim->assertReplacementIsValid();
     }
 
     public function test_conversion_migration_can_be_rolled_back_and_reapplied(): void

@@ -1131,10 +1131,6 @@ class StaffPortalController extends Controller
             throw ValidationException::withMessages(['claim_date' => 'Tanggal pengambilan tidak boleh sebelum tanggal PH.']);
         }
 
-        if ($claimDate->gt($expiredAt)) {
-            throw ValidationException::withMessages(['claim_date' => 'Tanggal pengambilan melewati masa berlaku PH (maksimal 90 hari dari tanggal PH: '.$expiredAt->format('d M Y').').']);
-        }
-
         // Masa berlaku PH berlaku untuk tanggal PENGAJUAN, bukan tanggal pengambilan.
         // Selama diajukan sebelum expired, tanggal claim boleh melewati tanggal expired.
         if (now()->gt($expiredAt->copy()->endOfDay())) {
@@ -1260,14 +1256,6 @@ class StaffPortalController extends Controller
             ]);
         }
 
-        if ($claimDate->gt($expiredAt)) {
-            throw ValidationException::withMessages([
-                'claim_date' => sprintf(
-                    'Tanggal pengambilan melewati batas masa berlaku Extra Off periode ini (%s).',
-                    $source->expirationDate()->format('d M Y')
-                ),
-            ]);
-        }
         // Masa berlaku EO berlaku untuk tanggal PENGAJUAN; tanggal claim boleh melewati tanggal expired.
 
         $maxClaimDate = now()->startOfDay()->addDays(90);

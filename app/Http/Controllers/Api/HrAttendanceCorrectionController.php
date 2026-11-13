@@ -656,9 +656,7 @@ class HrAttendanceCorrectionController extends Controller
             ]);
         }
 
-        if ($date->gt($expiredAt)) {
-            throw ValidationException::withMessages(['date' => ['Tanggal pengambilan melewati masa berlaku Extra Off.']]);
-        }
+        // Masa berlaku sumber membatasi tanggal pengajuan, bukan tanggal pengambilan.
 
         if ($this->remainingExtraOffDays($employeeUser, $source) <= 0) {
             throw ValidationException::withMessages(['extra_off_source_period_start' => ['Saldo Extra Off periode ini tidak tersedia.']]);

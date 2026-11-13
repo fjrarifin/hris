@@ -37,7 +37,7 @@ class ExtraOffRequest extends Model
             return;
         }
         $source = EmployeeExtraOff::find($this->employee_extra_off_id);
-        if ($source?->public_holiday_request_id && (now()->gt($source->expirationDate()) || $this->claim_date->gt($source->expirationDate()))) {
+        if ($source?->public_holiday_request_id && ($this->created_at ?? now())->gt($source->expirationDate())) {
             throw \Illuminate\Validation\ValidationException::withMessages([
                 'decision' => 'Extra Off pengganti PH sudah melewati masa berlaku.',
             ]);
