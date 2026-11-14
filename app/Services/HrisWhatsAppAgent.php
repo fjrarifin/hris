@@ -11,6 +11,7 @@ use App\Models\FingerspotAttendanceLog;
 use App\Models\GateQrUsageLog;
 use App\Models\Karyawan;
 use App\Models\KaryawanHolding;
+use App\Models\LeaveRequest;
 use App\Models\PublicHoliday;
 use App\Models\PublicHolidayRequest;
 use App\Models\QrHoldingTransaction;
@@ -828,7 +829,23 @@ class HrisWhatsAppAgent
         }
 
         $user = User::where('username', $karyawan->nik)->first();
-        $annualLeave = $user ? $this->leaveAccrualService->getBalance($user) : 0;
+        $accruedLeave = $user ? $this->leaveAccrualService->getBalance($user) : 0;
+        $usedAnnualLeave = 0;
+        if ($user && Schema::hasTable('leave_requests')) {
+            $contractStart = Schema::hasTable('t_kontrak_karyawan')
+                ? $this->leaveAccrualService->getContractStart($user)
+                : null;
+            $usedAnnualLeave = (int) LeaveRequest::query()
+                ->where('user_id', $user->id)
+                ->where('leave_type', 'cuti_tahunan')
+                ->whereNotIn('status', ['rejected', 'cancelled'])
+                ->when($contractStart, fn ($q) => $q->whereDate('start_date', '>=', $contractStart->toDateString()))
+                ->get(['start_date', 'end_date'])
+                ->sum(fn ($leave) => ($leave->start_date && $leave->end_date)
+                    ? Carbon::parse($leave->start_date)->diffInDays(Carbon::parse($leave->end_date)) + 1
+                    : 0);
+        }
+        $annualLeave = max(0, $accruedLeave - $usedAnnualLeave);
         $phBal = $this->calculatePhBalance($user, $karyawan);
         $eoBal = $this->calculateExtraOffBalance($user, $karyawan);
 
@@ -1321,7 +1338,12 @@ class HrisWhatsAppAgent
                 if ($imageUrl) {
                     $payload['image_url'] = $imageUrl;
                 }
-                $response = \Illuminate\Support\Facades\Http::timeout(15)->post($botUrl . '/send/message', $payload);
+                $webhookToken = trim((string) config('services.hris_agent.webhook_token', ''));
+                $httpRequest = \Illuminate\Support\Facades\Http::timeout(15);
+                if ($webhookToken !== '') {
+                    $httpRequest = $httpRequest->withHeaders(['X-HRIS-Agent-Token' => $webhookToken]);
+                }
+                $response = $httpRequest->post($botUrl . '/send/message', $payload);
                 if ($response->successful()) {
                     return true;
                 }

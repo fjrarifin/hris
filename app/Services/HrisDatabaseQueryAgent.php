@@ -70,40 +70,44 @@ class HrisDatabaseQueryAgent
 6. Tabel: fingerspot_attendance_logs (Log scan presensi aktual dari mesin fingerspot)
    - pin (VARCHAR, relasi ke m_karyawan.pin)
    - scan_date (DATETIME, waktu scan absensi)
-   - status_scan (INT, 0 = Scan Masuk, 1 = Scan Pulang)
+   - status_scan (VARCHAR(20): '0' = Scan Masuk, '1' = Scan Pulang, '4' = Scan Masuk Lembur, '5' = Scan Pulang Lembur)
    CATATAN PENTING SOAL PERHITUNGAN:
-   - "Sudah absen masuk hari ini?" = cek ada baris status_scan=0 pada DATE(scan_date)=hari_ini.
-   - "Total kehadiran periode ini" = COUNT(DISTINCT DATE(scan_date)) WHERE status_scan = 0
+   - "Sudah absen masuk hari ini?" = cek semua baris scan_date, status_scan WHERE pin = ... AND DATE(scan_date) = hari_ini.
+   - "Total kehadiran periode ini" = COUNT(DISTINCT DATE(scan_date)) WHERE status_scan IN ('0', '4')
      (dihitung dari hari yang ADA scan masuk dalam rentang tanggal periode berjalan).
    - PERIODE HRIS HOMPIMPLAY berjalan dari TANGGAL 25 s/d TANGGAL 24 bulan berikutnya.
 
-7. Tabel: attendance_corrections (Pengajuan koreksi absensi)
-   - karyawan_nik (VARCHAR)
-   - correction_date (DATE)
+7. Tabel: attendance_corrections (Pengajuan / catatan koreksi absensi)
+   - nik (VARCHAR, relasi ke m_karyawan.nik)
+   - attendance_date (DATE)
+   - correction_type (VARCHAR)
    - corrected_scan_in (TIME)
    - corrected_scan_out (TIME)
-   - reason (TEXT)
-   - status (VARCHAR: 'pending', 'approved', 'rejected')
+   - has_missing_attendance_form (TINYINT)
+   - notes (TEXT)
+   - absence_type (VARCHAR)
+   - absence_id (BIGINT)
+   - leave_accrual_id (BIGINT)
 
 8. Tabel: leave_accruals (Master Akumulasi & Saldo Cuti Tahunan Karyawan)
    - id (BIGINT, Primary Key)
    - user_id (BIGINT, relasi ke users.id)
    - nik (VARCHAR, relasi ke m_karyawan.nik)
-   - days (INT, jumlah hari cuti yang di-accrue, default 1)
+   - days (DECIMAL, jumlah hari cuti yang di-accrue, default 1)
    - accrued_at (DATE, tanggal penambahan saldo)
    - expired_at (DATE, tanggal kedaluwarsa saldo cuti -> mengikuti end_date kontrak aktif)
    - is_used (TINYINT: 0 = belum dipakai / aktif, 1 = sudah terpakai)
    - notes (TEXT)
-   CATATAN: Saldo cuti aktif yang bisa diambil = (SELECT COALESCE(SUM(days), 0) FROM leave_accruals WHERE user_id = u.id AND expired_at >= hari_ini AND is_used = 0) - (SELECT COALESCE(SUM(total_days), 0) FROM leave_requests WHERE user_id = u.id AND status IN ('approved', 'pending')).
+   CATATAN: Saldo cuti tahunan aktif = GREATEST(0, COALESCE(SUM(days accrual aktif where is_used=0 and expired_at >= hari_ini), 0) - COALESCE(SUM(DATEDIFF(end_date, start_date) + 1 dari leave_requests dimana leave_type='cuti_tahunan' dan status NOT IN ('rejected','cancelled') sejak start_date kontrak aktif), 0)).
 
-9. Tabel: leave_requests (Pengajuan cuti tahunan / cuti khusus)
-   - user_id (INT, relasi ke users.id di mana users.username = m_karyawan.nik)
+9. Tabel: leave_requests (Pengajuan cuti tahunan / cuti khusus — durasi dihitung dengan DATEDIFF(end_date, start_date) + 1)
+   - user_id (BIGINT, relasi ke users.id di mana users.username = m_karyawan.nik)
+   - leave_type (ENUM: 'cuti_tahunan', 'cuti_hamil_melahirkan', 'cuti_menikah', 'cuti_menikahkan_anak', 'cuti_mengkhitankan_anak', 'cuti_membaptiskan_anak', 'cuti_istri_melahirkan', 'public_holiday', 'lainnya')
    - start_date (DATE)
    - end_date (DATE)
-   - total_days (INT)
    - reason (TEXT)
-   - status (VARCHAR: 'pending', 'approved', 'rejected', 'cancelled')
-   CATATAN: "Riwayat pengajuan cuti" = list start_date-end_date WHERE status IN ('pending','approved') diurutkan terbaru.
+   - status (ENUM: 'pending', 'approved', 'rejected', 'cancelled')
+   CATATAN: Lama hari cuti = DATEDIFF(end_date, start_date) + 1. "Riwayat pengajuan cuti" = SELECT leave_type, start_date, end_date, (DATEDIFF(end_date, start_date) + 1) AS total_hari, status, reason.
 
 10. Tabel: employee_permissions (Pengajuan izin / sakit / dispensasi)
     - user_id (BIGINT, relasi ke users.id)
@@ -138,59 +142,79 @@ class HrisDatabaseQueryAgent
     - claim_date (DATE, tanggal libur pengganti yang diambil)
     - status (VARCHAR: 'pending', 'approved', 'rejected')
 
-14. Tabel: employee_ph_adjustments (Penyesuaian Saldo PH manual oleh HRD)
+14. Tabel: employee_ph_balances (Master Saldo Hak PH yang didapat karyawan dari masuk di Hari Libur Nasional)
+    - id (BIGINT, Primary Key)
+    - karyawan_nik (VARCHAR, relasi ke m_karyawan.nik)
+    - user_id (BIGINT, relasi ke users.id)
+    - public_holiday_id (BIGINT, relasi ke public_holidays.id)
+    - holiday_date (DATE, tanggal libur nasional — berlaku 90 hari dari holiday_date)
+    - holiday_name (VARCHAR)
+    - days (INT)
+    - source (VARCHAR)
+    - notes (TEXT)
+
+15. Tabel: employee_ph_adjustments (Penyesuaian Saldo PH manual oleh HRD)
     - karyawan_nik (VARCHAR, relasi ke m_karyawan.nik)
     - public_holiday_id (BIGINT, nullable)
     - days (INT, jumlah penyesuaian: positif = tambah, negatif = potong)
     - notes (TEXT)
+    CATATAN SALDO PH AKTIF: Total PH eligible 90 hari terakhir (employee_ph_balances WHERE holiday_date > DATE_SUB(hari_ini, INTERVAL 90 DAY) AND holiday_date < hari_ini) + SUM(employee_ph_adjustments WHERE public_holiday_id IS NULL) - klaim public_holiday_requests aktif (status NOT IN ('rejected', 'cancelled')).
 
-15. Tabel: employee_extra_offs (Saldo Extra Off karyawan per periode kompensasi)
+16. Tabel: employee_extra_offs (Saldo Extra Off karyawan per periode kompensasi)
+    - id (BIGINT, Primary Key)
     - karyawan_nik (VARCHAR, relasi ke m_karyawan.nik)
     - periode_start (DATE)
     - periode_end (DATE)
     - days (INT, jumlah hari EO yang didapat pada periode tsb)
+    - source (VARCHAR)
+    - expires_at (DATE, nullable -> jika NULL masa berlaku periode_end + 3 bulan)
+    - public_holiday_request_id (BIGINT, nullable)
     - notes (TEXT)
-    CATATAN: Masa berlaku EO = periode_end + 3 bulan (90 hari). Sisa EO = total days - total extra_off_requests approved.
+    CATATAN: EO aktif bila COALESCE(expires_at, DATE_ADD(periode_end, INTERVAL 3 MONTH)) >= hari_ini. Sisa EO = SUM per source GREATEST(0, eo.days - klaim extra_off_requests status NOT IN ('rejected','cancelled') yang cocok employee_extra_off_id/periode).
 
-16. Tabel: extra_off_requests (Klaim libur Extra Off / EO)
-    - user_id (INT, relasi ke users.id)
+17. Tabel: extra_off_requests (Klaim libur Extra Off / EO)
+    - user_id (BIGINT, relasi ke users.id)
+    - employee_extra_off_id (BIGINT, nullable -> relasi ke employee_extra_offs.id)
     - claim_date (DATE)
     - source_period_start (DATE)
     - source_period_end (DATE)
-    - status (VARCHAR: 'pending', 'approved', 'rejected')
+    - status (ENUM: 'pending', 'approved', 'rejected', 'cancelled')
 
-17. Tabel: gate_qr_usage_logs (Riwayat pembukaan QR Code Gate / Turnstile masuk kantor)
+18. Tabel: gate_qr_usage_logs (Riwayat pembukaan QR Code Gate / Turnstile masuk kantor)
     - user_id (BIGINT, relasi ke users.id)
     - nik (VARCHAR)
     - employee_name (VARCHAR)
     - reason (TEXT, alasan membuka QR gate misal kartu RFID tertinggal)
     - used_at (DATETIME)
 
-18. Tabel: master_departments (Master Departemen kantor)
+19. Tabel: master_departments (Master Departemen kantor)
     - id (INT)
     - name (VARCHAR, nama departemen)
 
-19. Tabel: master_divisions (Master Divisi kantor)
+20. Tabel: master_divisions (Master Divisi kantor)
     - id (INT)
     - name (VARCHAR, nama divisi)
 
-20. Tabel: master_jabatans (Master Jabatan kantor)
+21. Tabel: master_jabatans (Master Jabatan kantor)
     - id (INT)
-    - name (VARCHAR, nama jabatan)
+    - nama_jabatan (VARCHAR, nama jabatan)
+    - departemen (VARCHAR)
+    - is_active (TINYINT)
 
-21. Tabel: event_absen (Master Event Kantor untuk absensi acara/kegiatan khusus)
+22. Tabel: event_absen (Master Event Kantor untuk absensi acara/kegiatan khusus)
     - id (INT)
     - nama_event (VARCHAR)
-    - tgl_event (DATE)
-    - waktu_mulai (TIME)
-    - waktu_selesai (TIME)
-    - lokasi (VARCHAR)
+    - deskripsi (TEXT)
+    - slug (VARCHAR)
+    - tanggal_mulai (DATETIME)
+    - tanggal_selesai (DATETIME)
+    - status (ENUM: 'aktif', 'nonaktif')
 
-22. Tabel: absensi_event (Data kehadiran karyawan pada event acara kantor)
-    - event_id (INT, relasi ke event_absen.id)
-    - karyawan_nik (VARCHAR)
-    - scan_time (DATETIME)
-    - status (VARCHAR)
+23. Tabel: absensi_event (Data kehadiran karyawan pada event acara kantor)
+    - id_event_absen (BIGINT, relasi ke event_absen.id)
+    - nik_karyawan (VARCHAR, relasi ke m_karyawan.nik)
+    - jam_absen (TIMESTAMP)
+    - foto_absen (VARCHAR)
 SCHEMA;
     }
 
@@ -241,16 +265,17 @@ SCHEMA;
         $sql = $this->generateSql($question, $karyawan, $today, $periode, $history, $userLevel);
 
         // 1b. Kalau AI bilang NONE (pertanyaan SOP/prosedural, tidak butuh query data),
-        //     jawab langsung menggunakan basis pengetahuan SOP resmi.
+        //     kembalikan null agar HrisWhatsAppAgent melanjutkan ke mode general yang memuat
+        //     konteks lengkap karyawan (saldo cuti/PH/EO, tim) + Panduan SOP + riwayat chat.
         if ($sql === null || trim($sql) === '' || strtoupper(trim($sql)) === 'NONE') {
-            return $this->answerFromKnowledgeBase($question, $karyawan, $sapaan, $userLevel);
+            return null;
         }
 
         // 2. Validasi Keamanan SQL (Strict Read-Only & Privacy Guard)
-        $securityCheck = $this->validateSqlSafety($sql, $karyawan?->nik ?? '', $userLevel);
+        $securityCheck = $this->validateSqlSafety($sql, $karyawan?->nik ?? '', $userLevel, $karyawan?->pin ?? '');
         if (! $securityCheck['safe']) {
             Log::warning("SQL Security Guard Blocked Query: {$sql}", ['reason' => $securityCheck['reason']]);
-            return $this->answerFromKnowledgeBase($question, $karyawan, $sapaan, $userLevel);
+            return null;
         }
 
         $cleanSql = $securityCheck['sql'];
@@ -260,7 +285,7 @@ SCHEMA;
             $results = DB::select($cleanSql);
         } catch (Throwable $e) {
             Log::warning("Gagal eksekusi Read-Only SQL AI: {$cleanSql}", ['error' => $e->getMessage()]);
-            return $this->answerFromKnowledgeBase($question, $karyawan, $sapaan, $userLevel);
+            return null;
         }
 
         // 4. Minta AI merangkum hasil data ke bahasa WhatsApp yang ramah dan profesional
@@ -309,16 +334,17 @@ SCHEMA;
         $prompt .= "Contoh Pola Query Berdasarkan Domain Pertanyaan:\n\n";
 
         $prompt .= "[1. Presensi Harian]\n";
-        $prompt .= "- 'saya tadi udah absen masuk belum ya?' -> SELECT scan_date, status_scan FROM fingerspot_attendance_logs WHERE pin = '{$pin}' AND DATE(scan_date) = '{$today}' ORDER BY scan_date ASC LIMIT 1\n";
-        $prompt .= "- 'saya tadi absen pulang jam berapa?' -> SELECT scan_date, status_scan FROM fingerspot_attendance_logs WHERE pin = '{$pin}' AND DATE(scan_date) = '{$today}' AND status_scan = 1 ORDER BY scan_date DESC LIMIT 1\n\n";
+        $prompt .= "- 'saya tadi udah absen masuk belum ya?' -> SELECT scan_date, status_scan FROM fingerspot_attendance_logs WHERE pin = '{$pin}' AND DATE(scan_date) = '{$today}' ORDER BY scan_date ASC\n";
+        $prompt .= "- 'saya tadi absen pulang jam berapa?' -> SELECT scan_date, status_scan FROM fingerspot_attendance_logs WHERE pin = '{$pin}' AND DATE(scan_date) = '{$today}' AND status_scan IN ('1', '5') ORDER BY scan_date DESC LIMIT 1\n\n";
 
         $prompt .= "[2. Rekap Kehadiran Periode Berjalan (Cutoff 25 - 24)]\n";
-        $prompt .= "- 'total kehadiran periode ini udah berapa hari' -> SELECT COUNT(DISTINCT DATE(scan_date)) AS total_hari_hadir FROM fingerspot_attendance_logs WHERE pin = '{$pin}' AND status_scan = 0 AND DATE(scan_date) BETWEEN '{$periodeStart}' AND '{$periodeEnd}'\n\n";
+        $prompt .= "- 'total kehadiran periode ini udah berapa hari' -> SELECT COUNT(DISTINCT DATE(scan_date)) AS total_hari_hadir FROM fingerspot_attendance_logs WHERE pin = '{$pin}' AND status_scan IN ('0', '4') AND DATE(scan_date) BETWEEN '{$periodeStart}' AND '{$periodeEnd}'\n\n";
 
         $prompt .= "[3. Saldo & Riwayat Cuti, PH, Extra Off]\n";
-        $prompt .= "- 'saldo cuti saya sisa berapa' -> SELECT (SELECT COALESCE(SUM(days), 0) FROM leave_accruals WHERE nik = '{$nik}' AND expired_at >= '{$today}' AND is_used = 0) - (SELECT COALESCE(SUM(total_days), 0) FROM leave_requests l JOIN users u ON l.user_id = u.id WHERE u.username = '{$nik}' AND l.status IN ('approved', 'pending')) AS sisa_cuti_aktif, (SELECT expired_at FROM leave_accruals WHERE nik = '{$nik}' AND expired_at >= '{$today}' AND is_used = 0 ORDER BY expired_at ASC LIMIT 1) AS expired_terdekat\n";
-        $prompt .= "- 'saya pernah ngajuin cuti tanggal berapa aja' -> SELECT l.start_date, l.end_date, l.total_days, l.status, l.reason FROM leave_requests l JOIN users u ON l.user_id = u.id WHERE u.username = '{$nik}' ORDER BY l.start_date DESC\n";
-        $prompt .= "- 'saldo extra off saya sisa berapa' -> SELECT (SELECT COALESCE(SUM(days), 0) FROM employee_extra_offs WHERE karyawan_nik = '{$nik}' AND DATE_ADD(periode_end, INTERVAL 90 DAY) >= '{$today}') - (SELECT COALESCE(COUNT(*), 0) FROM extra_off_requests e JOIN users u ON e.user_id = u.id WHERE u.username = '{$nik}' AND e.status = 'approved') AS sisa_eo\n";
+        $prompt .= "- 'saldo cuti saya sisa berapa' -> SELECT COALESCE((SELECT SUM(days) FROM leave_accruals WHERE nik = '{$nik}' AND expired_at >= '{$today}' AND is_used = 0), 0) AS total_accrual_aktif, COALESCE((SELECT SUM(DATEDIFF(l.end_date, l.start_date) + 1) FROM leave_requests l JOIN users u ON l.user_id = u.id WHERE u.username = '{$nik}' AND l.leave_type = 'cuti_tahunan' AND l.status NOT IN ('rejected', 'cancelled') AND l.start_date >= COALESCE((SELECT start_date FROM t_kontrak_karyawan WHERE nik = '{$nik}' ORDER BY CASE WHEN status_kontrak = 'AKTIF' THEN 0 ELSE 1 END, end_date DESC LIMIT 1), '1970-01-01')), 0) AS cuti_tahunan_terpakai, GREATEST(0, COALESCE((SELECT SUM(days) FROM leave_accruals WHERE nik = '{$nik}' AND expired_at >= '{$today}' AND is_used = 0), 0) - COALESCE((SELECT SUM(DATEDIFF(l.end_date, l.start_date) + 1) FROM leave_requests l JOIN users u ON l.user_id = u.id WHERE u.username = '{$nik}' AND l.leave_type = 'cuti_tahunan' AND l.status NOT IN ('rejected', 'cancelled') AND l.start_date >= COALESCE((SELECT start_date FROM t_kontrak_karyawan WHERE nik = '{$nik}' ORDER BY CASE WHEN status_kontrak = 'AKTIF' THEN 0 ELSE 1 END, end_date DESC LIMIT 1), '1970-01-01')), 0)) AS sisa_cuti_aktif, (SELECT expired_at FROM leave_accruals WHERE nik = '{$nik}' AND expired_at >= '{$today}' AND is_used = 0 ORDER BY expired_at ASC LIMIT 1) AS expired_terdekat\n";
+        $prompt .= "- 'saya pernah ngajuin cuti tanggal berapa aja' -> SELECT l.leave_type, l.start_date, l.end_date, (DATEDIFF(l.end_date, l.start_date) + 1) AS total_hari, l.status, l.reason FROM leave_requests l JOIN users u ON l.user_id = u.id WHERE u.username = '{$nik}' ORDER BY l.start_date DESC\n";
+        $prompt .= "- 'saldo PH saya sisa berapa' -> SELECT ((SELECT COUNT(DISTINCT public_holiday_id) FROM employee_ph_balances WHERE karyawan_nik = '{$nik}' AND holiday_date > DATE_SUB('{$today}', INTERVAL 90 DAY) AND holiday_date < '{$today}') + COALESCE((SELECT SUM(days) FROM employee_ph_adjustments WHERE karyawan_nik = '{$nik}' AND public_holiday_id IS NULL), 0) - (SELECT COUNT(*) FROM public_holiday_requests r JOIN users u ON r.user_id = u.id WHERE u.username = '{$nik}' AND r.status NOT IN ('rejected', 'cancelled') AND r.public_holiday_id IN (SELECT public_holiday_id FROM employee_ph_balances WHERE karyawan_nik = '{$nik}' AND holiday_date > DATE_SUB('{$today}', INTERVAL 90 DAY) AND holiday_date < '{$today}'))) AS sisa_saldo_ph\n";
+        $prompt .= "- 'saldo extra off saya sisa berapa' -> SELECT COALESCE(SUM(GREATEST(0, eo.days - (SELECT COUNT(*) FROM extra_off_requests r JOIN users u ON r.user_id = u.id WHERE u.username = '{$nik}' AND r.status NOT IN ('rejected', 'cancelled') AND (r.employee_extra_off_id = eo.id OR (r.employee_extra_off_id IS NULL AND eo.public_holiday_request_id IS NULL AND r.source_period_start = eo.periode_start AND r.source_period_end = eo.periode_end))))), 0) AS sisa_eo_aktif FROM employee_extra_offs eo WHERE eo.karyawan_nik = '{$nik}' AND eo.days > 0 AND COALESCE(eo.expires_at, DATE_ADD(eo.periode_end, INTERVAL 3 MONTH)) >= '{$today}'\n";
         $prompt .= "- 'pengajuan PH saya yang masih pending' -> SELECT p.claim_date, p.status, h.name AS nama_holiday FROM public_holiday_requests p JOIN users u ON p.user_id = u.id JOIN public_holidays h ON p.public_holiday_id = h.id WHERE u.username = '{$nik}' AND p.status = 'pending' ORDER BY p.claim_date DESC\n\n";
 
         $prompt .= "[4. Lembur / SPL]\n";
@@ -337,7 +363,7 @@ SCHEMA;
 
         $prompt .= "[6. Pengajuan & Kehadiran Tim / Bawahan]\n";
         $prompt .= "- 'tim saya ada pengajuan cuti/PH/EO/izin ga' -> SELECT k.nama_karyawan, l.start_date, l.end_date, l.status, 'Cuti' AS tipe FROM leave_requests l JOIN users u ON l.user_id = u.id JOIN m_karyawan k ON u.username = k.nik WHERE k.atasan_langsung_nik = '{$nik}' ORDER BY l.start_date DESC\n";
-        $prompt .= "- 'total kehadiran [nama bawahan] periode ini udah berapa' -> SELECT k.nama_karyawan, COUNT(DISTINCT DATE(f.scan_date)) AS total_hadir FROM m_karyawan k LEFT JOIN fingerspot_attendance_logs f ON k.pin = f.pin AND f.status_scan = 0 AND DATE(f.scan_date) BETWEEN '{$periodeStart}' AND '{$periodeEnd}' WHERE k.atasan_langsung_nik = '{$nik}' AND k.nama_karyawan LIKE '%NAMA%' GROUP BY k.nik, k.nama_karyawan\n\n";
+        $prompt .= "- 'total kehadiran [nama bawahan] periode ini udah berapa' -> SELECT k.nama_karyawan, COUNT(DISTINCT DATE(f.scan_date)) AS total_hadir FROM m_karyawan k LEFT JOIN fingerspot_attendance_logs f ON k.pin = f.pin AND f.status_scan IN ('0', '4') AND DATE(f.scan_date) BETWEEN '{$periodeStart}' AND '{$periodeEnd}' WHERE k.atasan_langsung_nik = '{$nik}' AND k.nama_karyawan LIKE '%NAMA%' GROUP BY k.nik, k.nama_karyawan\n\n";
 
         $prompt .= "[7. Fitur Khusus: Status Absen HP & QR Gate]\n";
         $prompt .= "- 'apakah saya bisa absen mandiri via HP' -> SELECT allow_mobile_attendance FROM users WHERE username = '{$nik}'\n";
@@ -345,7 +371,7 @@ SCHEMA;
 
         if ($userLevel <= 2) {
             $prompt .= "[8. Rekap Global Kantor - Khusus Admin/HR]\n";
-            $prompt .= "- 'total yang hadir hari ini' -> SELECT COUNT(DISTINCT pin) AS total_hadir FROM fingerspot_attendance_logs WHERE status_scan = 0 AND DATE(scan_date) = '{$today}'\n";
+            $prompt .= "- 'total yang hadir hari ini' -> SELECT COUNT(DISTINCT pin) AS total_hadir FROM fingerspot_attendance_logs WHERE status_scan IN ('0', '4') AND DATE(scan_date) = '{$today}'\n";
             $prompt .= "- 'rekap kehadiran divisi play hari ini' -> SELECT k.nama_karyawan, MIN(f.scan_date) AS scan_in, MAX(f.scan_date) AS scan_out FROM m_karyawan k LEFT JOIN fingerspot_attendance_logs f ON k.pin = f.pin AND DATE(f.scan_date) = '{$today}' WHERE k.departement LIKE '%Play%' GROUP BY k.nik, k.nama_karyawan\n";
             $prompt .= "- 'riwayat lembur semua karyawan' -> SELECT o.date, o.start_time, o.end_time, o.status, o.reason, k.nama_karyawan AS nama_karyawan, req_k.nama_karyawan AS diajukan_oleh FROM overtime_requests o JOIN users u ON o.user_id = u.id JOIN m_karyawan k ON u.username = k.nik JOIN users req ON o.requested_by_user_id = req.id JOIN m_karyawan req_k ON req.username = req_k.nik ORDER BY o.date DESC\n\n";
         }
@@ -369,7 +395,7 @@ SCHEMA;
         return $cleanSql;
     }
 
-    private function validateSqlSafety(string $sql, string $authenticatedNik, int $userLevel = 3): array
+    private function validateSqlSafety(string $sql, string $authenticatedNik, int $userLevel = 3, string $authenticatedPin = ''): array
     {
         $trimmed = trim($sql);
         $upper = strtoupper($trimmed);
@@ -404,12 +430,25 @@ SCHEMA;
             }
         }
 
-        // Guard tambahan untuk Level 3 (staff biasa): wajib mengunci ke NIK sendiri atau hierarki bawahan
+        // Guard tambahan untuk Level 3 (staff biasa): wajib mengunci ke NIK/PIN sendiri atau hierarki bawahan
         if ($userLevel >= 3 && $authenticatedNik !== '') {
             $mentionsOwnNik = str_contains($trimmed, $authenticatedNik);
+            $mentionsOwnPin = $authenticatedPin !== ''
+                && (bool) preg_match("/\bpin\s*=\s*'" . preg_quote($authenticatedPin, '/') . "'/i", $trimmed);
             $mentionsHierarchy = str_contains($upper, 'ATASAN_LANGSUNG_NIK') || str_contains($upper, 'ATASAN_TIDAK_LANGSUNG_NIK');
-            if (! $mentionsOwnNik && ! $mentionsHierarchy) {
+
+            if (! $mentionsOwnNik && ! $mentionsOwnPin && ! $mentionsHierarchy) {
                 return ['safe' => false, 'reason' => 'Level 3 query does not scope to own NIK or subordinate hierarchy'];
+            }
+
+            if ($mentionsOwnPin && ! $mentionsOwnNik && ! $mentionsHierarchy) {
+                preg_match_all('/\b(?:FROM|JOIN)\s+`?([a-z0-9_]+)`?/i', $trimmed, $tableMatches);
+                $tablesUsed = array_map('strtolower', $tableMatches[1] ?? []);
+                foreach ($tablesUsed as $tbl) {
+                    if (! in_array($tbl, ['fingerspot_attendance_logs', 'm_karyawan'], true)) {
+                        return ['safe' => false, 'reason' => "PIN-only Level 3 query cannot read table: {$tbl}"];
+                    }
+                }
             }
         }
 
@@ -445,27 +484,6 @@ SCHEMA;
         $summary = $this->callLlm(NeoPromptContract::wrapUserQuestion($question), $systemPrompt);
 
         return $summary ? trim($summary) : "Maaf ya {$sapaan}, data terkait pertanyaan tersebut belum tercatat di sistem HRIS.";
-    }
-
-    /**
-     * Menjawab pertanyaan yang murni prosedural/SOP (tidak butuh query database),
-     * misalnya alur pengajuan cuti, cara akses QR gate, atau absensi mandiri via HP.
-     */
-    private function answerFromKnowledgeBase(string $question, ?Karyawan $karyawan, string $sapaan, int $userLevel = 3): string
-    {
-        $systemPrompt = NeoPromptContract::buildSystemPrompt(
-            sapaan: $sapaan,
-            userLevel: $userLevel,
-            knowledgeBase: $this->getBusinessRulesContext(),
-            employeeContext: '',
-            mode: 'sop_only'
-        );
-
-        $answer = $this->callLlm(NeoPromptContract::wrapUserQuestion($question), $systemPrompt);
-
-        $persona = NeoPromptContract::personaName();
-
-        return $answer ? trim($answer) : "Maaf ya {$sapaan}, untuk hal itu informasinya belum ada di panduan {$persona}. [UNRESOLVED]";
     }
 
     private function callLlm(string $prompt, string $systemPrompt = ''): ?string
