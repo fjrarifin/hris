@@ -470,4 +470,145 @@ class NovaSecurityAndLayersTest extends TestCase
             'reply' => 'Saldo cuti tahunan Kak Budi saat ini 2 hari.',
         ]);
     }
+
+    public function test_reset_session_deletes_both_web_and_mobile_tokens_and_allows_mobile_relogin(): void
+    {
+        Http::fake();
+
+        Schema::dropIfExists('mobile_device_tokens');
+        Schema::dropIfExists('personal_access_tokens');
+        Schema::dropIfExists('frontend_menu_user_access');
+        Schema::dropIfExists('frontend_menus');
+        Schema::dropIfExists('users');
+
+        Schema::create('users', function (Blueprint $table) {
+            $table->id();
+            $table->string('username')->nullable();
+            $table->string('name');
+            $table->string('email')->nullable();
+            $table->string('phone')->nullable();
+            $table->string('password')->nullable();
+            $table->string('photo')->nullable();
+            $table->timestamp('password_changed_at')->nullable();
+            $table->boolean('must_change_password')->default(false);
+            $table->unsignedTinyInteger('level')->default(3);
+            $table->boolean('is_active')->default(true);
+            $table->boolean('allow_mobile_attendance')->default(false);
+            $table->timestamp('last_seen_at')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('frontend_menus', function (Blueprint $table) {
+            $table->id();
+            $table->string('key')->unique();
+            $table->string('label');
+            $table->string('path');
+            $table->string('icon')->nullable();
+            $table->string('allowed_levels')->nullable();
+            $table->unsignedInteger('sort_order')->default(0);
+            $table->boolean('is_active')->default(true);
+            $table->timestamps();
+        });
+
+        Schema::create('frontend_menu_user_access', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('frontend_menu_id');
+            $table->foreignId('user_id');
+            $table->boolean('is_allowed');
+            $table->timestamps();
+        });
+
+        Schema::create('personal_access_tokens', function (Blueprint $table) {
+            $table->id();
+            $table->morphs('tokenable');
+            $table->text('name');
+            $table->string('device_name')->nullable();
+            $table->string('ip_address', 45)->nullable();
+            $table->text('user_agent')->nullable();
+            $table->string('token', 64)->unique();
+            $table->text('abilities')->nullable();
+            $table->timestamp('last_used_at')->nullable();
+            $table->timestamp('expires_at')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('mobile_device_tokens', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('user_id');
+            $table->string('token');
+            $table->timestamps();
+        });
+
+        \App\Models\FrontendMenu::query()->create([
+            'key' => 'dashboard',
+            'label' => 'Dashboard',
+            'path' => '/dashboard',
+            'allowed_levels' => '3',
+            'is_active' => true,
+        ]);
+
+        $empUser = \App\Models\User::query()->create([
+            'username' => 'EMP001',
+            'name' => 'Budi Santoso',
+            'email' => 'emp001@example.test',
+            'password' => \Illuminate\Support\Facades\Hash::make('Password123'),
+            'level' => 3,
+            'is_active' => true,
+            'must_change_password' => false,
+            'last_seen_at' => now(),
+        ]);
+
+        $otherUser = \App\Models\User::query()->create([
+            'username' => 'HR001',
+            'name' => 'Sinta Rahmawati',
+            'email' => 'hr001@example.test',
+            'password' => \Illuminate\Support\Facades\Hash::make('Password123'),
+            'level' => 2,
+            'is_active' => true,
+        ]);
+
+        $empUser->createToken('hris-fe');
+        $empUser->createToken('hris-mobile');
+        $otherUser->createToken('hris-fe');
+        $otherUser->createToken('hris-mobile');
+
+        // Sebelum reset: login mobile diblokir karena hris-mobile masih aktif
+        $this->postJson('/api/auth/login', [
+            'username' => 'EMP001',
+            'password' => 'Password123',
+            'client' => 'mobile',
+        ])
+            ->assertStatus(409)
+            ->assertJsonPath('code', 'ACTIVE_SESSION_EXISTS');
+
+        RateLimiter::clear('wa_ai_agent_limit:6281111111111');
+
+        $resetRes = $this->withHeaders(['X-HRIS-Agent-Token' => 'nova-test-token'])
+            ->postJson('/api/whatsapp/ai-agent/webhook', [
+                'sender_phone' => '6281111111111',
+                'from' => '6281111111111@s.whatsapp.net',
+                'message' => 'reset session login',
+                'return_reply' => true,
+            ]);
+
+        $resetRes->assertOk()->assertJson([
+            'status' => 'sent',
+            'karyawan_nik' => 'EMP001',
+        ]);
+        $this->assertStringContainsString('Web HRIS dan aplikasi Mobile', (string) $resetRes->json('reply'));
+
+        // Token hris-fe & hris-mobile EMP001 habis dihapus; last_seen_at di-null; token user lain aman
+        $this->assertSame(0, $empUser->fresh()->tokens()->whereIn('name', ['hris-fe', 'hris-mobile'])->count());
+        $this->assertNull($empUser->fresh()->last_seen_at);
+        $this->assertSame(2, $otherUser->fresh()->tokens()->whereIn('name', ['hris-fe', 'hris-mobile'])->count());
+
+        // Sesudah reset: login mobile langsung berhasil kembali
+        $this->postJson('/api/auth/login', [
+            'username' => 'EMP001',
+            'password' => 'Password123',
+            'client' => 'mobile',
+        ])
+            ->assertOk()
+            ->assertJsonStructure(['token']);
+    }
 }

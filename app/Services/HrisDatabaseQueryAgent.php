@@ -431,7 +431,10 @@ SCHEMA;
         }
 
         // Guard tambahan untuk Level 3 (staff biasa): wajib mengunci ke NIK/PIN sendiri atau hierarki bawahan
-        if ($userLevel >= 3 && $authenticatedNik !== '') {
+        if ($userLevel >= 3) {
+            if ($authenticatedNik === '') {
+                return ['safe' => false, 'reason' => 'Level 3 user without employee NIK cannot execute database queries'];
+            }
             $mentionsOwnNik = str_contains($trimmed, $authenticatedNik);
             $mentionsOwnPin = $authenticatedPin !== ''
                 && (bool) preg_match("/\bpin\s*=\s*'" . preg_quote($authenticatedPin, '/') . "'/i", $trimmed);

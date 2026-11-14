@@ -25,9 +25,17 @@ class ItDashboardController extends Controller
 
         $userKeyword = trim((string) ($validated['user_q'] ?? ''));
         $activeSessions = $this->activeSessionQuery();
-        $onlineNow = User::query()
-            ->where('last_seen_at', '>=', now()->subMinutes(2))
-            ->count();
+        $recentCutoff = now()->subMinutes(2);
+        $onlineNow = (clone $activeSessions)
+            ->where(function ($query) use ($recentCutoff): void {
+                $query
+                    ->where('last_used_at', '>=', $recentCutoff)
+                    ->orWhere(fn ($created) => $created
+                        ->whereNull('last_used_at')
+                        ->where('created_at', '>=', $recentCutoff));
+            })
+            ->distinct()
+            ->count('tokenable_id');
 
         return response()->json([
             'summary' => [

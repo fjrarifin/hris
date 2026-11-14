@@ -97,6 +97,10 @@ class AuthController extends Controller
                 'user_agent' => $request->userAgent(),
             ])->save();
 
+            if (Schema::hasColumn('users', 'last_seen_at')) {
+                $user->forceFill(['last_seen_at' => now()])->save();
+            }
+
             return [
                 'user' => $user,
                 'token' => $token->plainTextToken,

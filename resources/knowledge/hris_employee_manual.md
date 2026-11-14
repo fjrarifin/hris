@@ -142,7 +142,7 @@ Dokumen ini adalah acuan resmi operasional dan panduan lengkap bagi Asisten AI (
 |---|---|---|---|
 | Daftar pertanyaan belum terjawab | "pertanyaan belum terjawab", "unresolved", "daftar pertanyaan baru" | Level 0-2 saja | Menampilkan daftar dari `t_wa_agent_unresolved_queries` |
 | Eskalasi ke Tim IT | "butuh bantuan IT", "tolong IT", "bicara dengan admin/manusia", "error 500", "bug aplikasi", "sistem down" | Semua pengguna terdaftar | Tiket (nama, NIK, divisi, link WhatsApp, rangkuman kendala) dikirim ke grup WhatsApp IT |
-| Reset session login | "reset session", "hapus sesi", "kick session", "nyangkut", atau menjawab "iya/reset" setelah Neo bertanya | Karyawan terdaftar (bukan Holding) | Token login `hris-fe` milik pengguna dihapus, lalu pengguna bisa login lagi |
+| Reset session login | "reset session", "reset login", "hapus sesi", "kick session", "nyangkut", atau menjawab "iya/reset" setelah Neo bertanya | Karyawan terdaftar (bukan Holding) | Token login Web (`hris-fe`) dan Mobile (`hris-mobile`) milik pengguna dihapus, lalu pengguna bisa login lagi |
 | Deteksi gagal login | "tidak bisa login", "gagal login", "login error" | Karyawan terdaftar (bukan Holding) | Neo bertanya apakah muncul notifikasi akun aktif di perangkat lain; balas "Iya"/"Reset" dalam 5 menit untuk reset session |
 | Reset password | "lupa password", "reset password", "lupa sandi" | Karyawan terdaftar (bukan Holding) | Password direset ke default 12345678, wajib diganti saat login berikutnya, semua sesi dicabut |
 | QR Gate Turnstile | "minta QR gate", "kartu tertinggal/hilang/rusak", "buat QR" | Karyawan dan Karyawan Holding | Neo menanyakan alasan (kecuali sudah disebut), lalu mengirim gambar QR berlaku hari ini dan mencatat ke log HRD |

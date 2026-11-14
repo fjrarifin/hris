@@ -23,6 +23,7 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Throwable;
@@ -34,6 +35,12 @@ class HrisWhatsAppAgent
     private ?string $activeDirectRecipient = null;
 
     private ?array $capturedSenderReply = null;
+
+    private bool $webChannelMode = false;
+
+    private ?User $webUser = null;
+
+    private ?int $webCurrentTokenId = null;
 
     public function __construct(
         private readonly HrisDatabaseQueryAgent $dbQueryAgent,
@@ -172,12 +179,7 @@ class HrisWhatsAppAgent
             }
 
             // Simpan riwayat percakapan (Multi-turn Context) maksimal 6 percakapan terakhir
-            $history[] = ['role' => 'user', 'parts' => [['text' => $question]]];
-            $history[] = ['role' => 'model', 'parts' => [['text' => $historyAnswer]]];
-            if (count($history) > 6) {
-                $history = array_slice($history, -6);
-            }
-            Cache::put($historyKey, $history, now()->addMinutes(30));
+            $this->appendConversationHistory($historyKey, $question, $historyAnswer, 30, 6);
 
             return $this->withCapturedReply([
                 'status' => $sent ? 'sent' : 'send_failed',
@@ -192,6 +194,180 @@ class HrisWhatsAppAgent
             $this->activeDirectRecipient = null;
             $this->capturedSenderReply = null;
         }
+    }
+
+    public function handleWebChat(User $user, string $message): array
+    {
+        $question = trim($message);
+        $rateLimitKey = 'web_ai_agent_limit:' . $user->id;
+        if (RateLimiter::tooManyAttempts($rateLimitKey, 20)) {
+            $seconds = RateLimiter::availableIn($rateLimitKey);
+
+            return [
+                'status' => 'rate_limited',
+                'retry_after' => $seconds,
+                'persona' => NeoPromptContract::personaName(),
+                'reply' => "Mohon tunggu {$seconds} detik sebelum mengirim pesan lagi ya.",
+                'image_url' => null,
+                'history' => $this->getWebChatHistory($user),
+            ];
+        }
+        RateLimiter::hit($rateLimitKey, 60);
+
+        $karyawan = $this->resolveWebKaryawan($user);
+        $userLevel = $user->level !== null ? (int) $user->level : 3;
+        $sender = (string) ($karyawan?->no_hp ?: ($user->phone ?: ('web:user:' . $user->id)));
+        $llmHistoryKey = $this->webLlmHistoryKey($user);
+        $uiHistoryKey = $this->webUiHistoryKey($user);
+        $history = Cache::get($llmHistoryKey, []);
+
+        $currentToken = $user->currentAccessToken();
+        $tokenId = $currentToken && method_exists($currentToken, 'getKey') ? $currentToken->getKey() : null;
+
+        $this->webChannelMode = true;
+        $this->webUser = $user;
+        $this->webCurrentTokenId = is_numeric($tokenId) ? (int) $tokenId : null;
+        $this->returnReplyMode = true;
+        $this->activeDirectRecipient = $sender;
+        $this->capturedSenderReply = null;
+
+        try {
+            $answer = $this->answer($question, $karyawan, $sender, $history, $userLevel, [
+                'channel' => 'web',
+                'user_id' => $user->id,
+                'pushName' => $user->name,
+            ]);
+
+            if ($answer === '__IMAGE_SENT__' && $this->capturedSenderReply !== null) {
+                $replyText = (string) $this->capturedSenderReply['message'];
+                $imageUrl = $this->capturedSenderReply['image_url'] ?? null;
+                $historyAnswer = "✅ [Gambar QR Gate Turnstile berhasil dibuat]";
+            } else {
+                $replyText = $answer;
+                $imageUrl = null;
+                $historyAnswer = $answer;
+            }
+
+            $this->appendConversationHistory($llmHistoryKey, $question, $historyAnswer, 60, 10);
+            $uiHistory = $this->appendWebUiHistory($uiHistoryKey, $question, $replyText, $imageUrl);
+
+            return [
+                'status' => 'sent',
+                'persona' => NeoPromptContract::personaName(),
+                'reply' => $replyText,
+                'image_url' => $imageUrl,
+                'history' => $uiHistory,
+            ];
+        } finally {
+            $this->webChannelMode = false;
+            $this->webUser = null;
+            $this->webCurrentTokenId = null;
+            $this->returnReplyMode = false;
+            $this->activeDirectRecipient = null;
+            $this->capturedSenderReply = null;
+        }
+    }
+
+    public function getWebChatHistory(User $user): array
+    {
+        return Cache::get($this->webUiHistoryKey($user), []);
+    }
+
+    public function clearWebChatHistory(User $user): void
+    {
+        Cache::forget($this->webLlmHistoryKey($user));
+        Cache::forget($this->webUiHistoryKey($user));
+
+        $karyawan = $this->resolveWebKaryawan($user);
+        $stateKey = 'wa_agent_state:' . ($karyawan ? $karyawan->nik : 'web:' . $user->id);
+        Cache::forget($stateKey);
+        Cache::forget('wa_agent_pending_qr_web:' . $user->id);
+        if ($karyawan?->nik) {
+            Cache::forget('wa_agent_pending_qr_nik:' . $karyawan->nik);
+        }
+    }
+
+    private function resolveWebKaryawan(User $user): ?Karyawan
+    {
+        if (! $user->username || ! Schema::hasTable('m_karyawan')) {
+            return null;
+        }
+
+        return Karyawan::where('nik', $user->username)->first();
+    }
+
+    private function webLlmHistoryKey(User $user): string
+    {
+        return 'web_ai_agent_llm_history:' . $user->id;
+    }
+
+    private function webUiHistoryKey(User $user): string
+    {
+        return 'web_ai_agent_ui_history:' . $user->id;
+    }
+
+    private function appendConversationHistory(
+        string $historyKey,
+        string $question,
+        string $answer,
+        int $ttlMinutes = 30,
+        int $maxMessages = 6
+    ): array {
+        $history = Cache::get($historyKey, []);
+        $history[] = ['role' => 'user', 'parts' => [['text' => $question]]];
+        $history[] = ['role' => 'model', 'parts' => [['text' => $answer]]];
+        if (count($history) > $maxMessages) {
+            $history = array_slice($history, -$maxMessages);
+        }
+        Cache::put($historyKey, $history, now()->addMinutes($ttlMinutes));
+
+        return $history;
+    }
+
+    private function appendWebUiHistory(
+        string $uiHistoryKey,
+        string $question,
+        string $replyText,
+        ?string $imageUrl = null
+    ): array {
+        $items = Cache::get($uiHistoryKey, []);
+        $nowIso = now()->toIso8601String();
+        $items[] = [
+            'id' => (string) Str::uuid(),
+            'role' => 'user',
+            'text' => $question,
+            'image_url' => null,
+            'created_at' => $nowIso,
+        ];
+        $items[] = [
+            'id' => (string) Str::uuid(),
+            'role' => 'nova',
+            'text' => $replyText,
+            'image_url' => $imageUrl,
+            'created_at' => $nowIso,
+        ];
+        if (count($items) > 30) {
+            $items = array_slice($items, -30);
+        }
+        Cache::put($uiHistoryKey, $items, now()->addMinutes(60));
+
+        return $items;
+    }
+
+    private function resolveGreeting(Karyawan|KaryawanHolding|null $karyawan): string
+    {
+        $rawName = '';
+        if ($karyawan instanceof KaryawanHolding) {
+            $rawName = (string) ($karyawan->nama ?: '');
+        } elseif ($karyawan !== null) {
+            $rawName = (string) ($karyawan->nama_karyawan ?: '');
+        } elseif ($this->webUser !== null) {
+            $rawName = (string) ($this->webUser->name ?: $this->webUser->username ?: '');
+        }
+
+        $first = ucfirst(strtolower(explode(' ', trim($rawName))[0]));
+
+        return $first !== '' ? "Kak {$first}" : 'Kak';
     }
 
     private function withCapturedReply(array $result): array
@@ -210,8 +386,8 @@ class HrisWhatsAppAgent
     {
         $normalized = $this->normalizeText($question);
         $isFirstChat = empty($history);
-        $namaPanggilan = $karyawan ? ucfirst(strtolower(explode(' ', trim($karyawan->nama_karyawan))[0])) : '';
-        $sapaan = $namaPanggilan ? "Kak {$namaPanggilan}" : 'Kak';
+        $sapaan = $this->resolveGreeting($karyawan);
+        $namaPanggilan = str_starts_with($sapaan, 'Kak ') ? substr($sapaan, 4) : '';
 
         // 0. Jawaban identitas lokal deterministik sebelum memanggil LLM
         if ($this->isIdentityQuestion($normalized)) {
@@ -326,8 +502,7 @@ class HrisWhatsAppAgent
 
     private function handleDirectActions(string $rawQuestion, string $normalized, Karyawan|KaryawanHolding|null $karyawan, string $sender, array $history = [], int $userLevel = 3): ?string
     {
-        $namaPanggilan = $karyawan ? ucfirst(strtolower(explode(' ', trim($karyawan->nama_karyawan))[0])) : '';
-        $sapaan = $namaPanggilan ? "Kak {$namaPanggilan}" : "Kak";
+        $sapaan = $this->resolveGreeting($karyawan);
         $isFirstChat = empty($history);
 
         // -------------------------------------------------------------
@@ -357,10 +532,14 @@ class HrisWhatsAppAgent
         || str_contains($normalized, 'sistem down');
 
         if ($isAskingHumanIt) {
-            $nama = $karyawan instanceof KaryawanHolding ? $karyawan->nama : ($karyawan?->nama_karyawan ?: 'Karyawan');
-            $nik = $karyawan?->nik ?: '-';
-            $divisi = $karyawan instanceof KaryawanHolding ? ($karyawan->perusahaan ?: 'Holding') : (($karyawan?->jabatan ?: $karyawan?->departement) ?: '-');
-            $phone = $karyawan?->no_hp ?: '';
+            $nama = $karyawan instanceof KaryawanHolding
+                ? $karyawan->nama
+                : ($karyawan?->nama_karyawan ?: ($this->webUser?->name ?: 'Karyawan'));
+            $nik = $karyawan?->nik ?: ($this->webUser?->username ?: '-');
+            $divisi = $karyawan instanceof KaryawanHolding
+                ? ($karyawan->perusahaan ?: 'Holding')
+                : (($karyawan?->jabatan ?: $karyawan?->departement) ?: ($this->webChannelMode ? 'Portal Web HRIS' : '-'));
+            $phone = $karyawan?->no_hp ?: ($this->webUser?->phone ?: '');
             $cleanPhone = preg_replace('/[^0-9]/', '', $phone);
             if (str_starts_with($cleanPhone, '0')) {
                 $cleanPhone = '62' . substr($cleanPhone, 1);
@@ -390,7 +569,9 @@ class HrisWhatsAppAgent
                 $this->sendReply($itGroupId, $ticketMsg);
             }
 
-            return "Siap {$sapaan}! Pesan dan permintaan bantuanmu sudah aku teruskan langsung ke Tim IT ya 📩.\n\nTim IT akan segera mengecek dan menghubungimu melalui WhatsApp ini. Mohon ditunggu sebentar ya {$sapaan}!";
+            $contactChannel = $this->webChannelMode ? 'WhatsApp/kontak terdaftar' : 'WhatsApp ini';
+
+            return "Siap {$sapaan}! Pesan dan permintaan bantuanmu sudah aku teruskan langsung ke Tim IT ya 📩.\n\nTim IT akan segera mengecek dan menghubungimu melalui {$contactChannel}. Mohon ditunggu sebentar ya {$sapaan}!";
         }
 
         // Jika Karyawan Holding mencoba akses fitur akun portal (reset session/password)
@@ -413,30 +594,47 @@ class HrisWhatsAppAgent
             || str_contains($normalized, 'hapus sesi')
             || str_contains($normalized, 'kick session')
             || str_contains($normalized, 'reset token')
+            || str_contains($normalized, 'reset login')
+            || str_contains($normalized, 'hapus login')
+            || str_contains($normalized, 'kick login')
             || str_contains($normalized, 'bantu reset')
             || str_contains($normalized, 'tolong reset')
             || (str_contains($normalized, 'aktif') && (str_contains($normalized, 'browser') || str_contains($normalized, 'perangkat') || str_contains($normalized, 'device') || str_contains($normalized, 'lain') || str_contains($normalized, 'sedang aktif')))
             || str_contains($normalized, 'nyangkut');
 
-        $cacheStateKey = "wa_agent_state:" . ($karyawan ? $karyawan->nik : 'unknown');
-        $isAwaitingReset = \Illuminate\Support\Facades\Cache::get($cacheStateKey) === 'awaiting_session_reset';
+        $cacheStateKey = "wa_agent_state:" . ($karyawan ? $karyawan->nik : ($this->webUser ? 'web:' . $this->webUser->id : 'unknown'));
+        $isAwaitingReset = Cache::get($cacheStateKey) === 'awaiting_session_reset';
         $isYesAnswer = in_array($normalized, ['iya', 'ya', 'iya kak', 'ya kak', 'betul', 'bener', 'bener kak', 'betul kak', 'iya bener', 'iya betul', 'reset', 'iya tolong', 'tolong ya', 'bantu ya', 'oke tolong', 'ok tolong'], true);
 
         if ($isDirectReset || ($isAwaitingReset && $isYesAnswer)) {
-            \Illuminate\Support\Facades\Cache::forget($cacheStateKey);
+            Cache::forget($cacheStateKey);
 
-            if (! $karyawan) {
+            if (! $karyawan && ! $this->webChannelMode) {
                 return "Maaf ya {$sapaan}, nomor WhatsApp ini belum terdaftar di sistem HRIS. Coba konfirmasi ke HRD untuk update nomor telepon ya.";
             }
 
-            $user = User::where('username', $karyawan->nik)->first();
+            $user = $this->webUser ?: ($karyawan ? User::where('username', $karyawan->nik)->first() : null);
             if (! $user) {
-                return "Akun portal untuk NIK {$karyawan->nik} belum ditemukan nih. Boleh hubungi tim IT ya.";
+                $nikLabel = $karyawan?->nik ?: '-';
+
+                return "Akun portal untuk NIK {$nikLabel} belum ditemukan nih. Boleh hubungi tim IT ya.";
             }
 
-            $user->tokens()->where('name', 'hris-fe')->delete();
+            $user->tokens()
+                ->whereIn('name', ['hris-fe', 'hris-mobile'])
+                ->when($this->webChannelMode && $this->webCurrentTokenId, fn ($q) => $q->where('id', '!=', $this->webCurrentTokenId))
+                ->delete();
 
-            return "Siap {$sapaan}, sesi login akun kamu (NIK: {$karyawan->nik}) sudah berhasil aku reset ya. Silakan coba login kembali sekarang di https://hr.hompimplay.id.";
+            if (Schema::hasColumn('users', 'last_seen_at') && ! $user->tokens()->whereIn('name', ['hris-fe', 'hris-mobile'])->exists()) {
+                $user->forceFill(['last_seen_at' => null])->save();
+            }
+
+            $accountLabel = $karyawan?->nik ? " (NIK: {$karyawan->nik})" : '';
+            if ($this->webChannelMode) {
+                return "Siap {$sapaan}, sesi login akun kamu{$accountLabel} di perangkat lain maupun aplikasi Mobile sudah berhasil aku reset ya. Sesi web yang sedang kamu gunakan saat ini tetap aktif.";
+            }
+
+            return "Siap {$sapaan}, sesi login akun kamu{$accountLabel} di Web HRIS dan aplikasi Mobile sudah berhasil aku reset ya. Silakan coba login kembali sekarang di https://hr.hompimplay.id atau aplikasi mobile HRIS.";
         }
 
         // -------------------------------------------------------------
@@ -458,7 +656,7 @@ class HrisWhatsAppAgent
         }
 
         // -------------------------------------------------------------
-        // Aksi 2: Lupa / Reset Password (Langsung reset ke default 12345678)
+        // Aksi 2: Lupa / Reset Password (Langsung reset ke default 12345678 via WhatsApp)
         // -------------------------------------------------------------
         if (
             str_contains($normalized, 'lupa password')
@@ -468,6 +666,10 @@ class HrisWhatsAppAgent
             || str_contains($normalized, 'reset pass')
             || str_contains($normalized, 'reset kata sandi')
         ) {
+            if ($this->webChannelMode) {
+                return "Karena {$sapaan} sudah login di portal Web HRIS, untuk mengganti password silakan buka menu *Profil* lalu pilih ubah kata sandi ya 👍.\n\nJika suatu saat lupa password saat *belum login*, gunakan fitur *Lupa Password* di halaman login atau hubungi Nova melalui WhatsApp.";
+            }
+
             if (! $karyawan) {
                 return "Nomor WhatsApp ini belum terdaftar di sistem HRIS nih.";
             }
@@ -490,7 +692,9 @@ class HrisWhatsAppAgent
         // Aksi 3: Multi-turn Gate QR Generation & Pengiriman Ulang QR Hari Ini
         // -------------------------------------------------------------
         $cleanSenderDigits = preg_replace('/[^0-9]/', '', $sender);
-        $cacheQrKeyPhone = "wa_agent_pending_qr_phone:" . $cleanSenderDigits;
+        $cacheQrKeyPhone = $this->webChannelMode && $this->webUser
+            ? 'wa_agent_pending_qr_web:' . $this->webUser->id
+            : 'wa_agent_pending_qr_phone:' . $cleanSenderDigits;
         $cacheQrKeyNik = $karyawan ? "wa_agent_pending_qr_nik:" . $karyawan->nik : null;
 
         $isAwaitingQrReason = (\Illuminate\Support\Facades\Cache::get($cacheQrKeyPhone) === 'awaiting_reason')
@@ -592,9 +796,13 @@ class HrisWhatsAppAgent
             }
         };
 
-        // Jika nomor karyawan belum terdaftar di sistem HRIS
+        // Jika data karyawan belum terdaftar / belum terhubung
         if (($isGateQrRequest || $isResendQrRequest || $isAwaitingQrReason) && ! $karyawan) {
             $clearPendingQrCache();
+            if ($this->webChannelMode) {
+                return "Maaf {$sapaan}, akun portal kamu belum terhubung ke data karyawan HRIS HomPimPlay. Silakan hubungi Tim HRD/IT agar data karyawanmu dikaitkan ya.";
+            }
+
             return "Maaf ya Kak, nomor WhatsApp ini belum terdaftar pada data karyawan HRIS HomPimPlay.\n\nSilakan hubungi Tim HRD untuk memperbarui nomor WhatsApp kamu di sistem agar bisa langsung membuat dan mencetak QR Gate via WhatsApp ya.";
         }
 
@@ -603,7 +811,9 @@ class HrisWhatsAppAgent
             $clearPendingQrCache();
             $reason = trim($rawQuestion);
             if (strlen($reason) < 3) {
-                $reason = "Akses masuk kantor (Permintaan via WhatsApp)";
+                $reason = $this->webChannelMode
+                    ? "Akses masuk kantor (Permintaan via Web HRIS)"
+                    : "Akses masuk kantor (Permintaan via WhatsApp)";
             }
             return $this->processGateQrGeneration($karyawan, $sender, $reason, true);
         }
@@ -651,8 +861,7 @@ class HrisWhatsAppAgent
 
     private function processGateQrGeneration(Karyawan|KaryawanHolding|null $karyawan, string $sender, string $reason, bool $createNewLog = true): string
     {
-        $namaPanggilan = $karyawan ? ucfirst(strtolower(explode(' ', trim($karyawan->nama_karyawan))[0])) : '';
-        $sapaan = $namaPanggilan ? "Kak {$namaPanggilan}" : "Kak";
+        $sapaan = $this->resolveGreeting($karyawan);
 
         if (! $karyawan) {
             return "Maaf ya {$sapaan}, nomor WhatsApp ini belum terdaftar di sistem HRIS maupun Holding. Silakan hubungi tim HRD untuk update nomor telepon ya.";
@@ -769,8 +978,7 @@ class HrisWhatsAppAgent
 
     private function buildSystemPrompt(Karyawan|KaryawanHolding|null $karyawan, bool $isFirstChat = false, int $userLevel = 3): string
     {
-        $namaPanggilan = $karyawan ? ucfirst(strtolower(explode(' ', trim($karyawan->nama_karyawan))[0])) : '';
-        $sapaan = $namaPanggilan ? "Kak {$namaPanggilan}" : 'Kak';
+        $sapaan = $this->resolveGreeting($karyawan);
 
         return NeoPromptContract::buildSystemPrompt(
             sapaan: $sapaan,
@@ -784,6 +992,15 @@ class HrisWhatsAppAgent
     private function buildEmployeeContext(Karyawan|KaryawanHolding|null $karyawan): string
     {
         if (! $karyawan) {
+            if ($this->webUser) {
+                $userLevel = $this->webUser->level !== null ? (int) $this->webUser->level : 3;
+
+                return "[Info Pengguna Portal Web yang Bertanya]\n"
+                    . "Nama: {$this->webUser->name}\n"
+                    . "Username: " . ($this->webUser->username ?: '-') . "\n"
+                    . "Hak Akses: " . NeoPromptContract::roleContext($userLevel) . "\n";
+            }
+
             return '';
         }
 
@@ -1582,7 +1799,10 @@ class HrisWhatsAppAgent
         array $payload = []
     ): void {
         try {
-            $cleanPhone = preg_replace('/[^0-9]/', '', explode('@', $sender)[0]);
+            $rawSender = explode('@', $sender)[0];
+            $cleanPhone = str_starts_with($rawSender, 'web:')
+                ? ('web-' . ($karyawan?->nik ?: ($this->webUser?->id ?? 'user')))
+                : preg_replace('/[^0-9]/', '', $rawSender);
             $nik = $karyawan?->nik;
             $nama = $karyawan instanceof KaryawanHolding
                 ? $karyawan->nama

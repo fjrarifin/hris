@@ -38,7 +38,7 @@ use App\Http\Controllers\Api\ItUserController;
 use App\Http\Controllers\Api\MobileAppReleaseController;
 use App\Http\Controllers\Api\NavigationController;
 use App\Http\Controllers\Api\NotificationController;
-use App\Http\Controllers\Api\OnlineUserController;
+use App\Http\Controllers\Api\NovaChatController;
 use App\Http\Controllers\Api\StaffPerformanceReviewController;
 use App\Http\Controllers\Api\StaffPortalController;
 use App\Http\Controllers\Api\StaffRecruitmentRequestController;
@@ -201,8 +201,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/notifications/test-push', [NotificationController::class, 'testMobilePush']);
         Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead']);
         Route::post('/notifications/{notificationId}/read', [NotificationController::class, 'markRead']);
-        Route::get('/online-users', [OnlineUserController::class, 'index']);
-        Route::post('/online-users/heartbeat', [OnlineUserController::class, 'heartbeat']);
+        Route::prefix('nova/chat')->middleware('level:3')->group(function () {
+            Route::get('/', [NovaChatController::class, 'index']);
+            Route::post('/', [NovaChatController::class, 'store']);
+            Route::delete('/', [NovaChatController::class, 'destroy']);
+        });
         Route::prefix('navigation/access')->middleware('level:0')->group(function () {
             Route::get('/', [NavigationController::class, 'access']);
             Route::put('/{frontendMenu}', [NavigationController::class, 'update']);
