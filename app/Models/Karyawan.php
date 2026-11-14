@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Schema;
 
 class Karyawan extends Model
 {
@@ -143,5 +145,65 @@ class Karyawan extends Model
     public function isHolding(): bool
     {
         return false;
+    }
+
+    /**
+     * Ambil daftar bawahan aktif (langsung & tidak langsung) milik seorang atasan.
+     */
+    public static function activeSubordinatesFor(string $supervisorNik): Collection
+    {
+        if ($supervisorNik === '' || ! Schema::hasTable('m_karyawan')) {
+            return collect();
+        }
+
+        $hasDirectCol = Schema::hasColumn('m_karyawan', 'atasan_langsung_nik');
+        $hasIndirectCol = Schema::hasColumn('m_karyawan', 'atasan_tidak_langsung_nik');
+        if (! $hasDirectCol && ! $hasIndirectCol) {
+            return collect();
+        }
+
+        $selectCols = array_values(array_filter([
+            'nik',
+            'nama_karyawan',
+            'jabatan',
+            'status_karyawan',
+            $hasDirectCol ? 'atasan_langsung_nik' : null,
+            $hasIndirectCol ? 'atasan_tidak_langsung_nik' : null,
+        ]));
+
+        return static::query()
+            ->where('nik', '!=', $supervisorNik)
+            ->where(function ($q) use ($supervisorNik, $hasDirectCol, $hasIndirectCol): void {
+                if ($hasDirectCol) {
+                    $q->where('atasan_langsung_nik', $supervisorNik);
+                }
+                if ($hasIndirectCol) {
+                    $q->orWhere('atasan_tidak_langsung_nik', $supervisorNik);
+                }
+            })
+            ->where(function ($q): void {
+                $q->whereNull('status_karyawan')
+                    ->orWhereRaw("UPPER(TRIM(status_karyawan)) NOT IN ('RESIGN', 'NONAKTIF', 'NON-AKTIF')");
+            })
+            ->orderBy('nama_karyawan')
+            ->get($selectCols);
+    }
+
+    /**
+     * Cek apakah karyawan menjadi supervisor lowongan pada modul Kandidat Bawahan.
+     */
+    public static function hasVacancySupervisionFor(string $supervisorNik): bool
+    {
+        if (
+            $supervisorNik === ''
+            || ! Schema::hasTable('recruitment_vacancies')
+            || ! Schema::hasColumn('recruitment_vacancies', 'supervisor_nik')
+        ) {
+            return false;
+        }
+
+        return RecruitmentVacancy::query()
+            ->where('supervisor_nik', $supervisorNik)
+            ->exists();
     }
 }

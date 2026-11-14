@@ -427,7 +427,9 @@ class HrisWhatsAppAgent
         }
 
         $persona = NeoPromptContract::personaName();
-        $fallbackMsg = "Maaf ya {$sapaan}, {$persona} belum bisa menemukan informasi tersebut di sistem atau panduan HRIS. Ada hal lain yang bisa {$persona} bantu? 😊 [UNRESOLVED]";
+        $isSupervisor = $karyawan instanceof Karyawan && Karyawan::activeSubordinatesFor($karyawan->nik)->isNotEmpty();
+        $menuHint = NeoPromptContract::suggestMenuHint($question, $isSupervisor);
+        $fallbackMsg = "Maaf ya {$sapaan}, {$persona} belum bisa menemukan informasi tersebut di sistem saat ini. Kamu bisa cek langsung di {$menuHint} melalui portal https://hr.hompimplay.id ya. 😊 [UNRESOLVED]";
         return $this->processAndRecordUnresolved($fallbackMsg, $question, $karyawan, $sender, $payload);
     }
 
@@ -984,21 +986,22 @@ class HrisWhatsAppAgent
             sapaan: $sapaan,
             userLevel: $userLevel,
             knowledgeBase: $this->getKnowledgeBase(),
-            employeeContext: $this->buildEmployeeContext($karyawan),
+            employeeContext: $this->buildEmployeeContext($karyawan, $userLevel),
             mode: 'general'
         );
     }
 
-    private function buildEmployeeContext(Karyawan|KaryawanHolding|null $karyawan): string
+    private function buildEmployeeContext(Karyawan|KaryawanHolding|null $karyawan, int $userLevel = 3): string
     {
         if (! $karyawan) {
             if ($this->webUser) {
-                $userLevel = $this->webUser->level !== null ? (int) $this->webUser->level : 3;
+                $resolvedLevel = $this->webUser->level !== null ? (int) $this->webUser->level : $userLevel;
 
                 return "[Info Pengguna Portal Web yang Bertanya]\n"
                     . "Nama: {$this->webUser->name}\n"
                     . "Username: " . ($this->webUser->username ?: '-') . "\n"
-                    . "Hak Akses: " . NeoPromptContract::roleContext($userLevel) . "\n";
+                    . "Hak Akses: " . NeoPromptContract::roleContext($resolvedLevel) . "\n\n"
+                    . NeoPromptContract::portalMenuGuide($resolvedLevel);
             }
 
             return '';
@@ -1031,18 +1034,18 @@ class HrisWhatsAppAgent
             $context .= "Atasan Langsung: {$atasan->nama_karyawan} (" . ($atasan->jabatan ?: '-') . ")\n";
         }
 
-        $subordinates = Karyawan::query()
-            ->where(function ($q) use ($karyawan) {
-                $q->where('atasan_langsung_nik', $karyawan->nik)
-                    ->orWhere('atasan_tidak_langsung_nik', $karyawan->nik);
-            })
-            ->where(function ($q) {
-                $q->whereNull('status_karyawan')->orWhere('status_karyawan', '!=', 'Resign');
-            })
-            ->get(['nama_karyawan', 'jabatan']);
+        $subordinates = Karyawan::activeSubordinatesFor($karyawan->nik);
+        $isSupervisor = $subordinates->isNotEmpty();
+        $hasVacancySupervision = Karyawan::hasVacancySupervisionFor($karyawan->nik);
 
-        if ($subordinates->isNotEmpty()) {
-            $context .= "Daftar Tim / Bawahan: " . $subordinates->map(fn ($s) => "{$s->nama_karyawan} ({$s->jabatan})")->implode(', ') . "\n";
+        if ($isSupervisor) {
+            $context .= "Status Peran: Atasan / Supervisor (memiliki akses Menu Atasan di portal)\n";
+            $context .= "Daftar Tim / Bawahan ({$subordinates->count()} orang): " . $subordinates->map(function ($s) use ($karyawan): string {
+                $rel = ($s->atasan_langsung_nik ?? null) === $karyawan->nik ? 'Bawahan Langsung' : 'Bawahan Tidak Langsung';
+                $jab = $s->jabatan ?: '-';
+
+                return "{$s->nama_karyawan} ({$s->nik}, {$jab}, {$rel})";
+            })->implode(', ') . "\n";
         }
 
         $user = User::where('username', $karyawan->nik)->first();
@@ -1111,6 +1114,8 @@ class HrisWhatsAppAgent
                 }
             }
         }
+
+        $context .= "\n" . NeoPromptContract::portalMenuGuide($userLevel, $isSupervisor, $hasVacancySupervision);
 
         return $context;
     }

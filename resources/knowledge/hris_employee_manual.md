@@ -76,7 +76,7 @@ Dokumen ini adalah acuan resmi operasional dan panduan lengkap bagi Asisten AI (
 ## 5. Pengajuan Lembur / SPL (Surat Perintah Lembur)
 * **Aturan Utama:**
   * Staf biasa **tidak memiliki menu pengajuan lembur mandiri**.
-  * Lembur **HANYA bisa diajukan oleh ATASAN LANGSUNG** (Supervisor atau Manager) untuk menugaskan bawahan langsungnya lewat menu *Atasan ➔ Pengajuan Lembur*.
+  * Lembur **HANYA bisa diajukan oleh ATASAN LANGSUNG** (Leader / Supervisor / Manager) untuk menugaskan bawahan langsungnya lewat menu *Menu Atasan ➔ Pengajuan Lembur*.
 * **Ketentuan Lembur:**
   * Durasi pelaksanaan lembur yang sah adalah antara **1 hingga 4 jam** per hari.
   * Wajib mencantumkan tanggal pelaksanaan, jam mulai, jam selesai, serta rincian pekerjaan atau alasan penugasan lembur.
@@ -84,9 +84,9 @@ Dokumen ini adalah acuan resmi operasional dan panduan lengkap bagi Asisten AI (
 
 ---
 
-## 6. Pengaturan Jadwal Kerja Tim (Khusus Supervisor)
-* Menu *Jadwal Tim* hanya dapat diakses oleh karyawan dengan jabatan **Supervisor**.
-* Supervisor bertugas mengatur shift kerja bawahan langsungnya dengan rentang tanggal maksimal **46 hari**.
+## 6. Pengaturan Jadwal Kerja Tim (Menu Atasan)
+* Menu *Menu Atasan ➔ Jadwal Tim* dapat diakses oleh Atasan yang memiliki bawahan langsung maupun tidak langsung.
+* Atasan bertugas mengatur shift kerja tim/bawahannya dengan rentang tanggal maksimal **46 hari**.
 * Pilihan kode shift: Pagi, Siang, Libur (OFF), Cuti, atau Public Holiday (PH).
 * Tersedia fitur unduh template excel untuk pengisian jadwal banyak karyawan sekaligus.
 
@@ -128,7 +128,9 @@ Dokumen ini adalah acuan resmi operasional dan panduan lengkap bagi Asisten AI (
 * **Level 0 (IT Administrator / Superadmin):** Akses teknis penuh seluruh sistem, database, dan pemeliharaan server.
 * **Level 1 (Direksi / Top Management):** Akses monitoring eksekutif dan laporan performa perusahaan.
 * **Level 2 (HRD / HRGA Management):** Akses pengelolaan seluruh data karyawan, rekrutmen, absensi, approval pengajuan, dan penggajian.
-* **Level 3 (Staff / Karyawan Biasa):** Hanya memiliki wewenang untuk melihat dan mengajukan data pribadi sendiri.
+* **Level 3 (Staff / Karyawan & Atasan):**
+  * Karyawan biasa memiliki wewenang untuk melihat dan mengajukan data pribadi sendiri (`Dashboard`, `Pengajuan`, `Absensi Saya`, `Kontrak Kerja`, `Panduan Aplikasi`, `Absensi Mandiri`, `Akses QR Gate`).
+  * Karyawan Level 3 yang berstatus **Atasan** (memiliki bawahan langsung/tidak langsung atau supervisi lowongan) memiliki menu tambahan **`Menu Atasan`** (`Persetujuan Pengajuan`, `Template & Penugasan KPI`, `Pengajuan Lembur`, `Pengajuan Rekrutmen`, `Jadwal Tim`, `Kehadiran Tim`, `Kandidat Bawahan`) serta dapat melihat kontrak kerja timnya di menu **`Kontrak Kerja`**.
 
 
 ---
@@ -152,31 +154,57 @@ Dokumen ini adalah acuan resmi operasional dan panduan lengkap bagi Asisten AI (
   * Nomor WhatsApp yang belum terdaftar di data karyawan tidak bisa menjalankan reset session, reset password, maupun QR Gate. Arahkan ke HRD untuk memperbarui nomor.
   * Karyawan Holding hanya boleh meminta QR Gate hari ini. Permintaan lain (reset session/password, data cuti, dll.) ditolak dengan ramah.
   * Reset session dan reset password langsung dijalankan untuk pemilik nomor yang sedang chat. Neo tidak boleh me-reset akun orang lain.
-  * Neo tidak melakukan aksi apa pun di luar tabel di atas (tidak membuat/mengubah/menghapus pengajuan cuti, lembur, absensi, atau data karyawan). Untuk itu arahkan ke portal https://hr.hompimplay.id atau eskalasi ke Tim IT.
-  * Neo menjawab seketika. Jangan pernah mengatakan "sebentar aku cek dulu" atau "nanti aku kabari".
+  * Agent HRIS (Nova) tidak melakukan eksekusi pengajuan/persetujuan di luar tabel aksi di atas (tidak membuat/mengubah/menghapus pengajuan cuti, lembur, jadwal, absensi, approval, atau data karyawan). Untuk tindakan tersebut, **arahkan langsung ke nama menu & submenu spesifik** di portal https://hr.hompimplay.id atau eskalasi ke Tim IT.
+  * Nova menjawab seketika. Jangan pernah mengatakan "sebentar aku cek dulu" atau "nanti aku kabari".
 
 ---
 
 ## 12. Sumber Data Real-time (Knowledge Dinamis)
-Untuk pertanyaan tentang data aktual, Neo membuat query SELECT ke database HRIS (hanya baca, dilarang INSERT/UPDATE/DELETE/DROP/ALTER/TRUNCATE) lalu merangkum hasilnya. Data yang bisa ditanyakan:
+Untuk pertanyaan tentang data aktual, Agent HRIS membuat query SELECT ke database HRIS (hanya baca, dilarang INSERT/UPDATE/DELETE/DROP/ALTER/TRUNCATE) lalu merangkum hasilnya. Data yang bisa ditanyakan:
 
 | Topik | Tabel utama |
 |---|---|
-| Absensi / scan masuk-pulang, total hadir periode | `fingerspot_attendance_logs` (dikaitkan lewat `pin` di `m_karyawan`) |
-| Profil karyawan, atasan langsung, jabatan, divisi | `m_karyawan` |
-| Saldo & riwayat cuti | `leave_accruals`, `leave_requests` |
-| Saldo Extra Off | `employee_extra_offs`, `extra_off_requests` |
-| Public Holiday & pengajuan PH | `public_holidays`, `public_holiday_requests` |
-| Lembur / SPL | `overtime_requests` |
-| Kontrak kerja | `t_kontrak_karyawan` |
+| Absensi / scan masuk-pulang, kehadiran tim, total hadir periode | `fingerspot_attendance_logs`, `attendance_corrections` (dikaitkan lewat `pin`/`nik` di `m_karyawan`) |
+| Profil karyawan, hierarki atasan/bawahan, jabatan, divisi | `m_karyawan` |
+| Jadwal kerja pribadi & Jadwal Tim | `employee_daily_schedules`, `attendance_schedule_categories` |
+| Saldo, riwayat & approval cuti | `leave_accruals`, `leave_requests` |
+| Saldo, riwayat & approval Extra Off | `employee_extra_offs`, `extra_off_requests` |
+| Public Holiday, riwayat & approval PH | `public_holidays`, `public_holiday_requests`, `employee_ph_balances` |
+| Izin / Sakit & approval bawahan | `employee_permissions` |
+| Lembur / SPL (pribadi & pengajuan atasan) | `overtime_requests` |
+| Kontrak kerja (pribadi & tim/bawahan) | `t_kontrak_karyawan` |
+| Template & Penugasan KPI tim | `kpi_templates`, `kpi_template_items`, `kpi_template_assignments`, `performance_periods` |
+| Pengajuan Rekrutmen & Kandidat Bawahan | `recruitment_requests`, `recruitment_vacancies`, `recruitment_candidates` |
 | Akun & izin absen mobile | `users` (`allow_mobile_attendance`) |
 
 * **Pembatasan akses data:**
   * Level 3 (Staff): hanya data pribadi sendiri.
-  * Atasan langsung: data pribadi dan data bawahan langsungnya (`atasan_langsung_nik`).
+  * Atasan (Level 3 yang memiliki bawahan): data pribadi **serta data tim/bawahan langsung (`atasan_langsung_nik`) maupun tidak langsung (`atasan_tidak_langsung_nik`)**, plus template KPI (`creator_nik`/`supervisor_nik`), pengajuan rekrutmen (`requester_nik`/`direct_report_nik`), & kandidat pada lowongan yang disupervisi (`supervisor_nik`).
   * Level 0-2 (IT Admin, Direksi, HRD): data karyawan lain dan rekap sesuai kewenangan.
   * Karyawan Holding: tidak memiliki data cuti, jadwal, atau fingerspot di portal ini.
 * **Periode penggajian** pada pertanyaan "periode ini" mengikuti cut-off tanggal 25 s/d 24.
 * **Prioritas sumber:** data dari database selalu menang atas panduan ini. Jika keduanya berbeda, sampaikan data database apa adanya tanpa mengarang.
-* **Jika informasi tidak ada** di database maupun panduan ini, Neo menjawab bahwa informasi belum tercatat dan menambahkan penanda `[UNRESOLVED]` agar pertanyaan masuk ke daftar evaluasi tim HRD/IT.
+* **Jika informasi belum tercatat / butuh tindak lanjut di aplikasi**, sampaikan jujur bahwa datanya belum tercatat **dan wajib arahkan pengguna ke nama menu & submenu portal HRIS yang tepat** sebelum menambahkan penanda `[UNRESOLVED]` (bila perlu evaluasi tim HRD/IT).
 * **FAQ tambahan** dikelola di tabel `t_whatsapp_bot_faq` (kolom `topic`, `keywords` dipisah koma, `answer`, `is_active`). Jawaban FAQ dicek lebih dulu sebelum AI dipanggil.
+
+---
+
+## 13. Panduan Navigasi Menu Portal HRIS (Karyawan & Atasan)
+Gunakan daftar menu ini saat pengguna bertanya lokasi fitur di portal https://hr.hompimplay.id atau saat data belum tercatat di database:
+
+* **Menu Pribadi Karyawan:**
+  * **Dashboard:** Ringkasan presensi, saldo cuti/PH/EO, & ringkasan tim (bila atasan).
+  * **Pengajuan ➔ Pengajuan Cuti / Public Holiday / Extra Off / Izin / Sakit:** Membuat pengajuan & melihat status persetujuan pribadi.
+  * **Absensi Saya:** Log scan presensi fingerspot & riwayat koreksi absen pribadi.
+  * **Kontrak Kerja:** Histori & tanggal berakhir kontrak pribadi maupun kontrak tim/bawahan (bagi atasan).
+  * **Panduan Aplikasi:** Dokumentasi penggunaan fitur portal HRIS.
+  * **Absensi Mandiri (Web App):** Absensi web selfie/GPS untuk user dengan izin mobile attendance.
+  * **Akses QR Gate:** Riwayat & akses QR Gate turnstile.
+* **Menu Atasan (muncul untuk karyawan yang memiliki bawahan / supervisi lowongan):**
+  * **Menu Atasan ➔ Persetujuan Pengajuan:** Setujui/tolak & pantau pengajuan cuti, PH, EO, dan izin/sakit bawahan.
+  * **Menu Atasan ➔ Template & Penugasan KPI:** Kelola template KPI, approval KPI tim, & penugasan KPI bawahan.
+  * **Menu Atasan ➔ Pengajuan Lembur:** Ajukan SPL lembur untuk bawahan langsung & lihat riwayatnya.
+  * **Menu Atasan ➔ Pengajuan Rekrutmen:** Ajukan permintaan tenaga kerja (manpower/MPTK) & cek status approvalnya.
+  * **Menu Atasan ➔ Jadwal Tim:** Atur & pantau jadwal shift kerja harian tim/bawahan.
+  * **Menu Atasan ➔ Kehadiran Tim:** Pantau log presensi & status kehadiran harian tim/bawahan.
+  * **Menu Atasan ➔ Kandidat Bawahan:** Pantau daftar pelamar, status seleksi, & jadwal interview pada lowongan yang disupervisi.
