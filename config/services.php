@@ -100,6 +100,7 @@ return [
 
     'hris_agent' => [
         'enabled' => env('HRIS_AGENT_ENABLED', true),
+        'persona_name' => env('HRIS_AGENT_PERSONA_NAME', 'Nova'),
         'created_date' => env('HRIS_AGENT_CREATED_DATE', '2026-05-28'),
         'trigger_prefix' => env('HRIS_AGENT_TRIGGER_PREFIX'),
         'webhook_token' => env('HRIS_AGENT_WEBHOOK_TOKEN'),

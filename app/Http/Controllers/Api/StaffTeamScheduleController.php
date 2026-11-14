@@ -41,6 +41,7 @@ class StaffTeamScheduleController extends Controller
                 'position' => $supervisor->jabatan ?: ($supervisor->posisi ?: '-'),
             ],
             'employees' => $employees->map(fn (Karyawan $employee) => [
+                'can_manage' => $employee->atasan_langsung_nik === $supervisor->nik,
                 'nik' => $employee->nik,
                 'name' => $employee->nama_karyawan,
                 'position' => $employee->jabatan ?: ($employee->posisi ?: '-'),
@@ -68,6 +69,7 @@ class StaffTeamScheduleController extends Controller
 
         return response()->json([
             'employee' => [
+                'can_manage' => $employee->atasan_langsung_nik === $supervisor->nik,
                 'nik' => $employee->nik,
                 'name' => $employee->nama_karyawan,
                 'position' => $employee->jabatan ?: ($employee->posisi ?: '-'),
@@ -88,14 +90,15 @@ class StaffTeamScheduleController extends Controller
         $employees = $this->manageableEmployees($supervisor);
         $filename = 'Template_Jadwal_Tim_'.$start->format('Ymd').'_'.$end->format('Ymd').'.csv';
 
-        return $this->templateResponse($employees, $start, $end, $filename);
+        return $this->templateResponse($employees->where('atasan_langsung_nik', $supervisor->nik), $start, $end, $filename);
     }
 
     public function store(Request $request, string $nik): JsonResponse
     {
         [$start, $end] = $this->period($request);
         $supervisor = $this->supervisorFor($request);
-        $this->manageableEmployeeOrFail($supervisor, $nik);
+        $employee = $this->manageableEmployeeOrFail($supervisor, $nik);
+        abort_unless($employee->atasan_langsung_nik === $supervisor->nik, 403, 'Atasan tidak langsung hanya dapat melihat jadwal.');
         $validated = $request->validate([
             'schedules' => ['required', 'array'],
             'schedules.*.date' => ['required', 'date'],
@@ -152,6 +155,7 @@ class StaffTeamScheduleController extends Controller
     {
         [$start, $end] = $this->period($request);
         $supervisor = $this->supervisorFor($request);
+        abort_unless($this->manageableEmployees($supervisor)->contains('atasan_langsung_nik', $supervisor->nik), 403, 'Atasan tidak langsung hanya dapat melihat jadwal.');
         $request->validate([
             'file' => [
                 'required',
@@ -163,7 +167,8 @@ class StaffTeamScheduleController extends Controller
                 },
             ],
         ]);
-        $employeeNiks = $this->manageableEmployees($supervisor)->pluck('nik')->flip();
+        $employeeNiks = $this->manageableEmployees($supervisor)
+            ->where('atasan_langsung_nik', $supervisor->nik)->pluck('nik')->flip();
         $rows = collect(Excel::toArray(new RawRowsImport, $request->file('file'))[0] ?? []);
         $header = collect($rows->shift() ?? []);
         $dateColumns = $this->dateColumns($header, $start, $end);

@@ -356,11 +356,11 @@ class FrontendNavigation
             return true;
         }
 
-        if (in_array($menu->key, ['staff-approvals', 'staff-kpi-templates', 'staff-overtime', 'staff-recruitment-requests'], true) && ! $this->hasDirectSubordinates($user)) {
+        if (in_array($menu->key, ['staff-kpi-templates', 'staff-overtime', 'staff-recruitment-requests'], true) && ! $this->hasDirectSubordinates($user)) {
             return false;
         }
 
-        if (in_array($menu->key, ['staff-team-schedules', 'staff-team-attendances'], true) && ! $this->hasScheduleSubordinates($user)) {
+        if (in_array($menu->key, ['staff-approvals', 'staff-team-schedules', 'staff-team-attendances'], true) && ! $this->hasScheduleSubordinates($user)) {
             return false;
         }
 
@@ -400,7 +400,7 @@ class FrontendNavigation
 
         $positionTitle = strtolower(trim((string) ($employee->posisi_title ?: $employee->jabatan)));
         $isLeaderOrAbove = in_array($positionTitle, [
-            'leader', 'spv', 'supervisor', 'asst. manager', 'manager', 'gm', 'general manager', 'head', 'coordinator'
+            'leader', 'spv', 'supervisor', 'asst. manager', 'manager', 'gm', 'general manager', 'head', 'coordinator',
         ], true);
 
         return $hasDirect || $isLeaderOrAbove;

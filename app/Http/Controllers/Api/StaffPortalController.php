@@ -7,7 +7,6 @@ use App\Http\Controllers\LeaveAccrualService;
 use App\Http\Services\ApprovalNotificationService;
 use App\Http\Services\ApprovalRoutingService;
 use App\Http\Services\WhatsAppService;
-use App\Models\AttendanceCorrection;
 use App\Models\EmployeeChangeLog;
 use App\Models\EmployeeDailySchedule;
 use App\Models\EmployeeExtraOff;
@@ -89,7 +88,7 @@ class StaffPortalController extends Controller
                 'start' => $periodStart->toDateString(),
                 'end' => $periodEnd->toDateString(),
             ],
-            'has_subordinates' => $hasSubordinates,
+            'has_subordinates' => $hasScheduleSubordinates,
             'supervisor_tools' => [
                 'team_schedules' => $hasScheduleSubordinates,
                 'overtime' => $hasSubordinates,
@@ -113,7 +112,7 @@ class StaffPortalController extends Controller
         $employee = $this->employeeFor($request->user());
         $today = now()->startOfDay();
         $subordinates = Karyawan::query()
-            ->whereIn('nik', $this->subordinateNiks($request->user()))
+            ->whereIn('nik', $this->subordinateNiks($request->user(), true))
             ->orderBy('nama_karyawan')
             ->get(['nik', 'nama_karyawan', 'jabatan', 'posisi', 'departement', 'divisi', 'unit']);
 
@@ -174,7 +173,7 @@ class StaffPortalController extends Controller
         abort_unless($contract && filled($contract->document), 404);
 
         $isOwnContract = (string) $contract->nik === (string) $request->user()->username;
-        $isActiveSubordinateContract = $this->subordinateNiks($request->user())
+        $isActiveSubordinateContract = $this->subordinateNiks($request->user(), true)
             ->contains((string) $contract->nik)
             && $this->isStaffContractActive($contract, now()->startOfDay());
 
@@ -189,6 +188,7 @@ class StaffPortalController extends Controller
             'content_base64' => base64_encode(Storage::disk($disk)->get($contract->document)),
         ])->header('Cache-Control', 'private, no-store');
     }
+
     public function gateQrUsages(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -284,7 +284,7 @@ class StaffPortalController extends Controller
     {
         $user = $request->user();
         $employee = $this->employeeFor($user);
-        if (!$employee) {
+        if (! $employee) {
             return response()->json(['records' => []]);
         }
 
@@ -1931,8 +1931,7 @@ class StaffPortalController extends Controller
             ->orderByDesc('holiday_date')
             ->get();
 
-        $directlyEligible = $allHolidays->filter(fn (PublicHoliday $holiday) => 
-            $recordedIds->contains($holiday->id)
+        $directlyEligible = $allHolidays->filter(fn (PublicHoliday $holiday) => $recordedIds->contains($holiday->id)
             || $addedHolidayIds->contains($holiday->id)
             || ! $this->requiresAttendanceForPublicHoliday($holiday)
             || $attendedDates->contains($holiday->holiday_date->toDateString())
@@ -1982,13 +1981,19 @@ class StaffPortalController extends Controller
                         ->exists()));
     }
 
-    private function subordinateNiks(User $user)
+    private function subordinateNiks(User $user, bool $includeIndirect = false)
     {
         $employee = Karyawan::query()->where('nik', $user->username)->first();
 
         return $employee
             ? Karyawan::query()
-                ->where('atasan_langsung_nik', $employee->nik)
+                ->where('nik', '!=', $employee->nik)
+                ->where(function ($query) use ($employee, $includeIndirect): void {
+                    $query->where('atasan_langsung_nik', $employee->nik);
+                    if ($includeIndirect) {
+                        $query->orWhere('atasan_tidak_langsung_nik', $employee->nik);
+                    }
+                })
                 ->whereRaw("UPPER(TRIM(COALESCE(status_karyawan, ''))) = ?", ['AKTIF'])
                 ->pluck('nik')
             : collect();
@@ -1996,12 +2001,12 @@ class StaffPortalController extends Controller
 
     private function subordinatesToday(User $user, Carbon $date): Collection
     {
-        $subordinateNiks = $this->subordinateNiks($user);
+        $subordinateNiks = $this->subordinateNiks($user, true);
         $subordinates = Karyawan::query()
             ->whereIn('nik', $subordinateNiks)
             ->whereRaw("UPPER(TRIM(COALESCE(status_karyawan, ''))) = ?", ['AKTIF'])
             ->orderBy('nama_karyawan')
-            ->get(['nik', 'pin', 'nama_karyawan', 'jabatan', 'posisi', 'departement', 'divisi', 'unit']);
+            ->get(['nik', 'pin', 'nama_karyawan', 'jabatan', 'posisi', 'departement', 'divisi', 'unit', 'atasan_langsung_nik']);
         $logsByPin = FingerspotAttendanceLog::query()
             ->whereIn('pin', $subordinates->pluck('pin')->filter())
             ->whereDate('scan_date', $date)
@@ -2016,7 +2021,7 @@ class StaffPortalController extends Controller
             ->keyBy('karyawan_nik');
         $approvedAbsences = $this->subordinateApprovedAbsencesToday($subordinateNiks, $date);
 
-        return $subordinates->map(function (Karyawan $employee) use ($logsByPin, $schedules, $approvedAbsences): array {
+        return $subordinates->map(function (Karyawan $employee) use ($user, $logsByPin, $schedules, $approvedAbsences): array {
             $scans = $this->dailyScanSummary($logsByPin->get((string) $employee->pin, collect()));
             $schedule = $schedules->get($employee->nik);
             $approvedAbsence = $approvedAbsences->get($employee->nik);
@@ -2044,7 +2049,11 @@ class StaffPortalController extends Controller
                 'attendance_status_label' => $approvedAbsence['label'] ?? null,
                 'schedule_code' => $schedule?->schedule_code,
                 'schedule_label' => $schedule?->category?->name,
-                'status_actions' => $this->subordinateStatusActions($employee, $approvedAbsence, $schedule, $hasScan),
+                'relationship' => $employee->atasan_langsung_nik === $user->username ? 'Bawahan langsung' : 'Bawahan tidak langsung',
+                'can_manage' => $employee->atasan_langsung_nik === $user->username,
+                'status_actions' => $employee->atasan_langsung_nik === $user->username
+                    ? $this->subordinateStatusActions($employee, $approvedAbsence, $schedule, $hasScan)
+                    : [],
             ];
         })->values();
     }
@@ -2389,7 +2398,8 @@ class StaffPortalController extends Controller
 
     private function subordinateApprovalsFor(User $user): Collection
     {
-        $subordinateUserIds = $this->subordinateUserIds($user);
+        $subordinateUserIds = User::query()->whereIn('username', $this->subordinateNiks($user, true))->pluck('id');
+        $directNiks = $this->subordinateNiks($user);
 
         if ($subordinateUserIds->isEmpty()) {
             return collect();
@@ -2425,6 +2435,14 @@ class StaffPortalController extends Controller
                     ->get()
                     ->map(fn (EmployeePermission $item) => $this->serializeApproval('permission', $item))
             )
+            ->map(function (array $item) use ($directNiks): array {
+                $canManage = $directNiks->contains($item['employee_nik']);
+                $item['can_decide'] = $item['can_decide'] && $canManage;
+                $item['can_manage'] = $canManage;
+                $item['relationship'] = $canManage ? 'Bawahan langsung' : 'Bawahan tidak langsung';
+
+                return $item;
+            })
             ->sortByDesc('created_at')
             ->values();
     }
