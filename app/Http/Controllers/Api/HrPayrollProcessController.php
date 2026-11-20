@@ -421,6 +421,7 @@ class HrPayrollProcessController extends Controller
             'employer_contribution' => $employer,
             'company_cost' => (int) $payroll->total_dibayarkan + $employer,
             'basic_salary' => (int) $payroll->basic_salary,
+            'payroll_proration' => $payroll->payroll_proration,
             'bruto_man_power' => (int) $payroll->bruto_man_power,
             'periode_hari_kerja' => (int) $payroll->hari_kerja,
             'total_hari_masuk' => (int) $payroll->total_hari_masuk,

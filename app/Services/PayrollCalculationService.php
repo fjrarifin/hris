@@ -8,7 +8,9 @@ use App\Models\Karyawan;
 use App\Models\Payroll;
 use App\Models\PayrollComponent;
 use App\Models\PayrollItem;
+use App\Models\PublicHoliday;
 use App\Services\PublicHolidayBalanceService;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -55,12 +57,24 @@ class PayrollCalculationService
             ->get()
             ->keyBy('nik');
 
-        $records = $audit['records']->filter(function (array $attendance) {
-            return ($attendance['total_hari_masuk'] ?? 0) > 0;
-        })->map(function (array $attendance) use ($employees): array {
+        $records = $audit['records']->map(function (array $attendance) use ($employees, $filters): array {
             $employee = $employees->get($attendance['nik']);
+            $proration = $employee
+                ? $this->prorationForEmployee($employee, $attendance, $filters['start_date'], $filters['end_date'])
+                : ['eligible_workdays' => 0, 'period_workdays' => 0, 'effective_start' => null, 'effective_end' => null];
+            $attendance['payable_attendance_days'] = $this->payableAttendanceDays(
+                $attendance,
+                $employee,
+                $filters['start_date'],
+                $filters['end_date']
+            );
+            $attendance['payroll_proration'] = $proration;
             $profile = $employee?->payrollProfile;
             $errors = [];
+
+            if ($proration['eligible_workdays'] === 0) {
+                $errors[] = 'Tidak ada hari kerja aktif yang memenuhi syarat payroll pada periode ini.';
+            }
 
             if (! $profile) {
                 $errors[] = 'Master payroll belum tersedia.';
@@ -77,7 +91,7 @@ class PayrollCalculationService
                 'is_attendance_ready' => $attendance['can_submit'],
                 'can_generate' => $errors === [],
                 'calculation_errors' => $errors,
-                'calculation' => $errors === [] ? $this->calculate($profile, (bool) $employee->bpjs, $attendance) : null,
+                'calculation' => $errors === [] ? $this->calculate($profile, (bool) $employee->bpjs, $attendance, $proration) : null,
             ];
         })->values();
 
@@ -151,6 +165,7 @@ class PayrollCalculationService
                         'total_hari_masuk' => $calculation['total_hari_masuk'],
                         'extra_off_days' => $calculation['extra_off_days'],
                         'tunjangan_tidak_tetap_full' => $calculation['tunjangan_tidak_tetap_full'],
+                        'payroll_proration' => $calculation['payroll_proration'],
                         'formula_version' => self::FORMULA_VERSION,
                         'total_pendapatan' => $calculation['gross_salary'],
                         'total_potongan' => $calculation['total_deduction'],
@@ -207,7 +222,7 @@ class PayrollCalculationService
         return [...$result, 'preview' => $preview];
     }
 
-    public function calculate(EmployeePayrollProfile $profile, bool $bpjsActive, array $attendance): array
+    public function calculate(EmployeePayrollProfile $profile, bool $bpjsActive, array $attendance, array $proration = []): array
     {
         $periodWorkdays = max((int) ($attendance['periode_hari_kerja'] ?? $attendance['scheduled_workdays'] ?? 1), 1);
         $totalHariMasuk = (int) ($attendance['total_hari_masuk'] ?? 0);
@@ -216,26 +231,35 @@ class PayrollCalculationService
         $sickWithoutDocumentDays = (int) ($attendance['sick_without_document_days'] ?? 0);
         $alphaDays = 0;
         $extraOffDays = max($totalHariMasuk - $periodWorkdays, 0);
-        $basicSalary = (int) $profile->gaji_pokok + (int) $profile->tunjangan_jabatan;
-        $bpjsEmployee = $bpjsActive ? $this->bpjsEmployee($basicSalary, $profile) : ['jkn' => 0, 'jht' => 0, 'jp' => 0];
-        $bpjsCompany = $bpjsActive ? $this->bpjsCompany($basicSalary, $profile) : ['jkn' => 0, 'jht' => 0, 'jp' => 0, 'jkk' => 0, 'jkm' => 0];
+        $eligibleWorkdays = max((int) ($proration['eligible_workdays'] ?? $periodWorkdays), 0);
+        $prorationPeriodWorkdays = max((int) ($proration['period_workdays'] ?? $periodWorkdays), 1);
+        $prorationRatio = min($eligibleWorkdays / $prorationPeriodWorkdays, 1);
+        $fullBasicSalary = (int) $profile->gaji_pokok;
+        $fullPositionAllowance = (int) $profile->tunjangan_jabatan;
+        $proratedBasicSalary = (int) round($fullBasicSalary * $prorationRatio);
+        $proratedPositionAllowance = (int) round($fullPositionAllowance * $prorationRatio);
+        $bpjsSalary = $fullBasicSalary + $fullPositionAllowance;
+        $basicSalary = $proratedBasicSalary + $proratedPositionAllowance;
+        $payableAttendanceDays = min((int) ($attendance['payable_attendance_days'] ?? $totalHariMasuk), $periodWorkdays);
+        $bpjsEmployee = $bpjsActive ? $this->bpjsEmployee($bpjsSalary, $profile) : ['jkn' => 0, 'jht' => 0, 'jp' => 0];
+        $bpjsCompany = $bpjsActive ? $this->bpjsCompany($bpjsSalary, $profile) : ['jkn' => 0, 'jht' => 0, 'jp' => 0, 'jkk' => 0, 'jkm' => 0];
         $totalBpjsEmployee = array_sum($bpjsEmployee);
         $totalBpjsCompany = array_sum($bpjsCompany);
         $tttFull = max(
             (int) $profile->bruto_man_power
-                - (int) $profile->gaji_pokok
-                - (int) $profile->tunjangan_jabatan
+                - $fullBasicSalary
+                - $fullPositionAllowance
                 - $totalBpjsCompany
                 - $totalBpjsEmployee,
             0
         );
         $tttDailyRate = (int) round($tttFull / $periodWorkdays);
-        $tttProrata = (int) round(($tttFull / $periodWorkdays) * $paidHariMasuk);
+        $tttProrata = (int) round(($tttFull / $periodWorkdays) * $payableAttendanceDays);
 
         $items = collect([
-            $this->item('Gaji Pokok', 'earning', $profile->gaji_pokok),
-            $this->item('Tunjangan Jabatan', 'earning', $profile->tunjangan_jabatan),
-            $this->item('Lembur', 'earning', round(($profile->gaji_pokok / 173) * (((int) ($attendance['overtime_minutes'] ?? 0)) / 60) * 1.5)),
+            $this->item('Gaji Pokok', 'earning', $proratedBasicSalary),
+            $this->item('Tunjangan Jabatan', 'earning', $proratedPositionAllowance),
+            $this->item('Lembur', 'earning', round(($fullBasicSalary / 173) * (((int) ($attendance['overtime_minutes'] ?? 0)) / 60) * 1.5)),
             $this->item('Potongan Izin', 'deduction', $permissionDays * $tttDailyRate),
             $this->item('Potongan Sakit Tanpa Surat', 'deduction', $sickWithoutDocumentDays * $tttDailyRate),
         ]);
@@ -274,6 +298,18 @@ class PayrollCalculationService
             'periode_hari_kerja' => $periodWorkdays,
             'total_hari_masuk' => $totalHariMasuk,
             'paid_hari_masuk' => $paidHariMasuk,
+            'payable_attendance_days' => $payableAttendanceDays,
+            'payroll_proration' => [
+                'effective_start' => $proration['effective_start'] ?? null,
+                'effective_end' => $proration['effective_end'] ?? null,
+                'eligible_workdays' => $eligibleWorkdays,
+                'period_workdays' => $prorationPeriodWorkdays,
+                'ratio' => round($prorationRatio, 6),
+                'full_basic_salary' => $fullBasicSalary,
+                'prorated_basic_salary' => $proratedBasicSalary,
+                'full_position_allowance' => $fullPositionAllowance,
+                'prorated_position_allowance' => $proratedPositionAllowance,
+            ],
             'alpha_days' => $alphaDays,
             'extra_off_days' => $extraOffDays,
             'tunjangan_tidak_tetap_full' => (int) round($tttFull),
@@ -287,6 +323,68 @@ class PayrollCalculationService
             'company_cost' => $gross - $deductions + $employer,
             'items' => $items->all(),
         ];
+    }
+
+    private function prorationForEmployee(Karyawan $employee, array $attendance, string $startDate, string $endDate): array
+    {
+        $start = CarbonImmutable::parse($startDate)->startOfDay();
+        $end = CarbonImmutable::parse($endDate)->startOfDay();
+        $effectiveStart = $employee->join_date
+            ? CarbonImmutable::parse($employee->join_date->toDateString())->max($start)
+            : $start;
+        $effectiveEnd = $employee->end_date
+            ? CarbonImmutable::parse($employee->end_date->toDateString())->min($end)
+            : $end;
+
+        if ($effectiveStart->greaterThan($effectiveEnd)) {
+            return ['effective_start' => null, 'effective_end' => null, 'eligible_workdays' => 0, 'period_workdays' => 0];
+        }
+
+        $periodWorkdays = $this->periodService->workdaySummary($startDate, $endDate)['workdays'];
+        $holidays = PublicHoliday::query()
+            ->where('is_active', true)
+            ->whereBetween('holiday_date', [$effectiveStart->toDateString(), $effectiveEnd->toDateString()])
+            ->pluck('holiday_date')
+            ->map(fn ($date) => CarbonImmutable::parse($date)->toDateString())
+            ->all();
+        $eligibleStatuses = ['M', 'C', 'S', 'SDC', 'PH', 'EO'];
+        $eligible = collect($attendance['days'] ?? [])->filter(function (array $day, string $date) use ($effectiveStart, $effectiveEnd, $holidays, $eligibleStatuses): bool {
+            $dayDate = CarbonImmutable::parse($date);
+            return $dayDate->betweenIncluded($effectiveStart, $effectiveEnd)
+                && ! $dayDate->isSunday()
+                && ! in_array($dayDate->toDateString(), $holidays, true)
+                && in_array($day['status'] ?? null, $eligibleStatuses, true)
+                && (($day['status'] ?? null) !== 'S' || ($day['has_document'] ?? false));
+        })->count();
+
+        return [
+            'effective_start' => $effectiveStart->toDateString(),
+            'effective_end' => $effectiveEnd->toDateString(),
+            'eligible_workdays' => $eligible,
+            'period_workdays' => $periodWorkdays,
+        ];
+    }
+
+    private function payableAttendanceDays(array $attendance, ?Karyawan $employee, string $startDate, string $endDate): int
+    {
+        $start = CarbonImmutable::parse($startDate);
+        $end = CarbonImmutable::parse($endDate);
+        if ($employee?->join_date) {
+            $start = CarbonImmutable::parse($employee->join_date->toDateString())->max($start);
+        }
+        if ($employee?->end_date) {
+            $end = CarbonImmutable::parse($employee->end_date->toDateString())->min($end);
+        }
+        if ($start->greaterThan($end)) {
+            return 0;
+        }
+
+        return collect($attendance['days'] ?? [])->filter(function (array $day, string $date) use ($start, $end): bool {
+            $dayDate = CarbonImmutable::parse($date);
+            return $dayDate->betweenIncluded($start, $end)
+                && in_array($day['status'] ?? null, ['M', 'C', 'S', 'SDC', 'PH', 'EO'], true)
+                && (($day['status'] ?? null) !== 'S' || ($day['has_document'] ?? false));
+        })->count();
     }
 
     private function bpjsEmployee(int $basicSalary, ?EmployeePayrollProfile $profile = null): array

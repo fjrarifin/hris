@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Exports\EmployeeExport;
 use App\Http\Controllers\Controller;
 use App\Models\EmployeeChangeLog;
 use App\Models\Karyawan;
@@ -16,7 +17,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
-use Symfony\Component\HttpFoundation\StreamedResponse;
+use Maatwebsite\Excel\Facades\Excel;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class EmployeeController extends Controller
 {
@@ -47,44 +49,9 @@ class EmployeeController extends Controller
         ]);
     }
 
-    public function export(): StreamedResponse
+    public function export(): BinaryFileResponse
     {
-        $employees = Karyawan::query()->orderBy('nik')->get();
-
-        return response()->streamDownload(function () use ($employees): void {
-            $file = fopen('php://output', 'w');
-            fputcsv($file, [
-                'NIK', 'Nama', 'Jabatan', 'Posisi', 'Divisi', 'Departemen', 'Unit',
-                'Email', 'No HP', 'Status Karyawan', 'Tanggal Bergabung',
-                'Golongan Darah', 'Status Pajak', 'Status Pernikahan', 'Nama Pasangan',
-                'Daftar Anak',
-            ]);
-
-            foreach ($employees as $employee) {
-                fputcsv($file, [
-                    $employee->nik,
-                    $employee->nama_karyawan,
-                    $employee->jabatan,
-                    $employee->posisi,
-                    $employee->divisi,
-                    $employee->departement,
-                    $employee->unit,
-                    $employee->email,
-                    $employee->no_hp,
-                    $this->employeeStatus($employee->nik),
-                    $employee->join_date?->toDateString(),
-                    $employee->golongan_darah,
-                    $employee->status_pajak,
-                    $employee->status_pernikahan,
-                    $employee->nama_pasangan,
-                    implode('; ', $this->employeeChildren($employee)),
-                ]);
-            }
-
-            fclose($file);
-        }, 'Data_Karyawan_'.now()->format('Ymd_His').'.csv', [
-            'Content-Type' => 'text/csv; charset=UTF-8',
-        ]);
+        return Excel::download(new EmployeeExport, 'Data_Karyawan_'.now()->format('Ymd_His').'.xlsx');
     }
 
     public function index(Request $request): JsonResponse

@@ -191,6 +191,32 @@ class EmployeeApiTest extends TestCase
             ->assertJsonCount(0, 'data.contracts');
     }
 
+    public function test_employee_export_contains_all_database_columns_and_preserves_text(): void
+    {
+        Karyawan::create([
+            'nik' => '0000123',
+            'nama_karyawan' => '=1+1',
+            'departement' => 'HRD',
+            'no_rekening' => '001234567890',
+        ]);
+        Karyawan::create(['nik' => 'EMP002', 'nama_karyawan' => 'Karyawan Kedua']);
+
+        $response = $this->get('/api/employees/export?departement=IT');
+        $response->assertOk();
+        $this->assertStringContainsString('.xlsx', $response->headers->get('content-disposition'));
+
+        $sheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($response->baseResponse->getFile()->getPathname())->getActiveSheet();
+        $rows = $sheet->toArray(null, false, false, false);
+        $columns = Schema::getColumnListing('m_karyawan');
+        $this->assertSame($columns, $rows[0]);
+        $this->assertCount(3, $rows);
+        $this->assertSame('0000123', $rows[1][array_search('nik', $columns, true)]);
+        $this->assertSame('=1+1', $rows[1][array_search('nama_karyawan', $columns, true)]);
+        $this->assertSame('001234567890', $rows[1][array_search('no_rekening', $columns, true)]);
+        $nameColumn = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(array_search('nama_karyawan', $columns, true) + 1);
+        $this->assertSame(\PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING, $sheet->getCell($nameColumn.'2')->getDataType());
+    }
+
     public function test_it_creates_updates_and_deletes_an_employee(): void
     {
         Karyawan::create([

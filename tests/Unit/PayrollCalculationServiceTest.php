@@ -80,6 +80,44 @@ class PayrollCalculationServiceTest extends TestCase
         $this->assertSame(5000000, $result['gross_salary']);
     }
 
+    public function test_it_prorates_fixed_components_by_paid_workdays_but_keeps_bpjs_full(): void
+    {
+        $service = new PayrollCalculationService(
+            Mockery::mock(PayrollAttendanceReadinessService::class),
+            Mockery::mock(PayrollValidationService::class),
+            Mockery::mock(PayrollPeriodService::class),
+            Mockery::mock(\App\Services\PublicHolidayBalanceService::class)
+        );
+        $profile = new EmployeePayrollProfile([
+            'gaji_pokok' => 3000000,
+            'tunjangan_jabatan' => 600000,
+            'bruto_man_power' => 5000000,
+            'rate_jkk_percent' => 0,
+        ]);
+
+        $result = $service->calculate($profile, true, [
+            'periode_hari_kerja' => 20,
+            'total_hari_masuk' => 8,
+            'payable_attendance_days' => 8,
+            'overtime_minutes' => 0,
+            'permission_days' => 0,
+            'sick_without_document_days' => 0,
+        ], [
+            'effective_start' => '2026-05-25',
+            'effective_end' => '2026-06-24',
+            'eligible_workdays' => 10,
+            'period_workdays' => 20,
+        ]);
+
+        $items = collect($result['items'])->keyBy('name');
+        $this->assertSame(1500000, $items->get('Gaji Pokok')['amount']);
+        $this->assertSame(300000, $items->get('Tunjangan Jabatan')['amount']);
+        $this->assertSame(144000, $items->firstWhere('name', 'Tunjangan BPJS Kesehatan Karyawan')['amount']);
+        $this->assertSame(133200, $items->firstWhere('name', 'Tunjangan JHT Karyawan')['amount']);
+        $this->assertSame(10, $result['payroll_proration']['eligible_workdays']);
+        $this->assertSame(0.5, $result['payroll_proration']['ratio']);
+    }
+
     protected function tearDown(): void
     {
         Mockery::close();
