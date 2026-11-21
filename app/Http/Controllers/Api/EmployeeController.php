@@ -35,6 +35,12 @@ class EmployeeController extends Controller
                 'email' => $employee->email,
                 'position' => $employee->jabatan ?: $employee->posisi,
                 'department' => $employee->departement ?: $employee->divisi,
+                'join_date' => $employee->join_date?->toDateString(),
+                'last_contract_end_date' => DB::table('t_kontrak_karyawan')
+                    ->where('nik', $employee->nik)
+                    ->orderByDesc('start_date')
+                    ->orderByDesc('id')
+                    ->value('end_date'),
                 'level' => $employee->posisi,
                 'divisi' => $employee->divisi,
                 'departement' => $employee->departement,

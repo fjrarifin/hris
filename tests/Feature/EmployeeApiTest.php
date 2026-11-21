@@ -151,6 +151,17 @@ class EmployeeApiTest extends TestCase
             'nama_karyawan' => 'Budi Santoso',
             'jabatan' => 'HR Staff',
             'departement' => 'HRD',
+            'join_date' => '2024-02-15',
+        ]);
+        DB::table('t_kontrak_karyawan')->insert([
+            [
+                'nik' => 'EMP001', 'kontrak_ke' => 1, 'start_date' => '2024-02-15', 'end_date' => '2024-08-14',
+                'status_kontrak' => 'SELESAI', 'created_at' => now(), 'updated_at' => now(),
+            ],
+            [
+                'nik' => 'EMP001', 'kontrak_ke' => 2, 'start_date' => '2024-08-15', 'end_date' => '2025-02-14',
+                'status_kontrak' => 'SELESAI', 'created_at' => now(), 'updated_at' => now(),
+            ],
         ]);
 
         Karyawan::create([
@@ -182,6 +193,8 @@ class EmployeeApiTest extends TestCase
             ->assertJsonPath('data.0.name', 'Budi Santoso')
             ->assertJsonPath('data.0.position', 'HR Staff')
             ->assertJsonPath('data.0.department', 'HRD')
+            ->assertJsonPath('data.0.join_date', '2024-02-15')
+            ->assertJsonPath('data.0.last_contract_end_date', '2025-02-14')
             ->assertJsonPath('data.1.photo_url', route('profile-photos.show', ['filename' => 'fajar.jpg']));
 
         $this->getJson('/api/employee/EMP002')
