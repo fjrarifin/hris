@@ -498,7 +498,7 @@ class HrLeaveBalanceController extends Controller
                 // Saldo dari tabel baru (otomatis dari absensi) dalam rentang aktif 90 hari
                 $phBalances = EmployeePhBalance::query()
                     ->where('karyawan_nik', $nik)
-                    ->whereDate('holiday_date', '>', now()->subDays(90))
+                    ->whereDate('holiday_date', '>=', now()->subDays(90))
                     ->whereDate('holiday_date', '<', now())
                     ->get();
                 $activeHolidayIds = $phBalances->pluck('public_holiday_id')->filter()->unique();
@@ -594,7 +594,7 @@ class HrLeaveBalanceController extends Controller
         return PublicHoliday::query()
             ->where('is_active', true)
             ->whereDate('holiday_date', '<', now())
-            ->whereDate('holiday_date', '>', now()->subDays(90))
+            ->whereDate('holiday_date', '>=', now()->subDays(90))
             ->when($joinDate, fn ($q) => $q->where(fn ($eligible) => $eligible
                 ->whereDate('holiday_date', '>=', $joinDate)->orWhereIn('id', $recordedIds)))
             ->whereNotIn('id', $deductedHolidayIds)

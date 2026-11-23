@@ -809,7 +809,7 @@ class HrAttendanceCorrectionController extends Controller
         return PublicHoliday::query()
             ->where('is_active', true)
             ->whereDate('holiday_date', '<', now())
-            ->whereDate('holiday_date', '>', now()->subDays(90))
+            ->whereDate('holiday_date', '>=', now()->subDays(90))
             ->when($joinDate, fn ($q) => $q->where(fn ($eligible) => $eligible
                 ->whereDate('holiday_date', '>=', $joinDate)->orWhereIn('id', $recordedIds)))
             ->whereNotIn('id', $approvedIds)

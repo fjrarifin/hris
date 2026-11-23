@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AuthController as ApiAuthController;
 use App\Http\Controllers\Api\EmployeeController;
 use App\Http\Controllers\Api\EventAbsenController;
 use App\Http\Controllers\Api\ForgotPasswordController;
+use App\Http\Controllers\Api\GaWorkOrderProxyController;
 use App\Http\Controllers\Api\HrApprovalController;
 use App\Http\Controllers\Api\HrAttendanceController;
 use App\Http\Controllers\Api\HrAttendanceCorrectionController;
@@ -25,6 +26,7 @@ use App\Http\Controllers\Api\HrRecruitmentRequestController;
 use App\Http\Controllers\Api\HrRecruitmentVacancyController;
 use App\Http\Controllers\Api\PublicCareerController;
 use App\Http\Controllers\Api\PublicEventAbsenController;
+use App\Http\Controllers\Api\PublicGaWorkOrderApprovalController;
 use App\Http\Controllers\Api\PublicQrHoldingController;
 use App\Http\Controllers\Api\PublicReferenceEvaluationController;
 use App\Http\Controllers\Api\PublicVisitorController;
@@ -153,6 +155,27 @@ Route::post('/public/qr-holding/validate-and-generate', [PublicQrHoldingControll
 Route::post('/public/visitor/register', [PublicVisitorController::class, 'register'])
     ->middleware('throttle:60,1')
     ->withoutMiddleware(['auth']);
+
+// Internal GA EMS -> HRIS Webhooks (protected by X-GA-Service-Secret)
+Route::post('/internal/ga/work-orders/notify-review', [GaWorkOrderProxyController::class, 'notifyReview'])
+    ->middleware('throttle:120,1')
+    ->withoutMiddleware(['auth']);
+Route::post('/internal/ga/work-orders/notify-rab', [GaWorkOrderProxyController::class, 'notifyRab'])
+    ->middleware('throttle:120,1')
+    ->withoutMiddleware(['auth']);
+
+// Public GA Work Order Approval Endpoints (Token-based, accessible without login)
+Route::prefix('public/ga-work-orders')
+    ->middleware('throttle:20,1')
+    ->withoutMiddleware(['auth'])
+    ->controller(PublicGaWorkOrderApprovalController::class)
+    ->group(function () {
+        Route::get('/{token}', 'show')->where('token', '[A-Za-z0-9]{10,64}');
+        Route::post('/{token}/decide', 'decide')->where('token', '[A-Za-z0-9]{10,64}');
+        Route::get('/{token}/attachments/{type}', 'attachment')
+            ->where('token', '[A-Za-z0-9]{10,64}')
+            ->whereIn('type', ['photo', 'document', 'spl']);
+    });
 
 Route::prefix('fingerspot')->group(function () {
     Route::post('/webhook', [FingerspotController::class, 'webhook']);
@@ -690,5 +713,23 @@ Route::middleware('auth:sanctum')->group(function () {
                 Route::get('/subordinate-candidates', [StaffPortalController::class, 'subordinateCandidates']);
             });
         });
+
+        // GA EMS Work Order Self-Service Bridge (accessible to all authenticated HRIS employees)
+        Route::prefix('ga/work-orders')
+            ->middleware('throttle:60,1')
+            ->controller(GaWorkOrderProxyController::class)
+            ->group(function () {
+                Route::get('/approvers', 'approvers');
+                Route::get('/units', 'units');
+                Route::get('/', 'index');
+                Route::post('/', 'store');
+                Route::get('/{id}', 'show')->whereNumber('id');
+                Route::delete('/{id}', 'destroy')->whereNumber('id');
+                Route::post('/{id}/approve', 'approve')->whereNumber('id');
+                Route::post('/{id}/review', 'review')->whereNumber('id');
+                Route::get('/{id}/attachments/{type}', 'attachment')
+                    ->whereNumber('id')
+                    ->whereIn('type', ['photo', 'document', 'spl', 'completion', 'revision']);
+            });
     });
 });

@@ -98,6 +98,12 @@ return [
         'credentials_json' => env('FIREBASE_CREDENTIALS_JSON'),
     ],
 
+    'ga_ems' => [
+        'url' => env('GA_EMS_API_URL', 'http://127.0.0.1:8013'),
+        'secret' => env('GA_EMS_SERVICE_SECRET', ''),
+        'timeout' => (int) env('GA_EMS_TIMEOUT', 8),
+    ],
+
     'hris_agent' => [
         'enabled' => env('HRIS_AGENT_ENABLED', true),
         'persona_name' => env('HRIS_AGENT_PERSONA_NAME', 'Nova'),

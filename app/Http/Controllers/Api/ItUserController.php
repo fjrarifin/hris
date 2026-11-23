@@ -70,6 +70,7 @@ class ItUserController extends Controller
             'level' => ['required', 'integer', 'in:0,1,2,3'],
             'is_active' => ['required', 'boolean'],
             'allow_mobile_attendance' => ['required', 'boolean'],
+            'allow_work_order' => ['sometimes', 'boolean'],
             'menu_ids' => ['nullable', 'array'],
             'menu_ids.*' => ['integer', 'exists:frontend_menus,id'],
         ]);
@@ -118,6 +119,7 @@ class ItUserController extends Controller
             'level' => ['required', 'integer', 'in:0,1,2,3'],
             'is_active' => ['required', 'boolean'],
             'allow_mobile_attendance' => ['required', 'boolean'],
+            'allow_work_order' => ['sometimes', 'boolean'],
         ]);
 
         DB::transaction(function () use ($user, $validated): void {
@@ -180,6 +182,7 @@ class ItUserController extends Controller
             'level_label' => $this->levelLabel((int) $user->level),
             'is_active' => (bool) $user->is_active,
             'allow_mobile_attendance' => (bool) $user->allow_mobile_attendance,
+            'allow_work_order' => (bool) $user->allow_work_order,
             'employee_name' => $employee?->nama_karyawan,
             'position' => $employee?->jabatan ?: $employee?->posisi,
             'department' => $employee?->departement ?: $employee?->divisi,

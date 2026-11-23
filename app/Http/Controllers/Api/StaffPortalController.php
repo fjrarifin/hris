@@ -1768,7 +1768,7 @@ class StaffPortalController extends Controller
         // Ambil ID hari libur aktif dalam jendela 90 hari yang tercatat di employee_ph_balances
         $activeHolidayIds = EmployeePhBalance::query()
             ->where('karyawan_nik', $employee->nik)
-            ->whereDate('holiday_date', '>', now()->subDays(90))
+            ->whereDate('holiday_date', '>=', now()->subDays(90))
             ->whereDate('holiday_date', '<', now())
             ->pluck('public_holiday_id')
             ->filter()
@@ -1924,7 +1924,7 @@ class StaffPortalController extends Controller
         $allHolidays = PublicHoliday::query()
             ->where('is_active', true)
             ->whereDate('holiday_date', '<', now())
-            ->whereDate('holiday_date', '>', now()->subDays(90))
+            ->whereDate('holiday_date', '>=', now()->subDays(90))
             ->when($joinDate, fn ($q) => $q->where(fn ($eligible) => $eligible
                 ->whereDate('holiday_date', '>=', $joinDate)->orWhereIn('id', $recordedIds)))
             ->whereNotIn('id', $deductedHolidayIds)

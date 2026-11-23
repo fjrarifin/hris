@@ -250,6 +250,16 @@ class FrontendNavigation
             ]);
         }
 
+        if ($this->isWorkOrderApprover($user)) {
+            $menus->push([
+                'id' => 9998,
+                'key' => 'staff-wo-approvals',
+                'label' => 'Approval Work Order',
+                'to' => '/staff/work-order-approvals',
+                'icon' => 'i-lucide-wrench',
+            ]);
+        }
+
         $requestKeys = ['staff-leave', 'staff-public-holiday', 'staff-extra-off', 'staff-permission'];
         $requestAnchor = $menus
             ->first(fn (array $menu) => in_array($menu['key'], $requestKeys, true))['key'] ?? null;
@@ -259,7 +269,7 @@ class FrontendNavigation
             ->values()
             ->all();
 
-        $supervisorKeys = ['staff-approvals', 'staff-kpi-templates', 'staff-overtime', 'staff-recruitment-requests', 'staff-team-schedules', 'staff-team-attendances', 'staff-subordinate-candidates'];
+        $supervisorKeys = ['staff-approvals', 'staff-wo-approvals', 'staff-kpi-templates', 'staff-overtime', 'staff-recruitment-requests', 'staff-team-schedules', 'staff-team-attendances', 'staff-subordinate-candidates'];
         $supervisorAnchor = $menus
             ->first(fn (array $menu) => in_array($menu['key'], $supervisorKeys, true))['key'] ?? null;
         $supervisorChildren = $menus
@@ -318,6 +328,10 @@ class FrontendNavigation
     {
         if ($key === 'staff-subordinate-candidates') {
             return $this->hasVacancySupervision($user);
+        }
+
+        if ($key === 'staff-wo-approvals') {
+            return $this->isWorkOrderApprover($user);
         }
 
         $menu = FrontendMenu::query()
@@ -425,6 +439,27 @@ class FrontendNavigation
         return $employee
             ? \App\Models\RecruitmentVacancy::query()->where('supervisor_nik', $employee->nik)->exists()
             : false;
+    }
+
+    private function isWorkOrderApprover(User $user): bool
+    {
+        $employee = $user->karyawan;
+        if (! $employee) {
+            return false;
+        }
+
+        $title = strtolower(trim((string) ($employee->posisi_title ?? '')));
+
+        return in_array($title, [
+            'supervisor',
+            'spv',
+            'asst. manager',
+            'asst manager',
+            'assistant manager',
+            'manager',
+            'general manager',
+            'gm',
+        ], true);
     }
 
     private function serializeMenu(FrontendMenu $menu, User $user): array

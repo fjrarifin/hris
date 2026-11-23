@@ -1615,7 +1615,7 @@ class HrisWhatsAppAgent
         $eligibleHolidays = \App\Models\PublicHoliday::query()
             ->where('is_active', true)
             ->whereDate('holiday_date', '<', now())
-            ->whereDate('holiday_date', '>', now()->subDays(90))
+            ->whereDate('holiday_date', '>=', now()->subDays(90))
             ->when($joinDate, fn ($q) => $q->whereDate('holiday_date', '>=', $joinDate))
             ->whereNotIn('id', $deductedHolidayIds)
             ->orderByDesc('holiday_date')
