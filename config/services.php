@@ -98,6 +98,24 @@ return [
         'credentials_json' => env('FIREBASE_CREDENTIALS_JSON'),
     ],
 
+    'google_calendar' => [
+        'enabled' => filter_var(env('GOOGLE_CALENDAR_ENABLED', false), FILTER_VALIDATE_BOOL),
+        'auth_mode' => env('GOOGLE_CALENDAR_AUTH_MODE', 'oauth'),
+        'calendar_id' => env('GOOGLE_CALENDAR_ID', 'primary'),
+        'client_id' => env('GOOGLE_CALENDAR_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CALENDAR_CLIENT_SECRET'),
+        'refresh_token' => env('GOOGLE_CALENDAR_REFRESH_TOKEN'),
+        'redirect_uri' => env('GOOGLE_CALENDAR_REDIRECT_URI'),
+        'token_file' => env('GOOGLE_CALENDAR_TOKEN_FILE', storage_path('app/google-calendar-oauth.json')),
+        'impersonate_email' => env('GOOGLE_CALENDAR_IMPERSONATE_EMAIL', 'hrbp@hompimplay.id'),
+        'credentials_file' => env('GOOGLE_CALENDAR_CREDENTIALS_FILE'),
+        'credentials_json' => env('GOOGLE_CALENDAR_CREDENTIALS_JSON'),
+        'default_duration_minutes' => (int) env('GOOGLE_CALENDAR_DEFAULT_DURATION_MINUTES', 60),
+        'send_updates' => env('GOOGLE_CALENDAR_SEND_UPDATES', 'all'),
+        'auto_create_meet' => filter_var(env('GOOGLE_CALENDAR_AUTO_CREATE_MEET', true), FILTER_VALIDATE_BOOL),
+        'timeout' => (int) env('GOOGLE_CALENDAR_TIMEOUT', 15),
+    ],
+
     'ga_ems' => [
         'url' => env('GA_EMS_API_URL', 'http://127.0.0.1:8013'),
         'secret' => env('GA_EMS_SERVICE_SECRET', ''),

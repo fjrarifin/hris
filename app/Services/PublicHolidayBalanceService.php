@@ -203,7 +203,7 @@ class PublicHolidayBalanceService
         $activeHolidays = PublicHoliday::query()
             ->where('is_active', true)
             ->whereDate('holiday_date', '<', now())
-            ->whereDate('holiday_date', '>=', now()->subDays(90))
+            ->whereDate('holiday_date', '>=', \App\Support\PublicHolidayValidity::earliestValidDate())
             ->when($joinDate, fn ($q) => $q->whereDate('holiday_date', '>=', $joinDate))
             ->whereNotIn('id', $deductedHolidayIds)
             ->orderByDesc('holiday_date')
@@ -218,7 +218,7 @@ class PublicHolidayBalanceService
         if ($employee->pin) {
             $attendedDates = FingerspotAttendanceLog::query()
                 ->where('pin', $employee->pin)
-                ->whereBetween('scan_date', [now()->subDays(90)->startOfDay(), now()->startOfDay()])
+                ->whereBetween('scan_date', [\App\Support\PublicHolidayValidity::earliestValidDate()->startOfDay(), now()->startOfDay()])
                 ->get(['scan_date'])
                 ->pluck('scan_date')
                 ->map(fn ($d) => Carbon::parse($d)->toDateString())
@@ -284,7 +284,7 @@ class PublicHolidayBalanceService
         }
 
         $now = Carbon::now();
-        $cutoff90 = $now->copy()->subDays(90)->startOfDay();
+        $cutoff90 = \App\Support\PublicHolidayValidity::earliestValidDate();
 
         // 1. Ambil hari libur aktif dalam rentang 90 hari terakhir
         $activeHolidays = PublicHoliday::query()
@@ -448,7 +448,7 @@ class PublicHolidayBalanceService
 
         $activeHolidayIds = EmployeePhBalance::query()
             ->where('karyawan_nik', $nik)
-            ->whereDate('holiday_date', '>=', now()->subDays(90))
+            ->whereDate('holiday_date', '>=', \App\Support\PublicHolidayValidity::earliestValidDate())
             ->whereDate('holiday_date', '<', now())
             ->pluck('public_holiday_id')
             ->filter()

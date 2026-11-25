@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\GoogleCalendarOAuthController;
 use App\Http\Controllers\HR\Monitoring360Controller;
 use App\Http\Controllers\HR\MonitoringSelfAssessmentController;
 use App\Http\Controllers\HR\RelasiMasterController;
@@ -42,6 +43,8 @@ Route::prefix('approval')->group(function () {
 });
 
 Route::get('/', fn () => redirect()->away(config('services.frontend.base_url')));
+Route::get('/google-calendar/oauth/callback', [GoogleCalendarOAuthController::class, 'callback'])
+    ->name('google-calendar.oauth.callback');
 Route::get('/dashboard', fn () => redirect()->away(config('services.frontend.base_url')))
     ->name('dashboard');
 

@@ -129,7 +129,7 @@
 				<div class="mt-6 text-center">
 					<p class="text-xs text-gray-500">
 						Butuh bantuan? Hubungi
-						<a href="https://wa.me/6282117289833" class="font-medium text-indigo-600 hover:text-indigo-500">
+						<a href="https://wa.me/6282343512356" class="font-medium text-indigo-600 hover:text-indigo-500">
 							IT Department
 						</a>
 					</p>

@@ -1095,6 +1095,7 @@ class StaffPortalController extends Controller
         return response()->json([
             'balance' => $balance,
             'holidays' => $eligibleHolidays->whereNotIn('id', $usedHolidayIds)->values(),
+            'expired_holidays' => $this->expiredPublicHolidays($user, $usedHolidayIds)->values(),
             'requests' => PublicHolidayRequest::query()
                 ->with(['holiday', 'user.karyawan'])
                 ->where('user_id', $user->id)
@@ -1115,7 +1116,7 @@ class StaffPortalController extends Controller
         $directToHr = $this->approvalRouting->requiresDirectHrApproval($user);
         $holiday = PublicHoliday::findOrFail($data['public_holiday_id']);
         $claimDate = Carbon::parse($data['claim_date'])->startOfDay();
-        $expiredAt = $holiday->holiday_date->copy()->addDays(90);
+        $expiredAt = \App\Support\PublicHolidayValidity::expiresAt($holiday->holiday_date);
 
         if (! $this->eligiblePublicHolidays($user)->contains('id', $holiday->id)) {
             throw ValidationException::withMessages([
@@ -1131,16 +1132,12 @@ class StaffPortalController extends Controller
             throw ValidationException::withMessages(['claim_date' => 'Tanggal pengambilan tidak boleh sebelum tanggal PH.']);
         }
 
-        // Masa berlaku PH berlaku untuk tanggal PENGAJUAN, bukan tanggal pengambilan.
-        // Selama diajukan sebelum expired, tanggal claim boleh melewati tanggal expired.
-        if (now()->gt($expiredAt->copy()->endOfDay())) {
-            throw ValidationException::withMessages(['public_holiday_id' => 'Masa berlaku pengajuan PH ini telah berakhir pada '.$expiredAt->format('d M Y').'.']);
+        if (now()->gt($expiredAt)) {
+            throw ValidationException::withMessages(['public_holiday_id' => 'Masa berlaku PH ini telah berakhir pada '.$expiredAt->format('d M Y').'.']);
         }
 
-        $maxClaimDate = now()->startOfDay()->addDays(90);
-
-        if ($claimDate->gt($maxClaimDate)) {
-            throw ValidationException::withMessages(['claim_date' => 'Tanggal pengambilan maksimal 90 hari ke depan.']);
+        if ($claimDate->gt($expiredAt)) {
+            throw ValidationException::withMessages(['claim_date' => 'PH wajib digunakan paling lambat pada '.$expiredAt->format('d M Y').'.']);
         }
 
         if (LeaveRequest::query()
@@ -1200,10 +1197,19 @@ class StaffPortalController extends Controller
     public function extraOffs(Request $request): JsonResponse
     {
         $user = $request->user();
+        $allSources = $this->allExtraOffSources($user);
+        $availableSources = $allSources
+            ->filter(fn (array $source): bool => $source['remaining_days'] > 0 && ! $source['is_expired'])
+            ->values();
+        $expiredSources = $allSources
+            ->filter(fn (array $source): bool => $source['is_expired'] && $source['expired_days'] > 0)
+            ->sortByDesc('expired_at')
+            ->values();
 
         return response()->json([
-            'balance' => $this->extraOffBalance($user),
-            'sources' => $this->availableExtraOffSources($user)->values(),
+            'balance' => $availableSources->sum('remaining_days'),
+            'sources' => $availableSources,
+            'expired_sources' => $expiredSources,
             'requests' => ExtraOffRequest::query()
                 ->with('user.karyawan')
                 ->where('user_id', $user->id)
@@ -1768,7 +1774,7 @@ class StaffPortalController extends Controller
         // Ambil ID hari libur aktif dalam jendela 90 hari yang tercatat di employee_ph_balances
         $activeHolidayIds = EmployeePhBalance::query()
             ->where('karyawan_nik', $employee->nik)
-            ->whereDate('holiday_date', '>=', now()->subDays(90))
+            ->whereDate('holiday_date', '>=', \App\Support\PublicHolidayValidity::earliestValidDate())
             ->whereDate('holiday_date', '<', now())
             ->pluck('public_holiday_id')
             ->filter()
@@ -1797,6 +1803,13 @@ class StaffPortalController extends Controller
 
     private function availableExtraOffSources(User $user): Collection
     {
+        return $this->allExtraOffSources($user)
+            ->filter(fn (array $source): bool => $source['remaining_days'] > 0 && ! $source['is_expired'])
+            ->values();
+    }
+
+    private function allExtraOffSources(User $user): Collection
+    {
         $employee = $this->employeeFor($user);
 
         // Auto-cancel request PH dan EO yang sudah approved jika karyawan ternyata scan masuk pada hari tersebut
@@ -1809,7 +1822,7 @@ class StaffPortalController extends Controller
             ->get()
             ->map(function (EmployeeExtraOff $source) use ($user): array {
                 $used = $this->usedExtraOffDays($user, $source);
-                $remaining = max((int) $source->days - $used, 0);
+                $unused = max((int) $source->days - $used, 0);
                 $expiredAt = $source->expirationDate();
                 $isExpired = now()->startOfDay()->gt($expiredAt->copy()->endOfDay());
 
@@ -1817,15 +1830,15 @@ class StaffPortalController extends Controller
                     'source_id' => $source->id,
                     'source_period_start' => $source->periode_start->toDateString(),
                     'source_period_end' => $source->periode_end->toDateString(),
-                    'label' => ($source->public_holiday_request_id ? 'Pengganti PH #'.$source->public_holiday_request_id.' ? ' : '').$source->periode_start->format('d M Y').' - '.$source->periode_end->format('d M Y'),
+                    'label' => ($source->public_holiday_request_id ? 'Pengganti PH #'.$source->public_holiday_request_id.' • ' : '').$source->periode_start->format('d M Y').' - '.$source->periode_end->format('d M Y'),
                     'days' => (int) $source->days,
                     'used_days' => $used,
-                    'remaining_days' => $isExpired ? 0 : $remaining,
+                    'remaining_days' => $isExpired ? 0 : $unused,
+                    'expired_days' => $isExpired ? $unused : 0,
                     'expired_at' => $expiredAt->toDateString(),
                     'is_expired' => $isExpired,
                 ];
             })
-            ->filter(fn (array $source): bool => $source['remaining_days'] > 0 && ! $source['is_expired'])
             ->values();
     }
 
@@ -1894,7 +1907,7 @@ class StaffPortalController extends Controller
         $attendedDates = $employee->pin
             ? FingerspotAttendanceLog::query()
                 ->where('pin', $employee->pin)
-                ->whereBetween('scan_date', [now()->subDays(90)->startOfDay(), now()->startOfDay()])
+                ->whereBetween('scan_date', [\App\Support\PublicHolidayValidity::earliestValidDate()->startOfDay(), now()->startOfDay()])
                 ->get(['scan_date'])
                 ->pluck('scan_date')
                 ->map(fn (Carbon $date) => $date->toDateString())
@@ -1924,7 +1937,7 @@ class StaffPortalController extends Controller
         $allHolidays = PublicHoliday::query()
             ->where('is_active', true)
             ->whereDate('holiday_date', '<', now())
-            ->whereDate('holiday_date', '>=', now()->subDays(90))
+            ->whereDate('holiday_date', '>=', \App\Support\PublicHolidayValidity::earliestValidDate())
             ->when($joinDate, fn ($q) => $q->where(fn ($eligible) => $eligible
                 ->whereDate('holiday_date', '>=', $joinDate)->orWhereIn('id', $recordedIds)))
             ->whereNotIn('id', $deductedHolidayIds)
@@ -1948,6 +1961,64 @@ class StaffPortalController extends Controller
         }
 
         return $directlyEligible->values();
+    }
+
+    private function expiredPublicHolidays(User $user, Collection $usedHolidayIds): Collection
+    {
+        $employee = $this->employeeFor($user);
+        $joinDate = $employee->join_date ? Carbon::parse($employee->join_date)->startOfDay() : null;
+
+        $deductedHolidayIds = EmployeePhAdjustment::query()
+            ->where('karyawan_nik', $employee->nik)
+            ->whereNotNull('public_holiday_id')
+            ->where('days', '<', 0)
+            ->pluck('public_holiday_id');
+
+        $addedHolidayIds = EmployeePhAdjustment::query()
+            ->where('karyawan_nik', $employee->nik)
+            ->whereNotNull('public_holiday_id')
+            ->where('days', '>', 0)
+            ->pluck('public_holiday_id');
+
+        $recordedIds = app(\App\Services\PublicHolidayBalanceService::class)->recordedHolidayIds($employee);
+
+        $candidates = PublicHoliday::query()
+            ->where('is_active', true)
+            ->whereDate('holiday_date', '<', \App\Support\PublicHolidayValidity::earliestValidDate())
+            ->when($joinDate, fn ($q) => $q->where(fn ($eligible) => $eligible
+                ->whereDate('holiday_date', '>=', $joinDate)
+                ->orWhereIn('id', $recordedIds)
+                ->orWhereIn('id', $addedHolidayIds)))
+            ->whereNotIn('id', $deductedHolidayIds)
+            ->whereNotIn('id', $usedHolidayIds)
+            ->orderByDesc('holiday_date')
+            ->get();
+
+        if ($candidates->isEmpty()) {
+            return collect();
+        }
+
+        $attendedDates = collect();
+        if ($employee->pin) {
+            $minDate = $candidates->last()->holiday_date->copy()->startOfDay();
+            $maxDate = $candidates->first()->holiday_date->copy()->endOfDay();
+
+            $attendedDates = FingerspotAttendanceLog::query()
+                ->where('pin', $employee->pin)
+                ->whereBetween('scan_date', [$minDate, $maxDate])
+                ->get(['scan_date'])
+                ->pluck('scan_date')
+                ->map(fn (Carbon $date) => $date->toDateString())
+                ->unique();
+        }
+
+        return $candidates
+            ->filter(fn (PublicHoliday $holiday) => $recordedIds->contains($holiday->id)
+                || $addedHolidayIds->contains($holiday->id)
+                || ! $this->requiresAttendanceForPublicHoliday($holiday)
+                || $attendedDates->contains($holiday->holiday_date->toDateString())
+            )
+            ->values();
     }
 
     private function requiresAttendanceForPublicHoliday(PublicHoliday $holiday): bool

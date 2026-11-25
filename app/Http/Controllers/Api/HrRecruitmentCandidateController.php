@@ -535,8 +535,19 @@ class HrRecruitmentCandidateController extends Controller
         $beforeAudit = app(HrdAuditLogService::class)->snapshot($candidate);
         $subjectId = $candidate->id;
         $subjectLabel = "Candidate #{$candidate->id}: {$candidate->name}";
+        $gcalEventIds = array_values(array_filter(array_merge(
+            [$candidate->interview_hr_gcal_event_id],
+            $candidate->userInterviews()->whereNotNull('gcal_event_id')->pluck('gcal_event_id')->all(),
+        )));
 
         $candidate->delete();
+
+        $gcal = app(\App\Services\GoogleCalendarService::class);
+        if ($gcal->isEnabled() && $gcalEventIds !== []) {
+            foreach ($gcalEventIds as $eventId) {
+                $gcal->deleteEvent($eventId);
+            }
+        }
 
         if ($resume) {
             Storage::disk('local')->delete($resume);
@@ -910,6 +921,20 @@ class HrRecruitmentCandidateController extends Controller
             null,
             ['source' => 'schedule_hr_interview'],
         );
+
+        $gcalResult = app(\App\Services\GoogleCalendarService::class)->syncHrInterview($candidate);
+        if ($gcalResult) {
+            $gcalUpdates = [
+                'interview_hr_gcal_event_id' => $gcalResult['event_id'],
+                'interview_hr_gcal_event_link' => $gcalResult['html_link'],
+                'interview_hr_gcal_synced_at' => $gcalResult['synced_at'],
+            ];
+            if (empty($candidate->interview_hr_meet_link) && ! empty($gcalResult['meet_link'])) {
+                $gcalUpdates['interview_hr_meet_link'] = $gcalResult['meet_link'];
+            }
+            $candidate->update($gcalUpdates);
+            $candidate->refresh();
+        }
 
         $emailSent = false;
         try {
@@ -1536,6 +1561,24 @@ class HrRecruitmentCandidateController extends Controller
             ['candidate_id' => $candidate->id, 'round' => $payload['round']],
             $payload
         );
+
+        $gcalResult = app(\App\Services\GoogleCalendarService::class)->syncUserInterview(
+            $candidate,
+            $userInterview,
+            $selectedNiks,
+        );
+        if ($gcalResult) {
+            $gcalUpdates = [
+                'gcal_event_id' => $gcalResult['event_id'],
+                'gcal_event_link' => $gcalResult['html_link'],
+                'gcal_synced_at' => $gcalResult['synced_at'],
+            ];
+            if (empty($userInterview->interview_meet_link) && ! empty($gcalResult['meet_link'])) {
+                $gcalUpdates['interview_meet_link'] = $gcalResult['meet_link'];
+            }
+            $userInterview->update($gcalUpdates);
+            $userInterview->refresh();
+        }
 
         // Synchronize evaluations for each selected interviewer
         $existingEvaluations = RecruitmentUserInterviewEvaluation::where('candidate_id', $candidate->id)

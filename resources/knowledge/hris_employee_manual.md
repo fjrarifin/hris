@@ -52,8 +52,11 @@ Dokumen ini adalah acuan resmi operasional dan panduan lengkap bagi Asisten AI (
 ## 3. Public Holiday (PH) & Extra Off (EO)
 * **Kompensasi Public Holiday (PH):**
   * **Cara Mendapatkan:** Saldo PH diperoleh jika karyawan **masuk bekerja** (tercatat scan masuk fingerspot) pada hari libur nasional / tanggal merah resmi kalender kantor.
-  * **Masa Berlaku:** Saldo PH berlaku selama **90 hari (3 bulan)** sejak tanggal libur nasional tersebut.
-  * **Pengambilan:** Digunakan sebagai hari libur pengganti lewat menu *Pengajuan PH* di portal HRIS.
+  * **Masa Berlaku:** PH memiliki masa berlaku selama **3 (tiga) bulan kalender**. Tanggal kedaluwarsa merupakan hari terakhir PH dapat digunakan:
+    1. PH wajib digunakan paling lambat pada tanggal kedaluwarsanya.
+    2. Apabila PH belum digunakan hingga tanggal kedaluwarsa, maka PH akan hangus mulai hari berikutnya.
+    3. **Contoh:** Apabila karyawan bekerja pada hari libur nasional tanggal **4 Oktober 2026**, maka PH tersebut berlaku hingga **3 Januari 2027** (dan hangus mulai **4 Januari 2027**).
+  * **Pengambilan:** Digunakan sebagai hari libur pengganti lewat menu *Pengajuan PH* di portal HRIS atau aplikasi mobile (tanggal pengambilan maksimal pada tanggal kedaluwarsa PH).
   * **Alur Persetujuan:** Disetujui oleh Atasan Langsung ➔ Diverifikasi oleh HRD.
   * **Pembatalan:** Jika karyawan tetap masuk kerja pada hari PH yang disetujui, hak PH dapat dikembalikan.
 * **Saldo Extra Off (EO):**

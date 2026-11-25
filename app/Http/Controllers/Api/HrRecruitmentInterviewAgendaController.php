@@ -114,6 +114,9 @@ class HrRecruitmentInterviewAgendaController extends Controller
                     emailSentAt: $candidate->interview_hr_email_sent_at,
                     waSentAt: $candidate->interview_hr_wa_sent_at,
                     interviewers: array_values(array_filter([$candidate->pic?->nama_karyawan ?: $candidate->pic_nik])),
+                    gcalEventId: $candidate->interview_hr_gcal_event_id,
+                    gcalEventLink: $candidate->interview_hr_gcal_event_link,
+                    gcalSyncedAt: $candidate->interview_hr_gcal_synced_at,
                 );
             }
 
@@ -137,6 +140,9 @@ class HrRecruitmentInterviewAgendaController extends Controller
                     emailSentAt: $interview->email_sent_at,
                     waSentAt: $interview->wa_sent_at,
                     interviewers: array_map(fn (string $nik) => $employeeNames->get($nik, $nik), $niks),
+                    gcalEventId: $interview->gcal_event_id,
+                    gcalEventLink: $interview->gcal_event_link,
+                    gcalSyncedAt: $interview->gcal_synced_at,
                 );
             }
 
@@ -158,6 +164,9 @@ class HrRecruitmentInterviewAgendaController extends Controller
         mixed $emailSentAt,
         mixed $waSentAt,
         array $interviewers,
+        ?string $gcalEventId = null,
+        ?string $gcalEventLink = null,
+        mixed $gcalSyncedAt = null,
     ): array {
         $completed = filled($completedAt);
 
@@ -183,6 +192,9 @@ class HrRecruitmentInterviewAgendaController extends Controller
             'status' => $completed ? 'completed' : ($at->copy()->addHour()->isPast() ? 'overdue' : 'upcoming'),
             'email_sent_at' => $emailSentAt ? Carbon::parse($emailSentAt)->toIso8601String() : null,
             'wa_sent_at' => $waSentAt ? Carbon::parse($waSentAt)->toIso8601String() : null,
+            'gcal_event_id' => $gcalEventId,
+            'gcal_event_link' => $gcalEventLink,
+            'gcal_synced_at' => $gcalSyncedAt ? Carbon::parse($gcalSyncedAt)->toIso8601String() : null,
             'interviewers' => $interviewers,
         ];
     }

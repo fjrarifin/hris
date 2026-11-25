@@ -27,19 +27,23 @@ class AutoRejectExpiredPublicHoliday extends Command
      */
     public function handle()
     {
-        $expiredRequests = PublicHolidayRequest::with('user')
+        $expiredRequests = PublicHolidayRequest::with(['user', 'holiday'])
             ->where('status', 'pending')
-            ->where('expired_at', '<', now())
-            // Pengajuan yang masuk sebelum expired boleh punya tanggal claim setelah expired,
-            // jadi baru di-reject otomatis jika tanggal claim-nya juga sudah lewat.
-            ->whereDate('claim_date', '<', now()->toDateString())
-            ->get();
+            ->get()
+            ->filter(function ($request): bool {
+                if (! $request->holiday?->holiday_date) {
+                    return false;
+                }
+                $expiry = \App\Support\PublicHolidayValidity::expiresAt($request->holiday->holiday_date);
+
+                return now()->gt($expiry) || $request->claim_date->gt($expiry);
+            });
 
         foreach ($expiredRequests as $request) {
 
             $request->update([
                 'status' => 'rejected',
-                'reject_reason' => 'PH expired otomatis (90 hari terlewati)'
+                'reject_reason' => 'PH ditolak otomatis: masa berlaku 3 bulan berakhir atau tanggal pemakaian melewati kedaluwarsa.'
             ]);
 
             $request->user->notify(

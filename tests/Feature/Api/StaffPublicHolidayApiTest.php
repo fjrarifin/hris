@@ -206,7 +206,50 @@ class StaffPublicHolidayApiTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_ph_claim_can_be_after_expiry_when_submitted_while_valid(): void
+    public function test_october_ph_is_available_through_january_third_only(): void
+    {
+        $holiday = $this->createHoliday('PH Oktober', '2026-10-04');
+        app(\App\Services\PublicHolidayBalanceService::class)->grantManually('EMP001', $holiday->id, 'Hak PH', null);
+
+        Carbon::setTestNow('2027-01-03 23:59:59');
+        $this->getJson('/api/staff/public-holiday')
+            ->assertOk()
+            ->assertJsonPath('balance', 1)
+            ->assertJsonCount(1, 'holidays')
+            ->assertJsonPath('holidays.0.expired_at', '2027-01-03')
+            ->assertJsonCount(0, 'expired_holidays');
+
+        Carbon::setTestNow('2027-01-04 00:00:00');
+        $this->getJson('/api/staff/public-holiday')
+            ->assertOk()
+            ->assertJsonPath('balance', 0)
+            ->assertJsonCount(0, 'holidays')
+            ->assertJsonCount(1, 'expired_holidays')
+            ->assertJsonPath('expired_holidays.0.id', $holiday->id)
+            ->assertJsonPath('expired_holidays.0.expired_at', '2027-01-03');
+    }
+
+    public function test_expired_extra_off_sources_are_returned_on_staff_extra_off_endpoint(): void
+    {
+        Carbon::setTestNow('2026-10-01 09:00:00');
+        \App\Models\EmployeeExtraOff::create([
+            'karyawan_nik' => 'EMP001',
+            'periode_start' => '2026-05-25',
+            'periode_end' => '2026-06-24',
+            'days' => 2,
+        ]);
+
+        $this->getJson('/api/staff/extra-off')
+            ->assertOk()
+            ->assertJsonPath('balance', 0)
+            ->assertJsonCount(0, 'sources')
+            ->assertJsonCount(1, 'expired_sources')
+            ->assertJsonPath('expired_sources.0.expired_days', 2)
+            ->assertJsonPath('expired_sources.0.expired_at', '2026-09-24')
+            ->assertJsonPath('expired_sources.0.is_expired', true);
+    }
+
+    public function test_ph_claim_on_expiry_is_allowed(): void
     {
         Carbon::setTestNow('2026-08-10 09:00:00');
         $holiday = $this->createHoliday('PH historical', '2026-05-14');
@@ -216,29 +259,29 @@ class StaffPublicHolidayApiTest extends TestCase
 
         $this->postJson('/api/staff/public-holiday', [
             'public_holiday_id' => $holiday->id,
-            'claim_date' => '2026-08-20',
+            'claim_date' => '2026-08-13',
         ])->assertCreated();
 
         $claim = PublicHolidayRequest::sole();
-        $this->assertSame('2026-08-12', $claim->expired_at->toDateString());
-        $this->assertSame('2026-08-20', $claim->claim_date->toDateString());
-        $this->assertTrue($claim->claim_date->gt($claim->expired_at));
+        $this->assertSame('2026-08-13', $claim->expired_at->toDateString());
+        $this->assertSame('2026-08-13', $claim->claim_date->toDateString());
+        $this->assertSame($claim->expired_at->toDateString(), $claim->claim_date->toDateString());
     }
 
     public function test_ph_submission_after_expiry_is_rejected(): void
     {
-        Carbon::setTestNow('2026-08-13 09:00:00');
+        Carbon::setTestNow('2026-08-14 09:00:00');
         $holiday = $this->createHoliday('PH historical', '2026-05-14');
 
         $this->postJson('/api/staff/public-holiday', [
             'public_holiday_id' => $holiday->id,
-            'claim_date' => '2026-08-20',
+            'claim_date' => '2026-08-13',
         ])->assertUnprocessable()->assertJsonValidationErrors('public_holiday_id');
 
         $this->assertDatabaseCount('public_holiday_requests', 0);
     }
 
-    public function test_ph_claim_keeps_past_date_and_90_day_submission_limits(): void
+    public function test_ph_claim_rejects_past_dates_and_dates_after_expiry(): void
     {
         Carbon::setTestNow('2026-08-10 09:00:00');
         $holiday = $this->createHoliday('PH historical', '2026-05-14');
@@ -246,7 +289,7 @@ class StaffPublicHolidayApiTest extends TestCase
             $mock->shouldReceive('notifyManager')->once();
         });
 
-        foreach ([-1, 91] as $days) {
+        foreach ([-1, 4, 91] as $days) {
             $this->postJson('/api/staff/public-holiday', [
                 'public_holiday_id' => $holiday->id,
                 'claim_date' => now()->startOfDay()->addDays($days)->toDateString(),
@@ -256,7 +299,7 @@ class StaffPublicHolidayApiTest extends TestCase
 
         $this->postJson('/api/staff/public-holiday', [
             'public_holiday_id' => $holiday->id,
-            'claim_date' => now()->startOfDay()->addDays(90)->toDateString(),
+            'claim_date' => '2026-08-13',
         ])->assertCreated();
     }
 
@@ -561,9 +604,9 @@ class StaffPublicHolidayApiTest extends TestCase
         $holiday = $this->createHoliday('PH lama', '2026-02-01');
         $claim = PublicHolidayRequest::create([
             'user_id' => $this->employee->id, 'public_holiday_id' => $holiday->id,
-            'claim_date' => '2026-05-01', 'status' => 'approved',
+            'claim_date' => '2026-04-30', 'status' => 'approved',
         ]);
-        FingerspotAttendanceLog::create(['pin' => 'PIN-001', 'scan_date' => '2026-05-01 08:00:00']);
+        FingerspotAttendanceLog::create(['pin' => 'PIN-001', 'scan_date' => '2026-04-30 08:00:00']);
         Carbon::setTestNow('2026-06-25 09:00:00');
         $payroll = \App\Models\EmployeeExtraOff::create([
             'karyawan_nik' => 'EMP001', 'periode_start' => '2026-06-25',

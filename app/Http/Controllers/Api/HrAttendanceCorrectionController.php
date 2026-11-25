@@ -611,6 +611,10 @@ class HrAttendanceCorrectionController extends Controller
             throw ValidationException::withMessages(['public_holiday_id' => ['Jatah PH ini tidak tersedia untuk karyawan.']]);
         }
 
+        if ($date->lt($holiday->holiday_date) || ! \App\Support\PublicHolidayValidity::isValidOn($holiday->holiday_date, $date)) {
+            throw ValidationException::withMessages(['public_holiday_id' => ['Tanggal pemakaian PH harus dalam masa berlaku 3 bulan.']]);
+        }
+
         $ph = PublicHolidayRequest::query()->create([
             'user_id' => $employeeUser->id,
             'public_holiday_id' => $holiday->id,
@@ -620,7 +624,7 @@ class HrAttendanceCorrectionController extends Controller
             'manager_approved_by' => $request->user()?->id,
             'hr_approved_at' => now(),
             'hr_approved_by' => $request->user()?->id,
-            'expired_at' => $holiday->holiday_date?->copy()->addDays(90),
+            'expired_at' => \App\Support\PublicHolidayValidity::expiresAt($holiday->holiday_date),
         ]);
 
         return [
@@ -785,7 +789,7 @@ class HrAttendanceCorrectionController extends Controller
         $attendedDates = $employee->pin
             ? \App\Models\FingerspotAttendanceLog::query()
                 ->where('pin', $employee->pin)
-                ->whereBetween('scan_date', [now()->subDays(90)->startOfDay(), now()->startOfDay()])
+                ->whereBetween('scan_date', [\App\Support\PublicHolidayValidity::earliestValidDate()->startOfDay(), now()->startOfDay()])
                 ->get(['scan_date'])
                 ->pluck('scan_date')
                 ->map(fn (Carbon $date): string => $date->toDateString())
@@ -809,7 +813,7 @@ class HrAttendanceCorrectionController extends Controller
         return PublicHoliday::query()
             ->where('is_active', true)
             ->whereDate('holiday_date', '<', now())
-            ->whereDate('holiday_date', '>=', now()->subDays(90))
+            ->whereDate('holiday_date', '>=', \App\Support\PublicHolidayValidity::earliestValidDate())
             ->when($joinDate, fn ($q) => $q->where(fn ($eligible) => $eligible
                 ->whereDate('holiday_date', '>=', $joinDate)->orWhereIn('id', $recordedIds)))
             ->whereNotIn('id', $approvedIds)

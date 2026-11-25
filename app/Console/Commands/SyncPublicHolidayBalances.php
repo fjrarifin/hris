@@ -19,7 +19,7 @@ class SyncPublicHolidayBalances extends Command
      *
      * @var string
      */
-    protected $description = 'Sinkronisasi record saldo PH ke employee_ph_balances dari presensi karyawan untuk hari libur dalam rentang 90 hari';
+    protected $description = 'Sinkronisasi record saldo PH ke employee_ph_balances dari presensi karyawan untuk hari libur dalam masa berlaku 3 bulan';
 
     /**
      * Execute the console command.
@@ -32,16 +32,16 @@ class SyncPublicHolidayBalances extends Command
             $this->warn('Opsi --fresh aktif: Tabel employee_ph_balances dikosongkan terlebih dahulu.');
         }
 
-        $this->info('Memulai sinkronisasi saldo Public Holiday dari absensi (maksimal 90 hari terakhir)...');
+        $this->info('Memulai sinkronisasi saldo Public Holiday dari absensi (masa berlaku 3 bulan)...');
 
         $result = $balanceService->rebuildBalancesFromAttendance($isFresh);
 
         if (empty($result['breakdown'])) {
-            $this->info('Tidak ada hari libur nasional aktif dalam rentang 90 hari terakhir.');
+            $this->info('Tidak ada hari libur nasional aktif dalam masa berlaku 3 bulan terakhir.');
             return self::SUCCESS;
         }
 
-        $headers = ['ID', 'Nama Hari Libur', 'Tanggal', 'Usia (Hari)', 'Status <= 90 Hari', 'Record Saldo Diberikan'];
+        $headers = ['ID', 'Nama Hari Libur', 'Tanggal', 'Usia (Hari)', 'Status Masa Berlaku', 'Record Saldo Diberikan'];
         $rows = array_map(function ($item) {
             return [
                 $item['id'],

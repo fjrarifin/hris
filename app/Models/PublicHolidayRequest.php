@@ -30,6 +30,23 @@ class PublicHolidayRequest extends Model
         'approval_token_expires_at' => 'datetime',
     ];
 
+    protected static function booted(): void
+    {
+        static::updating(function (self $request): void {
+            if (! $request->isDirty(['status', 'manager_approved_at', 'hr_approved_at'])
+                || $request->status !== 'approved') {
+                return;
+            }
+            $holiday = $request->holiday;
+            if ($holiday && (! \App\Support\PublicHolidayValidity::isValidOn($holiday->holiday_date, $request->claim_date)
+                || $request->claim_date->lt($holiday->holiday_date))) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'decision' => 'PH tidak dapat disetujui: tanggal pemakaian di luar masa berlaku 3 bulan.',
+                ]);
+            }
+        });
+    }
+
     public function user()
     {
         return $this->belongsTo(User::class);

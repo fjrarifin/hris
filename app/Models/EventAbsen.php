@@ -17,16 +17,23 @@ class EventAbsen extends Model
     protected $fillable = [
         'nama_event',
         'deskripsi',
+        'lokasi',
         'slug',
         'tanggal_mulai',
         'tanggal_selesai',
         'status',
+        'reminder_enabled',
+        'reminder_minutes_before',
+        'reminder_sent_at',
         'created_by',
     ];
 
     protected $casts = [
         'tanggal_mulai' => 'datetime',
         'tanggal_selesai' => 'datetime',
+        'reminder_enabled' => 'boolean',
+        'reminder_minutes_before' => 'integer',
+        'reminder_sent_at' => 'datetime',
     ];
 
     protected $appends = [
@@ -48,6 +55,11 @@ class EventAbsen extends Model
     public function attendances(): HasMany
     {
         return $this->absensiEvents();
+    }
+
+    public function invitedParticipants(): HasMany
+    {
+        return $this->hasMany(EventAbsenParticipant::class, 'id_event_absen');
     }
 
     public function getIsExpiredAttribute(): bool

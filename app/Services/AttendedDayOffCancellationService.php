@@ -58,7 +58,7 @@ class AttendedDayOffCancellationService
                             ]);
                             if ($locked instanceof PublicHolidayRequest) {
                                 $holiday = $locked->holiday;
-                                $expiry = $holiday?->holiday_date?->copy()->addDays(90)->endOfDay();
+                                $expiry = $holiday?->holiday_date ? \App\Support\PublicHolidayValidity::expiresAt($holiday->holiday_date) : null;
                                 // Only a claim scheduled within its original validity earns replacement.
                                 if ($expiry && now()->gt($expiry) && $locked->claim_date->lte($expiry)
                                     && $locked->claim_date->gte($holiday->holiday_date)) {

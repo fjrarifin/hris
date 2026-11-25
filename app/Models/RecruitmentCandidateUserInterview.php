@@ -18,6 +18,9 @@ class RecruitmentCandidateUserInterview extends Model
         'interview_type',
         'interview_location',
         'interview_meet_link',
+        'gcal_event_id',
+        'gcal_event_link',
+        'gcal_synced_at',
         'completed_at',
         'completed_by',
         'summary_path',
@@ -43,6 +46,7 @@ class RecruitmentCandidateUserInterview extends Model
         'completed_at' => 'datetime',
         'email_sent_at' => 'datetime',
         'wa_sent_at' => 'datetime',
+        'gcal_synced_at' => 'datetime',
     ];
 
     public function candidate(): BelongsTo

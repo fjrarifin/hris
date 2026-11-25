@@ -320,6 +320,7 @@ Route::middleware('auth:sanctum')->group(function () {
             ->middleware(['level:0,1,2', 'frontend.menu:it-event-absen'])
             ->group(function () {
                 Route::get('/', [EventAbsenController::class, 'index']);
+                Route::get('/employees', [EventAbsenController::class, 'employees']);
                 Route::post('/', [EventAbsenController::class, 'store']);
                 Route::get('/{eventAbsen}', [EventAbsenController::class, 'show']);
                 Route::put('/{eventAbsen}', [EventAbsenController::class, 'update']);

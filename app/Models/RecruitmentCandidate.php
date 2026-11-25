@@ -66,6 +66,9 @@ class RecruitmentCandidate extends Model
         'interview_hr_type',
         'interview_hr_location',
         'interview_hr_meet_link',
+        'interview_hr_gcal_event_id',
+        'interview_hr_gcal_event_link',
+        'interview_hr_gcal_synced_at',
         'interview_hr_completed_at',
         'interview_hr_completed_by',
         'interview_hr_summary_path',
@@ -169,6 +172,7 @@ class RecruitmentCandidate extends Model
     protected $casts = [
         'join_date' => 'date',
         'interview_hr_completed_at' => 'datetime',
+        'interview_hr_gcal_synced_at' => 'datetime',
         'offering_letter_sent_at' => 'datetime',
         'offering_letter_wa_sent_at' => 'datetime',
         'offering_letter_signed_at' => 'datetime',

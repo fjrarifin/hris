@@ -38,6 +38,7 @@ class PublicEventAbsenController extends Controller
                 'id' => $event->id,
                 'nama_event' => $event->nama_event,
                 'deskripsi' => $event->deskripsi,
+                'lokasi' => $event->lokasi,
                 'slug' => $event->slug,
                 'tanggal_mulai' => $event->tanggal_mulai?->toIso8601String(),
                 'tanggal_selesai' => $event->tanggal_selesai?->toIso8601String(),
@@ -46,6 +47,7 @@ class PublicEventAbsenController extends Controller
                 'status' => $event->status,
                 'effective_status' => $event->effective_status,
                 'effective_status_label' => $event->effective_status_label,
+                'is_restricted_participants' => $event->invitedParticipants()->exists(),
                 'can_attend' => $canAttend,
                 'is_expired' => $isExpired,
                 'is_not_started' => $isNotStarted,
@@ -105,6 +107,19 @@ class PublicEventAbsenController extends Controller
                 'message' => "NIK '{$nik}' tidak terdaftar dalam database karyawan HRIS.",
                 'error_code' => 'NIK_NOT_FOUND',
             ], 404);
+        }
+
+        if ($event->invitedParticipants()->exists()) {
+            $isInvited = $event->invitedParticipants()
+                ->whereRaw('UPPER(TRIM(nik_karyawan)) = ?', [$nik])
+                ->exists();
+
+            if (! $isInvited) {
+                return response()->json([
+                    'message' => "NIK '{$nik}' tidak terdaftar sebagai peserta pada event ini.",
+                    'error_code' => 'NOT_INVITED_PARTICIPANT',
+                ], 422);
+            }
         }
 
         // Check if already attended
@@ -195,6 +210,19 @@ class PublicEventAbsenController extends Controller
                 'message' => "NIK '{$nik}' tidak terdaftar.",
                 'error_code' => 'NIK_NOT_FOUND',
             ], 404);
+        }
+
+        if ($event->invitedParticipants()->exists()) {
+            $isInvited = $event->invitedParticipants()
+                ->whereRaw('UPPER(TRIM(nik_karyawan)) = ?', [$nik])
+                ->exists();
+
+            if (! $isInvited) {
+                return response()->json([
+                    'message' => "NIK '{$nik}' tidak terdaftar sebagai peserta pada event ini.",
+                    'error_code' => 'NOT_INVITED_PARTICIPANT',
+                ], 422);
+            }
         }
 
         // Process selfie photo

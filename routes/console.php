@@ -54,3 +54,8 @@ Schedule::command('approval:send-reminders --slot=2')
     ->dailyAt('20:00')
     ->withoutOverlapping()
     ->runInBackground();
+
+Schedule::command('event-absen:send-reminders')
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->runInBackground();

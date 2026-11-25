@@ -3,10 +3,14 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\SendEventAbsenInitialWhatsApp;
 use App\Models\EventAbsen;
+use App\Models\EventAbsenParticipant;
+use App\Models\Karyawan;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -14,6 +18,41 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class EventAbsenController extends Controller
 {
+    public function employees(Request $request): JsonResponse
+    {
+        $search = trim((string) $request->query('search', ''));
+
+        $employees = Karyawan::query()
+            ->where(function ($q): void {
+                $q->whereNull('status_karyawan')
+                    ->orWhereRaw("UPPER(TRIM(status_karyawan)) NOT IN ('RESIGN', 'NONAKTIF', 'NON-AKTIF')");
+            })
+            ->when($search !== '', function ($q) use ($search): void {
+                $q->where(function ($inner) use ($search): void {
+                    $inner->where('nik', 'like', "%{$search}%")
+                        ->orWhere('nama_karyawan', 'like', "%{$search}%")
+                        ->orWhere('jabatan', 'like', "%{$search}%")
+                        ->orWhere('divisi', 'like', "%{$search}%")
+                        ->orWhere('departement', 'like', "%{$search}%");
+                });
+            })
+            ->orderBy('nama_karyawan')
+            ->get(['nik', 'nama_karyawan', 'jabatan', 'divisi', 'departement', 'no_hp'])
+            ->map(fn (Karyawan $karyawan): array => [
+                'nik' => $karyawan->nik,
+                'nama_karyawan' => $karyawan->nama_karyawan,
+                'jabatan' => $karyawan->jabatan,
+                'divisi' => $karyawan->divisi,
+                'departement' => $karyawan->departement,
+                'has_phone' => trim((string) ($karyawan->no_hp ?? '')) !== '',
+            ])
+            ->values();
+
+        return response()->json([
+            'data' => $employees,
+        ]);
+    }
+
     public function index(Request $request): JsonResponse
     {
         $search = trim((string) $request->query('search', ''));
@@ -21,12 +60,16 @@ class EventAbsenController extends Controller
         $perPage = min(max((int) $request->query('per_page', 15), 1), 100);
 
         $query = EventAbsen::query()
-            ->with(['creator:id,name,username'])
-            ->withCount('absensiEvents')
+            ->with([
+                'creator:id,name,username',
+                'invitedParticipants:id,id_event_absen,nik_karyawan',
+            ])
+            ->withCount(['absensiEvents', 'invitedParticipants'])
             ->when($search !== '', function ($q) use ($search) {
                 $q->where(function ($inner) use ($search) {
                     $inner->where('nama_event', 'like', "%{$search}%")
                         ->orWhere('deskripsi', 'like', "%{$search}%")
+                        ->orWhere('lokasi', 'like', "%{$search}%")
                         ->orWhere('slug', 'like', "%{$search}%");
                 });
             })
@@ -64,10 +107,15 @@ class EventAbsenController extends Controller
         $validated = $request->validate([
             'nama_event' => ['required', 'string', 'max:255'],
             'deskripsi' => ['nullable', 'string'],
+            'lokasi' => ['nullable', 'string', 'max:255'],
             'slug' => ['nullable', 'string', 'max:255', 'unique:event_absen,slug', 'regex:/^[a-z0-9]+(?:-[a-z0-9]+)*$/'],
             'tanggal_mulai' => ['required', 'date'],
             'tanggal_selesai' => ['required', 'date', 'after:tanggal_mulai'],
             'status' => ['nullable', Rule::in(['aktif', 'nonaktif'])],
+            'reminder_enabled' => ['nullable', 'boolean'],
+            'reminder_minutes_before' => ['nullable', 'integer', 'min:1', 'max:10080'],
+            'participant_niks' => ['nullable', 'array'],
+            'participant_niks.*' => ['string', 'exists:m_karyawan,nik'],
         ], [
             'nama_event.required' => 'Nama event wajib diisi.',
             'slug.unique' => 'Slug / link event sudah digunakan. Pilih slug lain.',
@@ -75,6 +123,7 @@ class EventAbsenController extends Controller
             'tanggal_mulai.required' => 'Tanggal & jam mulai wajib ditentukan.',
             'tanggal_selesai.required' => 'Tanggal & jam selesai wajib ditentukan.',
             'tanggal_selesai.after' => 'Tanggal & jam selesai harus setelah tanggal mulai.',
+            'participant_niks.*.exists' => 'Salah satu NIK peserta tidak ditemukan di database karyawan.',
         ]);
 
         if (empty($validated['slug'])) {
@@ -88,30 +137,103 @@ class EventAbsenController extends Controller
             $validated['slug'] = $slug;
         }
 
+        $participantNiks = collect($validated['participant_niks'] ?? [])
+            ->map(fn ($nik) => strtoupper(trim((string) $nik)))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        unset($validated['participant_niks']);
+
         $validated['status'] = $validated['status'] ?? 'aktif';
         $validated['created_by'] = $request->user()?->id;
 
-        $event = EventAbsen::create($validated);
-        $event->load(['creator:id,name,username'])->loadCount('absensiEvents');
+        if ($participantNiks !== []) {
+            $validated['reminder_enabled'] = array_key_exists('reminder_enabled', $validated)
+                ? (bool) $validated['reminder_enabled']
+                : true;
+            $validated['reminder_minutes_before'] = $validated['reminder_enabled']
+                ? (int) ($validated['reminder_minutes_before'] ?? 60)
+                : null;
+        } else {
+            $validated['reminder_enabled'] = false;
+            $validated['reminder_minutes_before'] = null;
+        }
+
+        $event = DB::transaction(function () use ($validated, $participantNiks): EventAbsen {
+            $event = EventAbsen::create($validated);
+
+            if ($participantNiks !== []) {
+                $now = now();
+                $rows = array_map(fn (string $nik): array => [
+                    'id_event_absen' => $event->id,
+                    'nik_karyawan' => $nik,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ], $participantNiks);
+
+                EventAbsenParticipant::insert($rows);
+            }
+
+            return $event;
+        });
+
+        if ($participantNiks !== [] && $event->status === 'aktif') {
+            SendEventAbsenInitialWhatsApp::dispatchAfterResponse($event->id, $participantNiks);
+        }
+
+        $event->load([
+            'creator:id,name,username',
+            'invitedParticipants:id,id_event_absen,nik_karyawan',
+        ])->loadCount(['absensiEvents', 'invitedParticipants']);
 
         return response()->json([
-            'message' => 'Event absensi berhasil dibuat.',
+            'message' => $participantNiks !== [] && $event->status === 'aktif'
+                ? 'Event absensi berhasil dibuat dan notifikasi WhatsApp dikirim ke peserta terdaftar.'
+                : 'Event absensi berhasil dibuat.',
             'data' => $event,
         ], 201);
     }
 
     public function show(EventAbsen $eventAbsen): JsonResponse
     {
-        $eventAbsen->load(['creator:id,name,username'])->loadCount('absensiEvents');
+        $eventAbsen->load([
+            'creator:id,name,username',
+            'invitedParticipants.karyawan:nik,nama_karyawan,jabatan,divisi,departement,no_hp',
+        ])->loadCount(['absensiEvents', 'invitedParticipants']);
 
         $participants = $eventAbsen->absensiEvents()
             ->with(['karyawan:nik,nama_karyawan,jabatan,divisi,departement'])
             ->orderByDesc('jam_absen')
             ->get();
 
+        $attendanceByNik = $participants->keyBy(fn ($item) => strtoupper(trim((string) $item->nik_karyawan)));
+
+        $invitedParticipants = $eventAbsen->invitedParticipants->map(function (EventAbsenParticipant $invited) use ($attendanceByNik): array {
+            $nikUpper = strtoupper(trim((string) $invited->nik_karyawan));
+            $attendance = $attendanceByNik->get($nikUpper);
+
+            return [
+                'id' => $invited->id,
+                'nik_karyawan' => $invited->nik_karyawan,
+                'nama_karyawan' => $invited->karyawan?->nama_karyawan,
+                'jabatan' => $invited->karyawan?->jabatan,
+                'divisi' => $invited->karyawan?->divisi,
+                'departement' => $invited->karyawan?->departement,
+                'has_phone' => trim((string) ($invited->karyawan?->no_hp ?? '')) !== '',
+                'initial_notified_at' => $invited->initial_notified_at?->toIso8601String(),
+                'reminder_sent_at' => $invited->reminder_sent_at?->toIso8601String(),
+                'attended' => $attendance !== null,
+                'jam_absen' => $attendance?->jam_absen?->toIso8601String(),
+                'foto_url' => $attendance?->foto_url,
+            ];
+        })->values();
+
         return response()->json([
             'data' => $eventAbsen,
             'participants' => $participants,
+            'invited_participants' => $invitedParticipants,
         ]);
     }
 
@@ -120,6 +242,7 @@ class EventAbsenController extends Controller
         $validated = $request->validate([
             'nama_event' => ['required', 'string', 'max:255'],
             'deskripsi' => ['nullable', 'string'],
+            'lokasi' => ['nullable', 'string', 'max:255'],
             'slug' => [
                 'required',
                 'string',
@@ -130,6 +253,10 @@ class EventAbsenController extends Controller
             'tanggal_mulai' => ['required', 'date'],
             'tanggal_selesai' => ['required', 'date', 'after:tanggal_mulai'],
             'status' => ['required', Rule::in(['aktif', 'nonaktif'])],
+            'reminder_enabled' => ['nullable', 'boolean'],
+            'reminder_minutes_before' => ['nullable', 'integer', 'min:1', 'max:10080'],
+            'participant_niks' => ['nullable', 'array'],
+            'participant_niks.*' => ['string', 'exists:m_karyawan,nik'],
         ], [
             'nama_event.required' => 'Nama event wajib diisi.',
             'slug.required' => 'Slug / link event wajib diisi.',
@@ -138,10 +265,93 @@ class EventAbsenController extends Controller
             'tanggal_mulai.required' => 'Tanggal & jam mulai wajib ditentukan.',
             'tanggal_selesai.required' => 'Tanggal & jam selesai wajib ditentukan.',
             'tanggal_selesai.after' => 'Tanggal & jam selesai harus setelah tanggal mulai.',
+            'participant_niks.*.exists' => 'Salah satu NIK peserta tidak ditemukan di database karyawan.',
         ]);
 
-        $eventAbsen->update($validated);
-        $eventAbsen->load(['creator:id,name,username'])->loadCount('absensiEvents');
+        $hasParticipantsField = $request->has('participant_niks');
+        $newNiks = $hasParticipantsField
+            ? collect($validated['participant_niks'] ?? [])
+                ->map(fn ($nik) => strtoupper(trim((string) $nik)))
+                ->filter()
+                ->unique()
+                ->values()
+                ->all()
+            : null;
+
+        unset($validated['participant_niks']);
+
+        $existingCount = $hasParticipantsField
+            ? count($newNiks)
+            : $eventAbsen->invitedParticipants()->count();
+
+        if ($existingCount > 0) {
+            if (array_key_exists('reminder_enabled', $validated)) {
+                $validated['reminder_enabled'] = (bool) $validated['reminder_enabled'];
+            }
+            $reminderEnabled = array_key_exists('reminder_enabled', $validated)
+                ? (bool) $validated['reminder_enabled']
+                : (bool) $eventAbsen->reminder_enabled;
+            $validated['reminder_minutes_before'] = $reminderEnabled
+                ? (int) ($validated['reminder_minutes_before'] ?? $eventAbsen->reminder_minutes_before ?? 60)
+                : null;
+        } else {
+            $validated['reminder_enabled'] = false;
+            $validated['reminder_minutes_before'] = null;
+        }
+
+        $scheduleChanged = Carbon::parse($validated['tanggal_mulai'])->ne($eventAbsen->tanggal_mulai)
+            || ($validated['reminder_minutes_before'] ?? null) !== $eventAbsen->reminder_minutes_before;
+
+        $addedNiks = [];
+
+        DB::transaction(function () use ($eventAbsen, $validated, $hasParticipantsField, $newNiks, $scheduleChanged, &$addedNiks): void {
+            if ($scheduleChanged) {
+                $validated['reminder_sent_at'] = null;
+            }
+
+            $eventAbsen->update($validated);
+
+            if ($hasParticipantsField) {
+                $existingNiks = $eventAbsen->invitedParticipants()
+                    ->pluck('nik_karyawan')
+                    ->map(fn ($nik) => strtoupper(trim((string) $nik)))
+                    ->all();
+
+                $toDelete = array_values(array_diff($existingNiks, $newNiks));
+                $addedNiks = array_values(array_diff($newNiks, $existingNiks));
+
+                if ($toDelete !== []) {
+                    $eventAbsen->invitedParticipants()
+                        ->whereIn('nik_karyawan', $toDelete)
+                        ->delete();
+                }
+
+                if ($addedNiks !== []) {
+                    $now = now();
+                    $rows = array_map(fn (string $nik): array => [
+                        'id_event_absen' => $eventAbsen->id,
+                        'nik_karyawan' => $nik,
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ], $addedNiks);
+
+                    EventAbsenParticipant::insert($rows);
+                }
+            }
+
+            if ($scheduleChanged) {
+                $eventAbsen->invitedParticipants()->update(['reminder_sent_at' => null]);
+            }
+        });
+
+        if ($addedNiks !== [] && $eventAbsen->status === 'aktif') {
+            SendEventAbsenInitialWhatsApp::dispatchAfterResponse($eventAbsen->id, $addedNiks);
+        }
+
+        $eventAbsen->load([
+            'creator:id,name,username',
+            'invitedParticipants:id,id_event_absen,nik_karyawan',
+        ])->loadCount(['absensiEvents', 'invitedParticipants']);
 
         return response()->json([
             'message' => 'Event absensi berhasil diperbarui.',
@@ -182,6 +392,7 @@ class EventAbsenController extends Controller
 
             // Event Metadata
             fputcsv($handle, ['NAMA EVENT', $eventAbsen->nama_event]);
+            fputcsv($handle, ['LOKASI / RUANGAN', $eventAbsen->lokasi ?: '-']);
             fputcsv($handle, ['SLUG / LINK', $eventAbsen->slug]);
             fputcsv($handle, ['PERIODE', $eventAbsen->tanggal_mulai?->format('d/m/Y H:i').' s/d '.$eventAbsen->tanggal_selesai?->format('d/m/Y H:i')]);
             fputcsv($handle, ['TOTAL PESERTA HADIR', $participants->count()]);

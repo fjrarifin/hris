@@ -1597,7 +1597,7 @@ class HrisWhatsAppAgent
         $attendedDates = $karyawan->pin
             ? \App\Models\FingerspotAttendanceLog::query()
                 ->where('pin', $karyawan->pin)
-                ->whereBetween('scan_date', [now()->subDays(90)->startOfDay(), now()->startOfDay()])
+                ->whereBetween('scan_date', [\App\Support\PublicHolidayValidity::earliestValidDate()->startOfDay(), now()->startOfDay()])
                 ->get(['scan_date'])
                 ->pluck('scan_date')
                 ->map(fn ($date) => \Carbon\Carbon::parse($date)->toDateString())
@@ -1615,7 +1615,7 @@ class HrisWhatsAppAgent
         $eligibleHolidays = \App\Models\PublicHoliday::query()
             ->where('is_active', true)
             ->whereDate('holiday_date', '<', now())
-            ->whereDate('holiday_date', '>=', now()->subDays(90))
+            ->whereDate('holiday_date', '>=', \App\Support\PublicHolidayValidity::earliestValidDate())
             ->when($joinDate, fn ($q) => $q->whereDate('holiday_date', '>=', $joinDate))
             ->whereNotIn('id', $deductedHolidayIds)
             ->orderByDesc('holiday_date')

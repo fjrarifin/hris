@@ -498,7 +498,7 @@ class HrLeaveBalanceController extends Controller
                 // Saldo dari tabel baru (otomatis dari absensi) dalam rentang aktif 90 hari
                 $phBalances = EmployeePhBalance::query()
                     ->where('karyawan_nik', $nik)
-                    ->whereDate('holiday_date', '>=', now()->subDays(90))
+                    ->whereDate('holiday_date', '>=', \App\Support\PublicHolidayValidity::earliestValidDate())
                     ->whereDate('holiday_date', '<', now())
                     ->get();
                 $activeHolidayIds = $phBalances->pluck('public_holiday_id')->filter()->unique();
@@ -575,7 +575,7 @@ class HrLeaveBalanceController extends Controller
         $attendedDates = $employee->pin
             ? FingerspotAttendanceLog::query()
                 ->where('pin', $employee->pin)
-                ->whereBetween('scan_date', [now()->subDays(90)->startOfDay(), now()->startOfDay()])
+                ->whereBetween('scan_date', [\App\Support\PublicHolidayValidity::earliestValidDate()->startOfDay(), now()->startOfDay()])
                 ->get(['scan_date'])
                 ->pluck('scan_date')
                 ->map(fn ($date) => Carbon::parse($date)->toDateString())
@@ -594,7 +594,7 @@ class HrLeaveBalanceController extends Controller
         return PublicHoliday::query()
             ->where('is_active', true)
             ->whereDate('holiday_date', '<', now())
-            ->whereDate('holiday_date', '>=', now()->subDays(90))
+            ->whereDate('holiday_date', '>=', \App\Support\PublicHolidayValidity::earliestValidDate())
             ->when($joinDate, fn ($q) => $q->where(fn ($eligible) => $eligible
                 ->whereDate('holiday_date', '>=', $joinDate)->orWhereIn('id', $recordedIds)))
             ->whereNotIn('id', $deductedHolidayIds)
