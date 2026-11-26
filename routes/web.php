@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\GaWorkOrderPublicPageController;
 use App\Http\Controllers\GoogleCalendarOAuthController;
 use App\Http\Controllers\HR\Monitoring360Controller;
 use App\Http\Controllers\HR\MonitoringSelfAssessmentController;
@@ -41,6 +42,21 @@ Route::prefix('approval')->group(function () {
     Route::post('{token}/approve', [PublicApprovalController::class, 'approve']);
     Route::post('{token}/reject', [PublicApprovalController::class, 'reject']);
 });
+
+// Public GA Work Order / RAB approval page (token-based, no login).
+// Link dikirim melalui WhatsApp: {PUBLIC_APPROVAL_BASE_URL}/wo/{token}
+Route::prefix('wo')
+    ->name('ga.wo.approval.')
+    ->middleware('throttle:30,1')
+    ->group(function () {
+        Route::get('/{token}', [GaWorkOrderPublicPageController::class, 'show'])
+            ->where('token', '[A-Za-z0-9]{10,64}')
+            ->name('show');
+
+        Route::post('/{token}/decide', [GaWorkOrderPublicPageController::class, 'decide'])
+            ->where('token', '[A-Za-z0-9]{10,64}')
+            ->name('decide');
+    });
 
 Route::get('/', fn () => redirect()->away(config('services.frontend.base_url')));
 Route::get('/google-calendar/oauth/callback', [GoogleCalendarOAuthController::class, 'callback'])

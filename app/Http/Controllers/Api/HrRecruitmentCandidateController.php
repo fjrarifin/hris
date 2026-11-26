@@ -2440,6 +2440,7 @@ class HrRecruitmentCandidateController extends Controller
 
             $signer = $candidate->pkbSigners()->create([
                 'employee_nik' => $nik,
+                'public_token' => Str::random(48),
             ]);
 
             $employee = Karyawan::where('nik', $nik)->first();
@@ -2449,7 +2450,7 @@ class HrRecruitmentCandidateController extends Controller
                 continue;
             }
 
-            $signLinkLong = rtrim((string) config('app.frontend_url'), '/')."/public/pkb/sign-request/{$signer->id}";
+            $signLinkLong = rtrim((string) config('app.frontend_url'), '/')."/public/pkb/sign-request/{$signer->public_token}";
             $signLink = app(\App\Services\RecruitmentShortUrlService::class)->shorten($signLinkLong, now()->addDays(7));
             $joinDateFormatted = $candidate->join_date ? \Carbon\Carbon::parse($candidate->join_date)->translatedFormat('d F Y') : '-';
             $vacancyTitle = $candidate->vacancy?->title ?? 'Umum';
@@ -2516,7 +2517,11 @@ class HrRecruitmentCandidateController extends Controller
         $employee = Karyawan::where('nik', $signerModel->employee_nik)->first();
         abort_unless($employee && ! empty($employee->no_hp), 422, 'Nomor HP karyawan penyetuju (' . ($employee?->nama_karyawan ?? $signerModel->employee_nik) . ') tidak tersedia.');
 
-        $signLinkLong = rtrim((string) config('app.frontend_url'), '/')."/public/pkb/sign-request/{$signerModel->id}";
+        if (empty($signerModel->public_token)) {
+            $signerModel->update(['public_token' => Str::random(48)]);
+        }
+
+        $signLinkLong = rtrim((string) config('app.frontend_url'), '/')."/public/pkb/sign-request/{$signerModel->public_token}";
         $signLink = app(\App\Services\RecruitmentShortUrlService::class)->shorten($signLinkLong, now()->addDays(7));
         $joinDateFormatted = $candidate->join_date ? \Carbon\Carbon::parse($candidate->join_date)->translatedFormat('d F Y') : '-';
         $vacancyTitle = $candidate->vacancy?->title ?? 'Umum';
@@ -2560,7 +2565,11 @@ class HrRecruitmentCandidateController extends Controller
 
     public function submitPkbSignerSignature(Request $request, $id): JsonResponse
     {
-        $signer = RecruitmentCandidatePkbSigner::findOrFail($id);
+        $signer = RecruitmentCandidatePkbSigner::where('public_token', $id)->first()
+            ?? RecruitmentCandidatePkbSigner::find($id);
+
+        abort_if(! $signer, 404, 'Tautan persetujuan PKB tidak ditemukan.');
+        abort_if($signer->signed_at, 410, 'Dokumen PKB ini sudah ditandatangani.');
 
         $request->validate([
             'signature_data' => ['required', 'string'],
@@ -3067,10 +3076,23 @@ class HrRecruitmentCandidateController extends Controller
 
     public function getPublicPkbSigner(Request $request, $id): JsonResponse
     {
-        $signer = RecruitmentCandidatePkbSigner::with('employee')->findOrFail($id);
-        $candidate = $signer->candidate;
+        $signer = RecruitmentCandidatePkbSigner::with('employee')
+            ->where('public_token', $id)
+            ->first();
 
-        return response()->json([
+        $isLegacyLink = false;
+
+        if (! $signer) {
+            $signer = RecruitmentCandidatePkbSigner::with('employee')->find($id);
+            $isLegacyLink = $signer !== null;
+        }
+
+        abort_if(! $signer, 404, 'Tautan persetujuan PKB tidak valid atau sudah tidak berlaku.');
+
+        $candidate = $signer->candidate;
+        abort_if(! $candidate, 404, 'Data kandidat untuk PKB ini tidak ditemukan.');
+
+        $payload = [
             'signer_name' => $signer->employee?->nama_karyawan,
             'candidate_name' => $candidate->name,
             'vacancy_title' => $candidate->vacancy?->title ?? 'Umum',
@@ -3080,8 +3102,241 @@ class HrRecruitmentCandidateController extends Controller
             'offered_salary' => $candidate->offered_salary,
             'join_date' => $candidate->join_date,
             'signed_at' => $signer->signed_at,
-        ]);
+            'is_legacy_link' => $isLegacyLink,
+        ];
+
+        if (! $isLegacyLink) {
+            $payload['review'] = $this->buildPkbReviewPayload($candidate);
+        }
+
+        return response()->json($payload)->header('Cache-Control', 'private, no-store');
     }
+
+    public function getPublicPkbDocument(Request $request, $id, string $type, $round = null): JsonResponse
+    {
+        $signer = RecruitmentCandidatePkbSigner::where('public_token', $id)->firstOrFail();
+        $candidate = $signer->candidate;
+
+        abort_if(! $candidate, 404, 'Data kandidat untuk PKB ini tidak ditemukan.');
+
+        $roundNumber = $round !== null ? (int) $round : null;
+        $path = null;
+        $label = 'Dokumen';
+
+        switch ($type) {
+            case 'resume':
+                $path = $candidate->resume_path;
+                $label = 'Resume';
+                break;
+            case 'hr-summary':
+                $path = $candidate->interview_hr_summary_path;
+                $label = 'Summary-HR';
+                break;
+            case 'user-summary':
+                abort_if(! $roundNumber, 422, 'Round wawancara wajib diisi.');
+                $path = $candidate->userInterviews()->where('round', $roundNumber)->value('summary_path');
+                $label = 'Summary-User-Interview-Round-'.$roundNumber;
+                break;
+            case 'case-study':
+                abort_if(! $roundNumber, 422, 'Round case study wajib diisi.');
+                $path = $candidate->caseStudies()->where('round', $roundNumber)->value('case_study_submitted_file_path');
+                $label = 'Case-Study-Round-'.$roundNumber;
+                break;
+            case 'case-study-question':
+                abort_if(! $roundNumber, 422, 'Round case study wajib diisi.');
+                $path = $candidate->caseStudies()->where('round', $roundNumber)->value('case_study_document_path');
+                $label = 'Soal-Case-Study-Round-'.$roundNumber;
+                break;
+            case 'reference-summary':
+                $path = $candidate->reference_check_summary_path;
+                $label = 'Summary-Reference-Check';
+                break;
+            default:
+                abort(404, 'Jenis dokumen tidak dikenali.');
+        }
+
+        abort_unless($path && Storage::disk('local')->exists($path), 404, 'Dokumen belum tersedia untuk kandidat ini.');
+
+        $extension = pathinfo($path, PATHINFO_EXTENSION) ?: 'pdf';
+
+        return response()->json([
+            'filename' => $label.'-'.str($candidate->name)->slug().'.'.$extension,
+            'mime_type' => Storage::disk('local')->mimeType($path) ?: 'application/octet-stream',
+            'content_base64' => base64_encode(Storage::disk('local')->get($path)),
+        ])->header('Cache-Control', 'private, no-store');
+    }
+
+
+    private function buildPkbReviewPayload(RecruitmentCandidate $candidate): array
+    {
+        $candidate->loadMissing([
+            'vacancy',
+            'userInterviews.interviewer',
+            'userInterviewEvaluations.interviewer',
+            'caseStudies',
+            'references',
+        ]);
+
+        $fileExists = static fn (?string $path): bool => ! empty($path) && Storage::disk('local')->exists($path);
+        $fileName = static fn (?string $path): ?string => $path ? basename($path) : null;
+
+        $aspectLabels = [
+            'interview_appearance' => 'Penampilan / Kerapihan',
+            'interview_attitude' => 'Sikap / Kepribadian',
+            'interview_communication' => 'Kemampuan Komunikasi',
+            'interview_motivation' => 'Motivasi Kerja',
+            'interview_initiative' => 'Inisiatif',
+            'interview_teamwork' => 'Kerjasama Tim',
+            'interview_domain_experience' => 'Keahlian Bidang / Pengalaman',
+            'interview_general_knowledge' => 'Pengetahuan Umum',
+            'interview_growth_potential' => 'Potensi Berkembang',
+        ];
+        $recommendationLabels = [
+            'disarankan' => 'Disarankan',
+            'dipertimbangkan' => 'Dipertimbangkan',
+            'tidak_disarankan' => 'Tidak Disarankan',
+        ];
+
+        $userInterviews = $candidate->userInterviews
+            ->sortBy('round')
+            ->values()
+            ->map(function (RecruitmentCandidateUserInterview $interview) use ($candidate, $aspectLabels, $recommendationLabels, $fileExists, $fileName): array {
+                $evaluations = $candidate->userInterviewEvaluations
+                    ->where('round', $interview->round)
+                    ->whereNotNull('submitted_at')
+                    ->values();
+
+                $recommendationCounts = $evaluations->countBy('interview_recommendation')->sortDesc();
+                $consensus = $recommendationLabels[$recommendationCounts->keys()->first()] ?? '-';
+                $averageTotal = $evaluations->isNotEmpty()
+                    ? number_format((float) $evaluations->avg('interview_total_score'), 2, ',', '.')
+                    : '-';
+
+                return [
+                    'round' => $interview->round,
+                    'date' => $interview->interview_date,
+                    'time' => $interview->interview_time,
+                    'type' => $interview->interview_type,
+                    'location' => $interview->interview_location,
+                    'meet_link' => $interview->interview_meet_link,
+                    'completed_at' => $interview->completed_at,
+                    'interviewers' => $interview->interviewers
+                        ->pluck('nama_karyawan')
+                        ->filter()
+                        ->values()
+                        ->all(),
+                    'summary_file_available' => $fileExists($interview->summary_path),
+                    'summary_filename' => $fileName($interview->summary_path),
+                    'evaluation_count' => $evaluations->count(),
+                    'average_total' => $averageTotal,
+                    'consensus' => $consensus,
+                    'evaluations' => $evaluations->map(function (RecruitmentUserInterviewEvaluation $evaluation) use ($aspectLabels, $recommendationLabels): array {
+                        return [
+                            'interviewer_name' => $evaluation->interviewer?->nama_karyawan ?? $evaluation->interviewer_nik,
+                            'total_score' => $evaluation->interview_total_score,
+                            'recommendation' => $recommendationLabels[$evaluation->interview_recommendation] ?? '-',
+                            'notes' => $evaluation->interview_evaluation_notes,
+                            'aspects' => collect($aspectLabels)->map(static fn (string $label, string $field): array => [
+                                'label' => $label,
+                                'score' => $evaluation->{$field},
+                            ])->values()->all(),
+                        ];
+                    })->all(),
+                ];
+            })
+            ->all();
+        $caseStudies = $candidate->caseStudies
+            ->sortBy('round')
+            ->values()
+            ->map(static fn (RecruitmentCandidateCaseStudy $caseStudy): array => [
+                'round' => $caseStudy->round,
+                'title' => $caseStudy->title ?: 'Case Study Tahap '.$caseStudy->round,
+                'sent_at' => $caseStudy->case_study_sent_at,
+                'submitted_at' => $caseStudy->case_study_submitted_at,
+                'notes' => $caseStudy->notes,
+                'question_file_available' => $fileExists($caseStudy->case_study_document_path),
+                'question_filename' => $fileName($caseStudy->case_study_document_path),
+                'submission_file_available' => $fileExists($caseStudy->case_study_submitted_file_path),
+                'submission_filename' => $fileName($caseStudy->case_study_submitted_file_path),
+            ])
+            ->all();
+
+        $references = $candidate->references;
+        $submittedReferences = $references->filter(
+            static fn ($reference): bool => ! empty($reference->submitted_at) && is_array($reference->answers)
+        )->values();
+
+        $ratings = $submittedReferences
+            ->map(static fn ($reference): float => (float) data_get($reference->answers, 'rating', 0))
+            ->filter(static fn (float $rating): bool => $rating > 0)
+            ->values();
+
+        $recommendedCount = $submittedReferences
+            ->filter(static fn ($reference): bool => data_get($reference->answers, 'recommendation') === 'yes')
+            ->count();
+
+        $averageRating = $ratings->isNotEmpty()
+            ? number_format((float) $ratings->avg(), 1, ',', '.')
+            : null;
+
+        $consensus = null;
+        if ($submittedReferences->isNotEmpty()) {
+            $consensus = $recommendedCount > $submittedReferences->count() / 2
+                ? 'Direkomendasikan'
+                : ($recommendedCount === $submittedReferences->count() / 2
+                    ? 'Berimbang'
+                    : 'Tidak Direkomendasikan');
+        }
+
+
+
+        return [
+            'candidate' => [
+                'education_level' => $candidate->education_level,
+                'education_major' => $candidate->education_major,
+                'years_of_experience' => $candidate->years_of_experience,
+                'marital_status' => $candidate->marital_status,
+            ],
+            'resume' => [
+                'available' => $fileExists($candidate->resume_path),
+                'filename' => $fileName($candidate->resume_path),
+            ],
+            'hr_summary' => [
+                'date' => $candidate->interview_hr_date,
+                'time' => $candidate->interview_hr_time,
+                'completed_at' => $candidate->interview_hr_completed_at,
+                'text' => $candidate->interview_hr_text_summary,
+                'file_available' => $fileExists($candidate->interview_hr_summary_path),
+                'filename' => $fileName($candidate->interview_hr_summary_path),
+            ],
+            'user_interviews' => $userInterviews,
+            'case_studies' => $caseStudies,
+
+            'reference_check' => [
+                'required_count' => $this->requiredReferenceCount($candidate),
+                'total_count' => $references->count(),
+                'submitted_count' => $submittedReferences->count(),
+                'submitted_at' => $candidate->reference_check_submitted_at,
+                'summary_file_available' => $fileExists($candidate->reference_check_summary_path),
+                'summary_filename' => $fileName($candidate->reference_check_summary_path),
+                'average_rating' => $averageRating,
+                'recommended_count' => $recommendedCount,
+                'consensus' => $consensus,
+                'items' => $references->map(static fn ($reference): array => [
+                    'name' => $reference->name,
+                    'position' => $reference->position,
+                    'company' => $reference->company,
+                    'relationship' => $reference->relationship,
+                    'form_type' => $reference->form_type,
+                    'submitted_at' => $reference->submitted_at,
+                    'rating' => data_get($reference->answers, 'rating'),
+                    'recommendation' => data_get($reference->answers, 'recommendation'),
+                    'answers' => is_array($reference->answers) ? $reference->answers : [],
+                ])->all(),
+            ],
+        ];
+    }
+
 
     public function getPublicOnboarding(Request $request, $token): JsonResponse
     {

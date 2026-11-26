@@ -59,7 +59,7 @@ class PublicGaWorkOrderApprovalController extends Controller
 
     public function attachment(Request $request, string $token, string $type): SymfonyResponse
     {
-        abort_unless(in_array($type, ['photo', 'document', 'spl'], true), 404, 'Tipe lampiran tidak valid.');
+        abort_unless(in_array($type, ['photo', 'document', 'spl', 'sph'], true), 404, 'Tipe lampiran tidak valid.');
 
         $baseUrl = rtrim((string) config('services.ga_ems.url', ''), '/');
         $secret = (string) config('services.ga_ems.secret', '');

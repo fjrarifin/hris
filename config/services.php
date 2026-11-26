@@ -84,7 +84,7 @@ return [
     ],
 
     'public_approval' => [
-        'base_url' => env('PUBLIC_APPROVAL_BASE_URL', 'https://hr.hompimplay.id'),
+        'base_url' => env('PUBLIC_APPROVAL_BASE_URL', 'https://api-hr.hompimplay.id'),
         'expires_hours' => (int) env('PUBLIC_APPROVAL_EXPIRES_HOURS', 18),
     ],
 

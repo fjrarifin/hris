@@ -109,6 +109,9 @@ Route::post('/public/candidates/case-study/{token}/submit', [HrRecruitmentCandid
 Route::get('/public/pkb/signer/{id}', [HrRecruitmentCandidateController::class, 'getPublicPkbSigner'])
     ->middleware('throttle:10,1')
     ->withoutMiddleware(['auth']);
+Route::get('/public/pkb/signer/{id}/document/{type}/{round?}', [HrRecruitmentCandidateController::class, 'getPublicPkbDocument'])
+    ->middleware('throttle:30,1')
+    ->withoutMiddleware(['auth']);
 Route::post('/public/pkb/signer/{id}/sign', [HrRecruitmentCandidateController::class, 'submitPkbSignerSignature'])
     ->middleware('throttle:10,1')
     ->withoutMiddleware(['auth']);
@@ -161,6 +164,9 @@ Route::post('/internal/ga/work-orders/notify-review', [GaWorkOrderProxyControlle
     ->middleware('throttle:120,1')
     ->withoutMiddleware(['auth']);
 Route::post('/internal/ga/work-orders/notify-rab', [GaWorkOrderProxyController::class, 'notifyRab'])
+    ->middleware('throttle:120,1')
+    ->withoutMiddleware(['auth']);
+Route::post('/internal/ga/work-orders/resend-approval', [GaWorkOrderProxyController::class, 'resendApproval'])
     ->middleware('throttle:120,1')
     ->withoutMiddleware(['auth']);
 

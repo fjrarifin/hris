@@ -95,7 +95,9 @@ class GaWorkOrderProxyController extends Controller
     {
         $this->assertCanAccess($request);
 
-        return $this->forward($request, 'GET', "/api/internal/hris/work-orders/{$id}");
+        return $this->forward($request, 'GET', "/api/internal/hris/work-orders/{$id}", [
+            'division' => (string) $request->query('division', 'MEP'),
+        ]);
     }
 
     public function store(Request $request): JsonResponse
@@ -103,6 +105,7 @@ class GaWorkOrderProxyController extends Controller
         $this->assertCanAccess($request, true);
 
         $data = $request->validate([
+            'division' => 'required|string|in:MEP,IT',
             'job_type' => 'required|string|in:WORK ORDER,PROJECT,LAIN - LAIN',
             'area_name' => ['required', 'string', 'max:255', Rule::exists('master_units', 'name')->where('is_active', true)],
             'project_description' => 'required|string|max:5000',
@@ -110,7 +113,6 @@ class GaWorkOrderProxyController extends Controller
             'notes' => 'nullable|string|max:5000',
             'photos' => 'required|array|min:1|max:3',
             'photos.*' => 'required|string|max:3000000',
-            'document' => 'nullable|string|max:7500000',
             'approver_ids' => 'required|array|min:1|max:20',
             'approver_ids.*' => 'integer|distinct|exists:users,id',
         ], [
@@ -144,13 +146,13 @@ class GaWorkOrderProxyController extends Controller
         }
 
         $response = $this->forward($request, 'POST', '/api/internal/hris/work-orders', [
+            'division' => $data['division'],
             'job_type' => $data['job_type'],
             'area_name' => $data['area_name'],
             'project_description' => $data['project_description'],
             'target_date' => $data['target_date'] ?? null,
             'notes' => $data['notes'] ?? null,
             'photos' => array_values($data['photos']),
-            'document' => $data['document'] ?? null,
             'approvers' => $approvers,
         ]);
 
@@ -160,6 +162,7 @@ class GaWorkOrderProxyController extends Controller
                 $approvers,
                 [
                     'id' => $payload['id'] ?? '-',
+                    'division' => $data['division'],
                     'area_name' => $data['area_name'],
                     'job_type' => $data['job_type'],
                     'project_description' => $data['project_description'],
@@ -177,7 +180,9 @@ class GaWorkOrderProxyController extends Controller
     {
         $this->assertCanAccess($request);
 
-        return $this->forward($request, 'DELETE', "/api/internal/hris/work-orders/{$id}");
+        return $this->forward($request, 'DELETE', "/api/internal/hris/work-orders/{$id}", [
+            'division' => (string) $request->query('division', 'MEP'),
+        ]);
     }
 
     public function review(Request $request, int $id): JsonResponse
@@ -193,6 +198,8 @@ class GaWorkOrderProxyController extends Controller
             'photos.min' => 'Lampiran foto revisi minimal 1 wajib diunggah.',
             'photos.max' => 'Lampiran foto revisi maksimal 3 foto.',
         ]);
+
+        $data['division'] = (string) $request->query('division', 'MEP');
 
         return $this->forward($request, 'POST', "/api/internal/hris/work-orders/{$id}/review", $data);
     }
@@ -246,20 +253,62 @@ class GaWorkOrderProxyController extends Controller
         return response()->json(['message' => 'Notifikasi persetujuan RAB dikirim.']);
     }
 
+    public function resendApproval(Request $request): JsonResponse
+    {
+        $expected = (string) config('services.ga_ems.secret', '');
+        $provided = (string) $request->header('X-GA-Service-Secret', '');
+        abort_unless($expected !== '' && hash_equals($expected, $provided), 403, 'Kredensial layanan internal tidak sah.');
+
+        $data = $request->validate([
+            'work_order_id' => 'required|integer|min:1',
+            'work_order_no' => 'nullable',
+            'stage' => 'required|string|max:30',
+            'area_name' => 'required|string|max:255',
+            'job_type' => 'nullable|string|max:100',
+            'project_description' => 'nullable|string|max:5000',
+            'target_date' => 'nullable|string|max:40',
+            'requester_name' => 'nullable|string|max:255',
+            'requester_nik' => 'nullable|string|max:100',
+            'rab_total' => 'nullable|numeric|min:0',
+            'item_count' => 'nullable|integer|min:0',
+            'rab_notes' => 'nullable|string|max:5000',
+            'vendor_name' => 'nullable|string|max:255',
+            'sph_amount' => 'nullable|numeric|min:0',
+            'approver_nik' => 'required|string|max:100',
+            'approver_name' => 'required|string|max:255',
+            'token' => 'required|string|min:10|max:64',
+        ]);
+
+        $result = app(GaWorkOrderWhatsAppNotifier::class)->resendApprovalToApprover($data);
+
+        if (! ($result['ok'] ?? false)) {
+            return response()->json([
+                'message' => $result['message'] ?? 'Gagal mengirim ulang notifikasi approval.',
+            ], 422);
+        }
+
+        return response()->json([
+            'message' => $result['message'] ?? 'Notifikasi approval berhasil dikirim ulang.',
+        ]);
+    }
+
     public function approve(Request $request, int $id): JsonResponse
     {
         $this->assertCanAccess($request);
 
         $data = $request->validate([
-            'stage' => 'required|in:initial,rab',
+            'stage' => ['required', 'string', 'regex:/^(initial|rab|rab_[1-5]|sph_[1-5])$/'],
             'decision' => 'required|in:approve,reject',
             'comment' => 'nullable|string|max:2000',
         ]);
+        $data['division'] = (string) $request->query('division', 'MEP');
 
         $response = $this->forward($request, 'POST', "/api/internal/hris/work-orders/{$id}/approve", $data);
 
         if ($response->getStatusCode() === 200) {
-            $detailResp = $this->forward($request, 'GET', "/api/internal/hris/work-orders/{$id}");
+            $detailResp = $this->forward($request, 'GET', "/api/internal/hris/work-orders/{$id}", [
+                'division' => $data['division'],
+            ]);
             if ($detailResp->getStatusCode() === 200) {
                 $detailData = $detailResp->getData(true);
                 $approveData = $response->getData(true);
@@ -280,7 +329,7 @@ class GaWorkOrderProxyController extends Controller
     public function attachment(Request $request, int $id, string $type): SymfonyResponse
     {
         $this->assertCanAccess($request);
-        abort_unless(in_array($type, ['photo', 'document', 'spl', 'completion', 'revision'], true), 404, 'Tipe lampiran tidak valid.');
+        abort_unless(in_array($type, ['photo', 'document', 'spl', 'completion', 'revision', 'sph'], true), 404, 'Tipe lampiran tidak valid.');
 
         $baseUrl = rtrim((string) config('services.ga_ems.url', ''), '/');
         $secret = (string) config('services.ga_ems.secret', '');
@@ -302,7 +351,10 @@ class GaWorkOrderProxyController extends Controller
                 'X-HRIS-User-Nik' => $nik,
                 'X-HRIS-User-Name' => trim((string) $user->name),
                 'X-HRIS-User-Email' => strtolower(trim((string) ($user->email ?? ''))),
-            ])->get("{$baseUrl}/api/internal/hris/work-orders/{$id}/attachments/{$type}", ['index' => $index]);
+            ])->get("{$baseUrl}/api/internal/hris/work-orders/{$id}/attachments/{$type}", [
+            'index' => $index,
+            'division' => (string) $request->query('division', 'MEP'),
+        ]);
         } catch (\Throwable) {
             return response()->json(['message' => 'Gagal mengambil lampiran dari layanan GA.'], 503);
         }

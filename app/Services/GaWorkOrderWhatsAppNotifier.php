@@ -30,7 +30,7 @@ class GaWorkOrderWhatsAppNotifier
                 $tokenByNik[$itemNik] = $itemToken;
             }
         }
-        $frontendUrl = rtrim((string) config('app.frontend_url', ''), '/');
+        $frontendUrl = rtrim((string) config('services.public_approval.base_url', config('app.url')), '/');
 
         $niks = array_values(array_unique(array_filter(array_map(
             static fn (array $a): string => strtoupper(trim((string) ($a['nik'] ?? ''))),
@@ -271,7 +271,7 @@ class GaWorkOrderWhatsAppNotifier
             ->get(['nik', 'nama_karyawan', 'no_hp'])
             ->keyBy(fn ($row) => strtoupper(trim((string) $row->nik)));
 
-        $frontendUrl = rtrim((string) config('app.frontend_url', ''), '/');
+        $frontendUrl = rtrim((string) config('services.public_approval.base_url', config('app.url')), '/');
         $woNo = $payload['work_order_no'] ?? $payload['work_order_id'] ?? '-';
         $area = trim((string) ($payload['area_name'] ?? '-'));
         $submittedBy = trim((string) ($payload['submitted_by'] ?? 'Admin GA'));
@@ -326,6 +326,111 @@ class GaWorkOrderWhatsAppNotifier
                     'error' => $e->getMessage(),
                 ]);
             }
+        }
+    }
+
+    /**
+     * Resend a WhatsApp approval reminder with public approval link to a single pending approver.
+     *
+     * @return array{ok: bool, message: string}
+     */
+    public function resendApprovalToApprover(array $payload): array
+    {
+        $nik = strtoupper(trim((string) ($payload['approver_nik'] ?? '')));
+        if ($nik === '') {
+            return ['ok' => false, 'message' => 'NIK approver tidak tersedia sehingga notifikasi WhatsApp tidak dapat dikirim.'];
+        }
+
+        $row = DB::table('m_karyawan')
+            ->whereRaw('UPPER(TRIM(nik)) = ?', [$nik])
+            ->first(['nama_karyawan', 'no_hp']);
+
+        $phone = trim((string) ($row->no_hp ?? ''));
+        if ($phone === '') {
+            return ['ok' => false, 'message' => 'Nomor WhatsApp approver belum tersedia di data karyawan HRIS.'];
+        }
+
+        $approverName = trim((string) ($row->nama_karyawan ?? $payload['approver_name'] ?? 'Approver'));
+        $frontendUrl = rtrim((string) config('services.public_approval.base_url', config('app.url')), '/');
+        $token = trim((string) ($payload['token'] ?? ''));
+        $woNo = $payload['work_order_no'] ?? $payload['work_order_id'] ?? '-';
+        $area = trim((string) ($payload['area_name'] ?? '-')) ?: '-';
+        $jobType = trim((string) ($payload['job_type'] ?? 'WORK ORDER')) ?: 'WORK ORDER';
+        $desc = trim((string) ($payload['project_description'] ?? '-')) ?: '-';
+        $target = ! empty($payload['target_date']) ? (string) $payload['target_date'] : '-';
+        $requesterName = trim((string) ($payload['requester_name'] ?? '-')) ?: '-';
+        $requesterNik = strtoupper(trim((string) ($payload['requester_nik'] ?? '')));
+        $requesterLabel = $requesterNik !== '' ? "{$requesterName} ({$requesterNik})" : $requesterName;
+        $stage = strtolower(trim((string) ($payload['stage'] ?? 'initial')));
+
+        $publicLinkLine = ($frontendUrl !== '' && $token !== '')
+            ? "🔗 *Link Approval Cepat (Tanpa Login):*\n{$frontendUrl}/wo/{$token}\n\n"
+            : '';
+
+        if (str_starts_with($stage, 'rab')) {
+            $rabTotal = 'Rp '.number_format((float) ($payload['rab_total'] ?? 0), 0, ',', '.');
+            $itemCount = (int) ($payload['item_count'] ?? 0);
+            $rabNotes = trim((string) ($payload['rab_notes'] ?? ''));
+            $message = "🔔 *PENGINGAT PERSETUJUAN RAB WORK ORDER*\n"
+                ."━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                ."Halo *{$approverName}*,\n"
+                ."Mohon bantuannya untuk meninjau dan menyetujui pengajuan RAB Work Order berikut:\n\n"
+                ."🆔 *No. WO* : #{$woNo}\n"
+                ."📍 *Area / Unit* : {$area}\n"
+                ."🧾 *Jumlah Item* : {$itemCount} item\n"
+                ."💵 *Total RAB* : *{$rabTotal}*\n";
+            if ($rabNotes !== '') {
+                $message .= "📝 *Catatan RAB* : {$rabNotes}\n";
+            }
+            $message .= "\n{$publicLinkLine}"
+                ."Silakan berikan persetujuan melalui tautan di atas atau *HRIS → Menu Atasan → Approval Work Order*.\n"
+                ."━━━━━━━━━━━━━━━━━━━━━━━\n"
+                .'_Pesan otomatis sistem HRIS & GA HomPim Play._';
+        } elseif (str_starts_with($stage, 'sph')) {
+            $sphAmount = 'Rp '.number_format((float) ($payload['sph_amount'] ?? 0), 0, ',', '.');
+            $vendorName = trim((string) ($payload['vendor_name'] ?? '')) ?: '-';
+            $message = "🔔 *PENGINGAT PERSETUJUAN SPH VENDOR*\n"
+                ."━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                ."Halo *{$approverName}*,\n"
+                ."Mohon bantuannya untuk meninjau dan menyetujui penawaran vendor (SPH) Work Order berikut:\n\n"
+                ."🆔 *No. WO* : #{$woNo}\n"
+                ."📍 *Area / Unit* : {$area}\n"
+                ."🏢 *Vendor* : {$vendorName}\n"
+                ."💵 *Nominal SPH* : *{$sphAmount}*\n\n"
+                .$publicLinkLine
+                ."Silakan berikan persetujuan melalui tautan di atas atau *HRIS → Menu Atasan → Approval Work Order*.\n"
+                ."━━━━━━━━━━━━━━━━━━━━━━━\n"
+                .'_Pesan otomatis sistem HRIS & GA HomPim Play._';
+        } else {
+            $message = "🔔 *PENGINGAT PERSETUJUAN WORK ORDER*\n"
+                ."━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                ."Halo *{$approverName}*,\n"
+                ."Mohon bantuannya untuk meninjau dan menyetujui pengajuan Work Order berikut:\n\n"
+                ."🆔 *No. WO* : #{$woNo}\n"
+                ."👤 *Pemohon* : {$requesterLabel}\n"
+                ."📍 *Area / Unit* : {$area}\n"
+                ."🛠️ *Jenis* : {$jobType}\n"
+                ."📝 *Deskripsi* : {$desc}\n"
+                ."📅 *Target* : {$target}\n\n"
+                .$publicLinkLine
+                ."Silakan tinjau lampiran foto/dokumen dan berikan persetujuan melalui tautan di atas atau *HRIS → Menu Atasan → Approval Work Order*.\n"
+                ."━━━━━━━━━━━━━━━━━━━━━━━\n"
+                .'_Pesan otomatis sistem HRIS & GA HomPim Play._';
+        }
+
+        try {
+            $this->whatsAppService->sendMessage($phone, $message);
+
+            return ['ok' => true, 'message' => "Notifikasi approval berhasil dikirim ulang ke {$approverName}."];
+        } catch (\Throwable $e) {
+            Log::warning('WO WA resend approval notification failed', [
+                'wo_no' => $woNo,
+                'approver_nik' => $nik,
+                'stage' => $stage,
+                'error' => $e->getMessage(),
+            ]);
+
+            return ['ok' => false, 'message' => 'Gagal mengirim pesan WhatsApp ke approver. Silakan coba lagi.'];
         }
     }
 }
