@@ -11,6 +11,7 @@ use App\Models\PayrollItem;
 use App\Models\PublicHoliday;
 use App\Services\PublicHolidayBalanceService;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -87,7 +88,7 @@ class PayrollCalculationService
             }
 
             return [
-                ...$attendance,
+                ...Arr::except($attendance, ['days']),
                 'is_attendance_ready' => $attendance['can_submit'],
                 'can_generate' => $errors === [],
                 'calculation_errors' => $errors,

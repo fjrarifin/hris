@@ -151,6 +151,7 @@ class PayrollAttendanceReadinessService
             'nik' => $record['nik'],
             'name' => $record['name'],
             'department' => $record['department'],
+            'days' => $record['days'],
             ...$summary,
             'blocker_count' => $issues->count(),
             'can_submit' => $issues->isEmpty(),
