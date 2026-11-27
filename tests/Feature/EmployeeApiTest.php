@@ -23,6 +23,8 @@ class EmployeeApiTest extends TestCase
         Storage::fake('public');
         Storage::fake('local');
 
+        Schema::dropIfExists('hrd_audit_logs');
+        Schema::dropIfExists('employee_change_logs');
         Schema::dropIfExists('t_kontrak_karyawan');
         Schema::dropIfExists('m_karyawan');
         Schema::dropIfExists('frontend_menu_user_access');
@@ -37,6 +39,7 @@ class EmployeeApiTest extends TestCase
             $table->string('password');
             $table->string('photo')->nullable();
             $table->unsignedTinyInteger('level')->default(2);
+            $table->boolean('is_active')->default(true);
             $table->timestamps();
         });
 
@@ -77,6 +80,7 @@ class EmployeeApiTest extends TestCase
             $table->string('atasan_tidak_langsung_nik', 30)->nullable();
             $table->string('status_karyawan')->nullable();
             $table->date('join_date')->nullable();
+            $table->date('end_date')->nullable();
             $table->string('no_hp')->nullable();
             $table->timestamp('phone_updated_at')->nullable();
             $table->string('email')->nullable();
@@ -124,6 +128,34 @@ class EmployeeApiTest extends TestCase
             $table->text('keterangan')->nullable();
             $table->string('document')->nullable();
             $table->text('catatan')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('employee_change_logs', function (Blueprint $table) {
+            $table->id();
+            $table->string('employee_nik', 30);
+            $table->foreignId('changed_by_user_id')->nullable();
+            $table->string('changed_by_name')->nullable();
+            $table->string('source', 30)->default('hrd');
+            $table->json('changes');
+            $table->timestamps();
+        });
+
+        Schema::create('hrd_audit_logs', function (Blueprint $table) {
+            $table->id();
+            $table->string('module', 100);
+            $table->string('action', 30);
+            $table->string('subject_type', 150)->nullable();
+            $table->string('subject_id', 100)->nullable();
+            $table->string('subject_label')->nullable();
+            $table->foreignId('actor_user_id')->nullable();
+            $table->string('actor_name')->nullable();
+            $table->string('actor_username')->nullable();
+            $table->json('changes')->nullable();
+            $table->json('before_snapshot')->nullable();
+            $table->json('after_snapshot')->nullable();
+            $table->json('metadata')->nullable();
+            $table->timestamp('occurred_at');
             $table->timestamps();
         });
 
@@ -530,5 +562,66 @@ class EmployeeApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('menus.0.allowed_levels.0', 0)
             ->assertJsonPath('menus.0.allowed_levels.1', 2);
+    }
+
+    public function test_it_updates_and_clears_employee_resign_date_without_affecting_contract_end_date(): void
+    {
+        Karyawan::create([
+            'nik' => 'EMP010',
+            'nama_karyawan' => 'Nadia Resign',
+            'jabatan' => 'Staff',
+            'join_date' => '2026-01-10',
+        ]);
+        DB::table('t_kontrak_karyawan')->insert([
+            'nik' => 'EMP010',
+            'kontrak_ke' => 1,
+            'jenis_kontrak' => 'PKWT',
+            'start_date' => '2026-01-10',
+            'end_date' => '2026-12-31',
+            'status_kontrak' => 'AKTIF',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        // Reject resign_date earlier than join_date
+        $this->patchJson('/api/employee/EMP010', [
+            'resign_date' => '2026-01-05',
+        ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['resign_date']);
+
+        // Save valid resign_date -> stored in m_karyawan.end_date, contract end_date stays intact
+        $this->patchJson('/api/employee/EMP010', [
+            'resign_date' => '2026-06-10',
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.resign_date', '2026-06-10')
+            ->assertJsonPath('data.end_date', '2026-12-31')
+            ->assertJsonPath('data.change_logs.0.changes.0.label', 'Tanggal Resign / Akhir Kerja')
+            ->assertJsonPath('data.change_logs.0.changes.0.new', '2026-06-10');
+
+        $this->assertSame(
+            '2026-06-10',
+            Karyawan::query()->where('nik', 'EMP010')->first()?->end_date?->toDateString()
+        );
+        $this->getJson('/api/employees')
+            ->assertOk()
+            ->assertJsonPath('data.0.nik', 'EMP010')
+            ->assertJsonPath('data.0.resign_date', '2026-06-10');
+        $this->assertDatabaseHas('t_kontrak_karyawan', [
+            'nik' => 'EMP010',
+            'end_date' => '2026-12-31',
+        ]);
+
+        // Clear resign_date back to null
+        $this->patchJson('/api/employee/EMP010', [
+            'resign_date' => null,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.resign_date', null);
+
+        $this->assertNull(
+            Karyawan::query()->where('nik', 'EMP010')->first()?->end_date
+        );
     }
 }

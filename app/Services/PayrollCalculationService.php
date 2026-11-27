@@ -146,7 +146,6 @@ class PayrollCalculationService
                         'karyawan_nik' => $record['nik'],
                         'periode_start' => $preview['filters']['start_date'],
                         'periode_end' => $preview['filters']['end_date'],
-                        'source' => 'payroll',
                     ],
                     [
                         'hari_kerja' => $record['periode_hari_kerja'],

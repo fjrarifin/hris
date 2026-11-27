@@ -36,6 +36,7 @@ class EmployeeController extends Controller
                 'position' => $employee->jabatan ?: $employee->posisi,
                 'department' => $employee->departement ?: $employee->divisi,
                 'join_date' => $employee->join_date?->toDateString(),
+                'resign_date' => $employee->end_date?->toDateString(),
                 'last_contract_end_date' => DB::table('t_kontrak_karyawan')
                     ->where('nik', $employee->nik)
                     ->orderByDesc('start_date')
@@ -308,6 +309,20 @@ class EmployeeController extends Controller
             'atasan_langsung_nik' => ['nullable', 'string', 'max:30', 'exists:m_karyawan,nik'],
             'atasan_tidak_langsung_nik' => ['nullable', 'string', 'max:30', 'exists:m_karyawan,nik'],
             'join_date' => ['nullable', 'date'],
+            'resign_date' => [
+                'nullable',
+                'date',
+                function (string $attribute, mixed $value, \Closure $fail) use ($request, $employee): void {
+                    if (! $value) {
+                        return;
+                    }
+
+                    $joinDate = $request->input('join_date') ?: $employee?->join_date?->toDateString();
+                    if ($joinDate && Carbon::parse($value)->lt(Carbon::parse($joinDate))) {
+                        $fail('Tanggal resign tidak boleh lebih awal dari tanggal bergabung.');
+                    }
+                },
+            ],
             'jenis_kontrak' => ['nullable', Rule::in(['PKWT', 'PKWTT']), 'required_with:start_date,end_date,status_kontrak'],
             'status_kontrak' => ['nullable', Rule::in(['AKTIF', 'NONAKTIF']), 'required_with:start_date,end_date,jenis_kontrak'],
             'start_date' => ['nullable', 'date', 'required_with:end_date,status_kontrak,jenis_kontrak'],
@@ -392,15 +407,22 @@ class EmployeeController extends Controller
 
     private function profilePayload(array $payload): array
     {
-        return Arr::except($payload, [
+        $profile = Arr::except($payload, [
             'jenis_kontrak',
             'status_kontrak',
             'start_date',
             'end_date',
+            'resign_date',
             'keterangan_kontrak',
             'document',
             'status_karyawan',
         ]);
+
+        if (array_key_exists('resign_date', $payload)) {
+            $profile['end_date'] = $payload['resign_date'] ?: null;
+        }
+
+        return $profile;
     }
 
     private function employeeData(Karyawan $employee): array
@@ -425,6 +447,7 @@ class EmployeeController extends Controller
             'status_karyawan' => $activeContract ? 'AKTIF' : 'NONAKTIF',
             'photo_url' => $photoUrl,
             'join_date' => $employee->join_date?->toDateString(),
+            'resign_date' => $employee->end_date?->toDateString(),
             'tanggal_lahir' => $employee->tanggal_lahir?->toDateString(),
             'jenis_kontrak' => $formContract?->jenis_kontrak,
             'status_kontrak' => $formContract?->status_kontrak,
@@ -559,6 +582,7 @@ class EmployeeController extends Controller
             'atasan_langsung_nik' => 'Atasan Langsung',
             'atasan_tidak_langsung_nik' => 'Atasan Tidak Langsung',
             'join_date' => 'Tanggal Bergabung',
+            'end_date' => 'Tanggal Resign / Akhir Kerja',
             'no_hp' => 'Nomor HP',
             'email' => 'Email',
             'tanggal_lahir' => 'Tanggal Lahir',
