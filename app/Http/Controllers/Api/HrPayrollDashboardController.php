@@ -77,9 +77,11 @@ class HrPayrollDashboardController extends Controller
             }
         };
 
-        // 1. Ambil Data Payroll Periode Terpilih (25 s/d 24)
+        // 1. Ambil Data Payroll Periode Terpilih (25 s/d 24) - hanya yang sudah approved / sent
+        $approvedStatuses = ['approved', 'sent'];
         $payrollQuery = Payroll::query()
             ->with(['karyawan', 'items'])
+            ->whereIn('approval_status', $approvedStatuses)
             ->whereHas('karyawan', function ($q) use ($applyBusinessUnitFilter) {
                 $applyBusinessUnitFilter($q, 'bisnis_unit');
             })
@@ -185,6 +187,7 @@ class HrPayrollDashboardController extends Controller
 
             $mPayrolls = Payroll::query()
                 ->with('karyawan')
+                ->whereIn('approval_status', $approvedStatuses)
                 ->whereHas('karyawan', function ($q) use ($applyBusinessUnitFilter) {
                     $applyBusinessUnitFilter($q, 'bisnis_unit');
                 })
