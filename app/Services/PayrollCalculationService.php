@@ -73,7 +73,7 @@ class PayrollCalculationService
             $profile = $employee?->payrollProfile;
             $errors = [];
 
-            if ($proration['eligible_workdays'] === 0) {
+            if ($proration['eligible_workdays'] === 0 || $attendance['payable_attendance_days'] === 0) {
                 $errors[] = 'Tidak ada hari kerja aktif yang memenuhi syarat payroll pada periode ini.';
             }
 
@@ -300,6 +300,7 @@ class PayrollCalculationService
             'paid_hari_masuk' => $paidHariMasuk,
             'payable_attendance_days' => $payableAttendanceDays,
             'payroll_proration' => [
+                'is_prorated' => (bool) ($proration['is_prorated'] ?? ($prorationRatio < 1)),
                 'effective_start' => $proration['effective_start'] ?? null,
                 'effective_end' => $proration['effective_end'] ?? null,
                 'eligible_workdays' => $eligibleWorkdays,
@@ -337,10 +338,30 @@ class PayrollCalculationService
             : $end;
 
         if ($effectiveStart->greaterThan($effectiveEnd)) {
-            return ['effective_start' => null, 'effective_end' => null, 'eligible_workdays' => 0, 'period_workdays' => 0];
+            return [
+                'is_prorated' => false,
+                'effective_start' => null,
+                'effective_end' => null,
+                'eligible_workdays' => 0,
+                'period_workdays' => 0,
+            ];
         }
 
         $periodWorkdays = $this->periodService->workdaySummary($startDate, $endDate)['workdays'];
+        $isProrated = $effectiveStart->greaterThan($start) || $effectiveEnd->lessThan($end);
+
+        // Karyawan reguler (bukan karyawan baru masuk di tengah periode & bukan resign di tengah periode):
+        // Gaji Pokok & Tunjangan Jabatan selalu FULL (100%); prorata hanya berlaku untuk Tunjangan Tidak Tetap.
+        if (! $isProrated) {
+            return [
+                'is_prorated' => false,
+                'effective_start' => $effectiveStart->toDateString(),
+                'effective_end' => $effectiveEnd->toDateString(),
+                'eligible_workdays' => $periodWorkdays,
+                'period_workdays' => $periodWorkdays,
+            ];
+        }
+
         $holidays = PublicHoliday::query()
             ->where('is_active', true)
             ->whereBetween('holiday_date', [$effectiveStart->toDateString(), $effectiveEnd->toDateString()])
@@ -358,6 +379,7 @@ class PayrollCalculationService
         })->count();
 
         return [
+            'is_prorated' => true,
             'effective_start' => $effectiveStart->toDateString(),
             'effective_end' => $effectiveEnd->toDateString(),
             'eligible_workdays' => $eligible,
